@@ -65,14 +65,19 @@
   // Omega for a spring that stays within tol (2%) of its move after settleSec.
   // The response scales with omega*tau, so the unit-omega settle time is found
   // once per (zeta, tol) by scanning, then divided by the requested duration.
+  // Only supports zeta <= 10 (useful range for UI motion).
   const unitSettle = {};
   function fromSettle(settleSec, zeta, tol) {
     check("settleSec", settleSec); check("zeta", zeta);
+    if (zeta > 10) throw new RangeError("zeta must be <= 10, got " + zeta);
     tol = tol || 0.02;
     const key = zeta + ":" + tol;
     if (unitSettle[key] == null) {
       let last = 0;
       for (let u = 0; u <= 200; u += 0.0005) if (Math.abs(response(u, 1, 0, 1, zeta).e) > tol) last = u;
+      if (Math.abs(response(200, 1, 0, 1, zeta).e) > tol) {
+        throw new RangeError("settle scan hit limit (zeta " + zeta + ", tol " + tol + "); increase scan range");
+      }
       unitSettle[key] = last;
     }
     return unitSettle[key] / settleSec;

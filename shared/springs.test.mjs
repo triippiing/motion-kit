@@ -56,6 +56,19 @@ test('fromSettle hits the requested 2% settle time', () => {
   }
 });
 
+test('fromSettle rejects zeta above 10', () => {
+  assert.throws(() => fromSettle(0.3, 11), RangeError);
+});
+
+test('fromSettle works at zeta 10 boundary', () => {
+  const settle = 0.3, omega = fromSettle(settle, 10);
+  let last = 0;
+  for (let t = 0; t <= 3; t += 1e-4) {
+    if (Math.abs(spring(t, { from: 1, to: 0, omega, zeta: 10 }).value) > 0.02) last = t;
+  }
+  assert.ok(last > settle - 0.01 && last <= settle + 1e-3, `last excursion at ${last}`);
+});
+
 test('invalid parameters throw RangeError', () => {
   assert.throws(() => spring(0, { from: 0, to: 1, omega: 0, zeta: 1 }), RangeError);
   assert.throws(() => spring(0, { from: 0, to: 1, omega: 10, zeta: -1 }), RangeError);
