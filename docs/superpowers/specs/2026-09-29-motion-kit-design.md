@@ -34,7 +34,8 @@ skill into `~/.claude/skills/` so they are callable everywhere.
 ```
 ~/motion-kit/
   install.sh                   symlink skills; run doctor
-  shared/springs.js            the one spring implementation (ES module, no deps)
+  shared/springs.js            the one spring implementation (classic script -> globalThis.Springs
+                               and module.exports; loads via <script src>, Node import, and JSC)
   shared/springs.test.mjs      node --test
   skills/
     motion-design/             art direction + planning (no code runs here)
@@ -44,7 +45,8 @@ skill into `~/.claude/skills/` so they are callable everywhere.
     motion-video/              render pipeline
       SKILL.md
       assets/springs.js -> ../../../shared/springs.js
-      template/index.html        seek(t) scaffold: stage, camera, cursor, sound cues
+      template/index.html        seek(t) scaffold: stage, camera, cursor, sound cues (window.SFX)
+      scripts/new_project.sh     copy template + springs.js, synth a click SFX, run analyze_song
       scripts/doctor.sh          checks brew, ffmpeg (with tmix), node, Playwright chromium, numpy
       scripts/analyze_song.py    song -> song.json (see below)
       scripts/render.mjs         Playwright frames -> ffmpeg (tmix blur, audio mux)
@@ -70,7 +72,8 @@ Pure functions, identical in video and live UI.
   per change (each spring animates the *delta*). Stays a pure function of `t`,
   so `seek(t)` never carries state between frames.
 - `live(opts)`: rAF driver for UI; retargeting starts a new spring from the current
-  value **and velocity**, so interrupting mid-motion is continuous.
+  value **and velocity**, so interrupting mid-motion is continuous. `fling(value,
+  velocity, to)` hands over from a drag with the release velocity.
 - `fromSettle(settleSec, zeta)` → `omega` (2% settle ≈ 4/(ζω)), so callers think in
   durations, not stiffness. This is how finance-app tokens (e.g. 240ms) map to springs.
 - Tests: settles to target; overshoot ≤ bound for given ζ; `track` is continuous in
@@ -95,13 +98,18 @@ Writes `song.json`:
   "beats": [{ "i": 0, "t": 0, "frame": 0, "bar": 0, "accent": 0 }],
   "sections": [], "peaks": [],
   "rules": { "max_states": 0, "min_hold_beats": 0,
-             "spring": { "zeta": 0.85, "settle_sec": 0, "omega": 0 },
+             "spring": { "zeta": 0.85, "settle_sec": 0 },
              "warnings": [] } }
 ```
 Derived rules: loop length snapped to whole bars; one event per beat → state budget;
 spring settle = 0.6 × beat so slower songs feel looser; sound cues only on measured
 peaks; a warning (not a block) outside ~100–130 BPM suggesting half/double-time
 eventing. Also writes `clip.wav` — the loop window with 10ms edge fades — for muxing.
+
+`loop.frame_dt = duration_sec / frames` (frames rounded), so the loop is exactly N bars
+and the effective frame rate is off 60 by under 0.1%. Beats carry `cue_t`, the nearest
+measured onset peak within a quarter beat, which is where UI sounds are placed. Omega is
+derived in JS via `fromSettle(settle_sec, zeta)` rather than stored.
 
 The HTML fetches `song.json`; swapping the song and re-running analysis retimes the
 piece with no code edits.
@@ -115,7 +123,10 @@ piece with no code edits.
   get their own enter/exit timing; last frame == first frame).
 - `render.mjs`: Chromium via Playwright; N parallel pages; for each output frame,
   4 subframes at t + k/(4·fps); PNGs piped to ffmpeg `tmix=frames=4` then keep
-  every 4th → 60fps H.264 yuv420p, CRF 16, `clip.wav` muxed as AAC. `--preview`
+  every 4th → 60fps H.264 yuv420p, CRF 16, `clip.wav` muxed as AAC. Subframes are
+centred on the frame time and wrap modulo the loop. `window.SFX` ([{beat, file, gain}])
+is mixed in at each beat's `cue_t`; the click SFX is synthesised by ffmpeg, so no
+licensing question. `--preview`
   = half-res, 1 subframe, for fast iteration.
 - `beat_stills.mjs`: renders a frame at each beat + a tiled contact sheet so Claude
   (and Jack) can review spacing/legibility before the full render; seam check
