@@ -175,5 +175,10 @@ Output per demo: `out/<name>.mp4`, `out/contact-sheet.png`, `song.json`.
 ## Open decisions for review
 
 - Repo at `~/motion-kit` with symlinked skills (vs. files directly in `~/.claude/skills`).
-- Tints' tempo is unknown until ffmpeg is installed; if it lands far outside
-  100–130, demos 1–2 event on half- or double-time per analyze_song's suggestion.
+- Tints measured ~109 BPM (rough autocorrelation probe, 2026-09-29; analyze_song
+  refines it). Inside 100–130, so demos 1–2 event on every beat; 7 bars ≈ 15.4s.
+
+## Tooling status (2026-09-29)
+
+Homebrew 7.0.7, ffmpeg 9.0.2 (tmix present), Node 24.19, numpy 2.5.2, Playwright
+Chromium 1243 — all verified.
