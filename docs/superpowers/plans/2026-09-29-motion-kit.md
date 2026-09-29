@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Three callable Claude Code skills (motion-design, motion-video, motion-ui) plus a shared spring library that turn "code-only motion design" into a repeatable pipeline, proven by three demo videos.
+**Goal:** Three callable Claude Code skills (motion-design, motion-video, motion-ui) plus a shared spring library that turn "code-only motion design" into a repeatable pipeline for any project's look and any output size, proven by three demo videos and documented on the wiki's Claude section.
 
 **Architecture:** `~/motion-kit` is a git repo; `install.sh` symlinks `skills/*` into `~/.claude/skills`. One dependency-free `shared/springs.js` (closed-form springs) is used by the video template (pure `seek(t)`), by live product UI, and by the finance app. `analyze_song.py` turns a song into `song.json` (beat grid + derived rules); `render.mjs` drives Chromium via Playwright and pipes frames to ffmpeg for tmix motion blur and audio mux.
 
@@ -19,7 +19,9 @@
 - Every script puts `/opt/homebrew/bin:/usr/local/bin` on PATH itself (Claude's shell does not source `~/.zprofile`).
 - `seek(t)` is a pure function of `t`: no CSS transitions, no timers, no state carried between frames, no `will-change` under the camera.
 - Last frame == first frame (loop seam), checked by `beat_stills.mjs`.
-- Output video: 60fps, H.264 yuv420p, CRF 16, AAC 256k, default stage 1440×1440.
+- Output video: 60fps, H.264 yuv420p, CRF 16, AAC 256k. Stage from `project.json`: square 1440×1440 (default), vertical 1080×1920, landscape 1920×1080, or WxH (even numbers).
+- Project-agnostic: the template takes its look from `theme.css`/`theme.json` (extracted from any project's CSS, or the house theme) and its size from `project.json`; STATES name theme tokens, not hex.
+- Wiki (Task 12): `~/Documents/AUTOMATION/Wiki` rules apply: no em or en dashes in any copy, never hand-edit `index.html`/`nav-data.js`, never push without Jack's explicit go-ahead. Finance promo shows made-up figures only.
 - Spring rule from song: `zeta = 0.85`, `settle_sec = 0.6 × beat_sec`; comfort band 100–130 BPM (warning outside, never a block).
 - motion-ui: a project's existing motion spec/tokens always win; ζ ≥ 1 where the spec bans overshoot.
 - Finance app work happens on branch `motion-demo` in `~/Documents/AUTOMATION/personal-finance`, never merged by us; test with `.venv/bin/python -m pytest`.
@@ -51,7 +53,8 @@
     scripts/analyze_song.py                                                       (Task 3)
     tests/test_analyze_song.py                                                    (Task 3)
     template/index.html                                                           (Task 4)
-    scripts/new_project.sh                                                        (Task 4)
+    scripts/new_project.sh                                                        (Task 4, 4b)
+    scripts/extract_theme.py, tests/test_extract_theme.py                         (Task 4b)
     scripts/render.mjs                                                            (Task 4)
     tests/render.test.mjs, tests/fixtures.mjs                                     (Task 4)
     scripts/beat_stills.mjs                                                       (Task 5)
@@ -61,6 +64,7 @@
   skills/motion-ui/SKILL.md, references/patterns.md, assets/springs.js (link)     (Task 7)
   demos/01-reference/ 02-finance-promo/ 03-finance-inapp/                          (Tasks 8–10)
 ~/Documents/AUTOMATION/personal-finance (branch motion-demo)                       (Task 10)
+~/Documents/AUTOMATION/Wiki: claude/motion-kit.html, assets/media/motion-kit/       (Task 12)
   web/springs.js (vendored), web/app.js, web/style.css, web/index.html, setup.py,
   tests/test_web_dock_pill_js.py, tests/test_web_app_js.py, tests/test_web_render_webkit.py
 ```
@@ -1176,12 +1180,15 @@ async function openPage(browser, url, viewport, errors) {
   const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
   page.on('pageerror', (e) => errors.push(e));
   await page.goto(url);
-  const ok = await page.evaluate(() => typeof window.seek === 'function' && !!window.ready && !!window.STAGE);
+  const ok = await page.evaluate(() => typeof window.seek === 'function' && !!window.ready);
   if (!ok) throw new Error('index.html must define window.seek(t), window.ready and window.STAGE -- see motion-video/template/index.html');
   await Promise.race([
     page.evaluate(() => window.ready),
     new Promise((_, reject) => setTimeout(() => reject(new Error('window.ready did not resolve within 30s (fonts or song.json?)')), 30000)),
   ]);
+  // STAGE may be set inside ready (the template reads project.json there).
+  const stage = await page.evaluate(() => window.STAGE);
+  if (!stage || !(stage.width > 0) || !(stage.height > 0)) throw new Error('index.html must define window.STAGE = {width, height} by the time window.ready resolves');
   return page;
 }
 
@@ -1526,6 +1533,328 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
+### Task 4b: Any project's look and any size — extract_theme.py, --size, --theme
+
+**Files:**
+- Create: `skills/motion-video/scripts/extract_theme.py`, `skills/motion-video/tests/test_extract_theme.py`
+- Modify: `skills/motion-video/scripts/new_project.sh`, `skills/motion-video/template/index.html`, `skills/motion-video/tests/render.test.mjs`
+
+**Interfaces:**
+- Consumes: render.mjs (Task 4; `openPage` awaits `ready` before reading `STAGE`).
+- Produces: `extract(css_text, overrides={}) -> (theme: dict, warnings: list[str])`, `HOUSE` dict, CLI `extract_theme.py [CSS] --out DIR [--map role=--var]...` writing `DIR/theme.css` and `DIR/theme.json`. Roles: `canvas, surface, ink, muted, accent` (colours, `#rrggbb`) and `font` (a font-family string). `new_project.sh DIR SONG [--size square|vertical|landscape|WxH] [--theme CSS] [--map role=--var] [analyze args]` also writes `DIR/project.json` = `{"stage": {"width": W, "height": H}}`.
+- Template contract change: STATES `fill`/`ink` hold a theme role name (`'ink'`, `'surface'`, `'accent'`, ...) or a literal `#rrggbb`.
+
+- [ ] **Step 1: Write the failing tests** — `skills/motion-video/tests/test_extract_theme.py`
+
+```python
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+import extract_theme as E  # noqa: E402
+
+FINANCE_LIKE = """
+/* palette */
+:root{
+  --bg:#eef0f3; --panel:#ffffff; --panel-2:#f6f7f9;
+  --ink:#161a21; --muted:#697082;
+  --accent:#0c7d74; --pos:#067647;
+}
+@media (prefers-color-scheme:dark){ :root{ --bg:#171a20; --ink:#eef0f4; } }
+body{margin:0;font-family:-apple-system, "SF Pro Text", sans-serif}
+"""
+
+
+class ExtractThemeTests(unittest.TestCase):
+    def test_reads_light_theme_roles_and_body_font(self):
+        theme, warnings = E.extract(FINANCE_LIKE)
+        self.assertEqual(theme["canvas"], "#eef0f3")
+        self.assertEqual(theme["surface"], "#ffffff")
+        self.assertEqual(theme["ink"], "#161a21")
+        self.assertEqual(theme["muted"], "#697082")
+        self.assertEqual(theme["accent"], "#0c7d74")
+        self.assertIn("-apple-system", theme["font"])
+        self.assertEqual(warnings, [])
+
+    def test_resolves_var_references(self):
+        theme, _ = E.extract(":root{--teal:#0C7D74;--primary:var(--teal);--background:#fff;--text:#111;}")
+        self.assertEqual(theme["accent"], "#0c7d74")
+        self.assertEqual(theme["canvas"], "#ffffff")
+        self.assertEqual(theme["ink"], "#111111")
+
+    def test_normalises_rgb(self):
+        theme, _ = E.extract(":root{--bg: rgb(10, 20, 30); --accent: rgba(255,0,0,.5);}")
+        self.assertEqual(theme["canvas"], "#0a141e")
+        self.assertEqual(theme["accent"], "#ff0000")
+
+    def test_missing_roles_fall_back_to_house_with_a_warning(self):
+        theme, warnings = E.extract(":root{--accent:#123456}")
+        self.assertEqual(theme["accent"], "#123456")
+        self.assertEqual(theme["canvas"], E.HOUSE["canvas"])
+        self.assertTrue(any("canvas" in w for w in warnings))
+
+    def test_map_override(self):
+        theme, _ = E.extract(FINANCE_LIKE, {"accent": "--pos"})
+        self.assertEqual(theme["accent"], "#067647")
+
+    def test_cli_house_theme_and_errors(self):
+        out = Path(tempfile.mkdtemp())
+        r = subprocess.run([sys.executable, str(SCRIPTS / "extract_theme.py"), "--out", str(out)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads((out / "theme.json").read_text()), E.HOUSE)
+        self.assertIn("--accent:", (out / "theme.css").read_text())
+        r = subprocess.run([sys.executable, str(SCRIPTS / "extract_theme.py"), str(out / "nope.css"), "--out", str(out)],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no such file", r.stderr)
+
+    def test_real_finance_css_if_present(self):
+        css = Path.home() / "Documents/AUTOMATION/personal-finance/web/style.css"
+        if not css.exists():
+            self.skipTest("finance app not on this machine")
+        theme, _ = E.extract(css.read_text())
+        self.assertEqual(theme["accent"], "#0c7d74")
+        self.assertEqual(theme["canvas"], "#eef0f3")
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+Add to `render.test.mjs`:
+
+```js
+test('new_project.sh --size vertical --theme makes a 1080x1920 themed project', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sz-'));
+  const song = path.join(root, 's.wav');
+  execFileSync('python3', ['-c', `
+import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
+from test_analyze_song import click_track
+click_track(${JSON.stringify(song)}, 120)`]);
+  const css = path.join(root, 'app style.css');
+  writeFileSync(css, ':root{--bg:#eef0f3;--panel:#fff;--ink:#161a21;--muted:#697082;--accent:#0c7d74}');
+  const proj = path.join(root, 'v');
+  execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--size', 'vertical', '--theme', css, '--bars', '2'], { stdio: 'pipe' });
+  assert.deepEqual(JSON.parse(readFileSync(path.join(proj, 'project.json'), 'utf8')).stage, { width: 1080, height: 1920 });
+  assert.match(readFileSync(path.join(proj, 'theme.css'), 'utf8'), /--accent:#0c7d74/);
+  const v = probe(await render(proj, { preview: true })).streams.find((s) => s.codec_type === 'video');
+  assert.equal(v.width, 540); assert.equal(v.height, 960);
+});
+
+test('new_project.sh rejects a bad size', () => {
+  const r = spawnSync(path.join(SKILL, 'scripts', 'new_project.sh'), [path.join(tmpdir(), 'x'), 'song.wav', '--size', '1081x1920'], { encoding: 'utf8' });
+  assert.equal(r.status, 2); assert.match(r.stderr, /--size/);
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python3 -m unittest skills/motion-video/tests/test_extract_theme.py; node --test skills/motion-video/tests/render.test.mjs`
+Expected: FAIL — no module `extract_theme`; unknown `--size`.
+
+- [ ] **Step 3: Implement** — `skills/motion-video/scripts/extract_theme.py`
+
+```python
+#!/usr/bin/env python3
+"""extract_theme.py -- pull a motion theme out of any project's CSS.
+
+Usage: extract_theme.py [CSS] --out DIR [--map role=--var ...]
+
+Writes DIR/theme.css (the CSS variables the template uses) and DIR/theme.json
+(the same, colours normalised to #rrggbb so springs can interpolate them).
+Reads the first :root block (the light theme) and body/html font-family.
+Without CSS, writes the house theme: warm gray, black and white, Geist.
+"""
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+HOUSE = {"canvas": "#eceae6", "surface": "#ffffff", "ink": "#0b0b0b", "muted": "#8c8883",
+         "accent": "#0b0b0b", "font": "Geist, system-ui, sans-serif"}
+ROLES = {
+    "canvas": ["--bg", "--background", "--canvas", "--color-bg", "--bg-color", "--page"],
+    "surface": ["--panel", "--surface", "--card", "--paper", "--bg-elevated", "--color-surface"],
+    "ink": ["--ink", "--text", "--fg", "--foreground", "--color-text", "--text-color"],
+    "muted": ["--muted", "--text-muted", "--subtle", "--color-muted"],
+    "accent": ["--accent", "--primary", "--brand", "--color-primary", "--color-accent"],
+}
+FONT_VARS = ["--font", "--font-sans", "--font-family", "--font-body"]
+NAMED = {"white": "#ffffff", "black": "#000000"}
+
+
+def strip_comments(css):
+    return re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+
+def root_vars(css):
+    m = re.search(r"(?<![\w-]):root\s*\{([^}]*)\}", css)
+    if not m:
+        return {}
+    return {k.strip(): v.strip() for k, v in re.findall(r"(--[\w-]+)\s*:\s*([^;]+)", m.group(1))}
+
+
+def resolve(value, env, depth=0):
+    if depth > 8:
+        return value
+    def sub(m):
+        name, fallback = m.group(1), m.group(2)
+        if name in env:
+            return resolve(env[name], env, depth + 1)
+        return fallback.strip() if fallback else m.group(0)
+    return re.sub(r"var\(\s*(--[\w-]+)\s*(?:,\s*([^)]*))?\)", sub, value)
+
+
+def to_hex(c):
+    c = c.strip().lower()
+    if c in NAMED:
+        return NAMED[c]
+    m = re.fullmatch(r"#([0-9a-f]{3,8})", c)
+    if m:
+        h = m.group(1)
+        if len(h) in (3, 4):
+            h = "".join(ch * 2 for ch in h[:3])
+        return "#" + h[:6] if len(h) in (6, 8) else None
+    m = re.fullmatch(r"rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:[\s,/]+[\d.]+%?)?\s*\)", c)
+    if m:
+        return "#" + "".join(f"{min(255, int(x)):02x}" for x in m.groups())
+    return None
+
+
+def body_font(css):
+    m = re.search(r"(?:^|[}\s,])(?:html|body)\s*(?:,[^{]*)?\{[^}]*?font-family\s*:\s*([^;}]+)", css)
+    return m.group(1).strip() if m else None
+
+
+def extract(css, overrides=None):
+    css = strip_comments(css)
+    env = root_vars(css)
+    theme, warnings = dict(HOUSE), []
+    for role, names in ROLES.items():
+        names = [overrides[role]] if overrides and role in overrides else names
+        found = next((n for n in names if n in env), None)
+        if not found:
+            warnings.append(f"no {role} colour found (looked for {', '.join(names)}); using the house {role}")
+            continue
+        hexed = to_hex(resolve(env[found], env))
+        if hexed is None:
+            warnings.append(f"{found} is not a plain colour ({env[found]}); using the house {role}")
+            continue
+        theme[role] = hexed
+    font = None
+    if overrides and "font" in overrides and overrides["font"] in env:
+        font = resolve(env[overrides["font"]], env)
+    font = font or next((resolve(env[n], env) for n in FONT_VARS if n in env), None) or body_font(css)
+    if font:
+        theme["font"] = font
+    else:
+        warnings.append("no font-family found; using the house font (Geist)")
+    return theme, warnings
+
+
+def write(theme, out):
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "theme.json").write_text(json.dumps(theme, indent=2))
+    (out / "theme.css").write_text(":root{" + "".join(f"--{k}:{v};" for k, v in theme.items()) + "}\n")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("css", nargs="?")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--map", action="append", default=[], help="role=--css-var, e.g. accent=--pos")
+    a = ap.parse_args(argv)
+    overrides = dict(m.split("=", 1) for m in a.map)
+    if a.css is None:
+        theme, warnings = dict(HOUSE), []
+    else:
+        p = Path(a.css)
+        if not p.is_file():
+            print(f"error: no such file: {p}", file=sys.stderr)
+            return 2
+        theme, warnings = extract(p.read_text(errors="replace"), overrides)
+    write(theme, a.out)
+    print("theme: " + ", ".join(f"{k} {v}" for k, v in theme.items()))
+    for w in warnings:
+        print(f"warning: {w}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+- [ ] **Step 4: new_project.sh options** — replace the argument handling with (note `${ARR[@]+...}`: macOS `/usr/bin/env bash` is 3.2, where an empty array under `set -u` is an error):
+
+```bash
+DIR="$1"; SONG="$2"; shift 2
+SIZE=square; THEME=""; MAPS=(); ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --size)  SIZE="$2"; shift 2 ;;
+    --theme) THEME="$2"; shift 2 ;;
+    --map)   MAPS+=(--map "$2"); shift 2 ;;
+    *)       ARGS+=("$1"); shift ;;
+  esac
+done
+case "$SIZE" in
+  square) W=1440; H=1440 ;;
+  vertical) W=1080; H=1920 ;;
+  landscape) W=1920; H=1080 ;;
+  *x*) W="${SIZE%x*}"; H="${SIZE#*x}" ;;
+  *) W=0; H=0 ;;
+esac
+if ! [[ "$W" =~ ^[0-9]+$ && "$H" =~ ^[0-9]+$ ]] || [ "$W" -lt 64 ] || [ "$H" -lt 64 ] || [ $((W % 2)) -ne 0 ] || [ $((H % 2)) -ne 0 ]; then
+  echo "error: --size must be square, vertical, landscape or WxH with even numbers >= 64" >&2; exit 2
+fi
+if [ -e "$DIR/index.html" ]; then echo "error: $DIR/index.html exists; not overwriting" >&2; exit 1; fi
+mkdir -p "$DIR/sfx"
+python3 "$SKILL/scripts/analyze_song.py" "$SONG" --out "$DIR" ${ARGS[@]+"${ARGS[@]}"}
+python3 "$SKILL/scripts/extract_theme.py" ${THEME:+"$THEME"} --out "$DIR" ${MAPS[@]+"${MAPS[@]}"}
+printf '{"stage": {"width": %d, "height": %d}}\n' "$W" "$H" > "$DIR/project.json"
+```
+(The size check runs before anything is written, so a bad size leaves nothing behind. Keep the existing template/springs/SFX copy lines after this.)
+
+- [ ] **Step 5: Template changes** — in `template/index.html`:
+  1. After the Google Fonts `<link>`, add `<link rel="stylesheet" href="theme.css">`. Replace the `:root{...}` palette line with house fallbacks under the role names: `:root { --canvas:#ECEAE6; --surface:#FFFFFF; --ink:#0B0B0B; --muted:#8C8883; --accent:#0B0B0B; --font:Geist, system-ui, sans-serif; }` placed **before** the theme link (move the `<style>` above it) so theme.css wins; `#stage` uses `font-family:var(--font)`, `background:var(--canvas)`.
+  2. Replace `const STAGE = { width: 1440, height: 1440 }; window.STAGE = STAGE; const CX = ..., CY = ...;` with `let STAGE, CX, CY, THEME;`.
+  3. STATES rows use role names: button/loader `fill: 'ink', ink: 'surface'`; check `fill: 'surface', ink: 'ink'`. Update the table comment: "fill/ink: a theme role (canvas, surface, ink, muted, accent) or #rrggbb".
+  4. Replace `const hex = ...` with
+     `const hex = (c) => { const h = (THEME[c] ?? c); return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); };`
+  5. In `zoom`, use `Math.min(STAGE.width, STAGE.height)` in place of `STAGE.width`.
+  6. At the start of `window.ready`'s async body:
+     ```js
+     const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));
+     song = await songR.json();
+     STAGE = projR.ok ? (await projR.json()).stage : { width: 1440, height: 1440 };
+     THEME = themeR.ok ? await themeR.json() : {};
+     window.STAGE = STAGE; CX = STAGE.width / 2; CY = STAGE.height / 2;
+     ```
+     and delete the old `song = await (await fetch('song.json')).json();` line. Make the font wait generic: `await document.fonts.load(\`500 34px ${getComputedStyle(document.documentElement).getPropertyValue('--font')}\`).catch(() => {});`.
+
+- [ ] **Step 6: Run everything**
+
+Run: `npm test`
+Expected: all PASS, including the existing template-preview test (house theme, square) and the two new size/theme tests.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add skills/motion-video
+git commit -m "Theme from any project's CSS and size presets
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 5: beat_stills.mjs — per-beat stills, contact sheet, loop-seam check
 
 **Files:**
@@ -1710,8 +2039,8 @@ The look and rules are in `references/direction.md`; read it before planning.
    - 8–12 UI states the shape becomes. For a promo of an existing project, first read its design tokens and UI (CSS variables, main views) and *propose* states from its real screens.
    - Palette: pure black/white or one accent. For a project promo, the project's own tokens.
    - The song: a file path the user supplies. Never download music. If it is a commercial track, say once that social platforms will likely mute it and a licensed track can be swapped in later by re-running analysis.
-   - Size: 1440×1440 unless they want 1080×1920 (vertical) or 1920×1080.
-3. **Scaffold + measure.** `~/.claude/skills/motion-video/scripts/new_project.sh <dir> <song> --bars <N> --states <K>` (default 7 bars). Read `song.json`: `bpm`, `rules.min_hold_beats`, `rules.max_states`, `rules.warnings`. Say the BPM and any warnings out loud.
+   - Size: square 1440×1440 unless they want vertical 1080×1920 (Reels/TikTok/Shorts) or landscape 1920×1080.
+3. **Scaffold + measure.** `~/.claude/skills/motion-video/scripts/new_project.sh <dir> <song> --bars <N> --states <K> [--size square|vertical|landscape|WxH] [--theme <project css>]` (default 7 bars, square, house theme). For a project promo always pass `--theme` with the project's main stylesheet and check the printed theme; fix a wrong role with `--map accent=--other-var`. Read `song.json`: `bpm`, `rules.min_hold_beats`, `rules.max_states`, `rules.warnings`. Say the BPM and any warnings out loud.
 4. **Plan on the beat grid** using the table format in `references/state-plan.md`: one row per beat, something happens on every beat, states hold at least `min_hold_beats`, the last row returns to the first state at least 2 beats before the end.
 5. **STOP for approval.** Show the table. Do not write any code until the user approves it or asks for changes.
 6. **Build** with the `motion-video` skill.
@@ -1830,7 +2159,8 @@ Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PA
 | Job | Command |
 |---|---|
 | Check tooling | `scripts/doctor.sh` |
-| New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12` |
+| New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css]` |
+| Re-theme from a project | `python3 scripts/extract_theme.py app.css --out DIR [--map accent=--brand]` |
 | Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
@@ -1842,7 +2172,8 @@ Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PA
 
 1. Start from the approved state plan (motion-design). If there is none, go back and make one.
 2. In `DIR/index.html` edit only the three tables — `states()`, `cursor()`, `content` —
-   plus a `.layer` per state name. Keep the page contract: `window.ready`, `window.STAGE`,
+   plus a `.layer` per state name. Colours in STATES are theme roles (`canvas surface ink muted accent`)
+   so the piece re-themes with the project; use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
    pure `window.seek(t)` that does not wrap `t`, `window.inspect(t)`, `window.SFX`.
 3. Rules inside `seek(t)`: every style computed from `t`; no CSS transitions, animations,
    timers, `Date.now()` or variables written by an earlier frame; no `will-change`. Use
@@ -2066,11 +2397,11 @@ Expected: BPM ≈ 107–112, 28 beats, ≤ 14 states.
 
 - [ ] **Step 1: Read the product** — from `~/Documents/AUTOMATION/personal-finance`: light-theme tokens in `web/style.css` lines 20–30 (`--bg:#eef0f3 --panel:#ffffff --ink:#161a21 --muted:#697082 --accent:#0c7d74 --accent-soft:#e2f4f1 --pos:#067647 --neg:#cf3438`), the app font stack, and the screenshots in `design-system/design_handoff_motion/screenshots/`. Pick real moments: payslip dropzone → payslip chip → goal progress bar fill → surplus split bar → calendar day → status pill → dock indicator travel → back.
 
-- [ ] **Step 2: Scaffold** — `new_project.sh demos/02-finance-promo ~/Desktop/"Tints (feat. Kendrick Lamar).flac" --bars 7 --states <K>`; choose a different `--start-bar` from demo 1 if song.json's sections allow, so the two demos use different parts of the song.
+- [ ] **Step 2: Scaffold** — `new_project.sh demos/02-finance-promo ~/Desktop/"Tints (feat. Kendrick Lamar).flac" --bars 7 --states <K> --theme ~/Documents/AUTOMATION/personal-finance/web/style.css`; confirm the printed theme shows accent #0c7d74 and canvas #eef0f3; choose a different `--start-bar` from demo 1 if song.json's sections allow, so the two demos use different parts of the song.
 
 - [ ] **Step 3: Plan table on the beat grid with the finance states — show Jack, wait for approval.**
 
-- [ ] **Step 4: Build** — replace the template palette with the finance tokens (canvas `--bg`, shape `--panel`/`--ink`, one accent `--accent`), content layers recreating each real UI moment at promo scale; still one shape, cursor-driven.
+- [ ] **Step 4: Build** — the palette comes from theme.json (roles, not hex); every figure shown is made up (round, plausible numbers, e.g. £2,450 saved of £4,000), never data from Jack's real database, because this video goes on the public wiki; content layers recreating each real UI moment at promo scale; still one shape, cursor-driven.
 
 - [ ] **Step 5: Stills review, seam OK, final render** — same commands and checks as Task 8 Steps 4–5.
 
@@ -2288,9 +2619,72 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
+### Task 12: Wiki page with the demo videos (claude section)
+
+Work in `~/Documents/AUTOMATION/Wiki` (its own git repo, `origin` = triippiing/Wiki, published on GitHub Pages). Read its `CLAUDE.md` and `CONTRIBUTING.md` first; they override anything here. If the `wiki-operations` skill or the repo's `/wiki-new`, `/wiki-check` commands (`.claude/commands/`) apply, follow them.
+
+**Files:**
+- Create: `claude/motion-kit.html`, `assets/media/motion-kit/01-reference.mp4`, `assets/media/motion-kit/02-finance-promo.mp4`, `assets/media/motion-kit/03-dock-springs.mp4`, matching `*.jpg` posters
+- Regenerated (never hand-edited): `index.html`, `assets/js/nav-data.js` via `python3 scripts/build_index.py`
+
+**Interfaces:**
+- Consumes: the three demo outputs from Tasks 8–10, the skill tables from Tasks 6–7.
+
+- [ ] **Step 1: Web copies of the videos** (Jack chose to keep the Tints audio on the wiki). Keep each under 10 MB:
+
+```bash
+M=~/Documents/AUTOMATION/Wiki/assets/media/motion-kit; mkdir -p "$M"
+for pair in "01-reference:$HOME/motion-kit/demos/01-reference/out/video.mp4" \
+            "02-finance-promo:$HOME/motion-kit/demos/02-finance-promo/out/video.mp4" \
+            "03-dock-springs:$HOME/motion-kit/demos/03-finance-inapp/out/dock-springs.mp4"; do
+  name="${pair%%:*}"; src="${pair#*:}"
+  /opt/homebrew/bin/ffmpeg -v error -y -i "$src" -vf "scale='min(1080,iw)':-2" -c:v libx264 -crf 24 -preset slow \
+    -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 160k "$M/$name.mp4"
+  /opt/homebrew/bin/ffmpeg -v error -y -ss 1 -i "$M/$name.mp4" -frames:v 1 -q:v 3 "$M/$name.jpg"
+done
+ls -lh "$M"
+```
+Expected: three mp4s under 10 MB and three posters. If one is larger, raise CRF to 27 for that file.
+
+- [ ] **Step 2: Write `claude/motion-kit.html`** — copy the head, identity strip, meta cells and footer shape from `claude/commands.html` exactly (assets via `../`, `Doc ID` cell `DOC-MOTION-001`, no `reviewed` meta yet (only Jack stamps it, with `scripts/mark_reviewed.py`, after reading the page; the build warns UNREVIEWED until then), keywords `motion design video springs playwright ffmpeg bpm beat promo animation skill`). Title "Motion Kit"; description "Three Claude Code skills that turn any project's UI into beat-synced motion videos and springy in-app motion, all in code." Sections:
+  1. **What it is**: one paragraph; credit the @twoclipping prompt template with a link.
+  2. **Demos**: the three videos, each as `<video controls loop playsinline preload="metadata" poster="../assets/media/motion-kit/NAME.jpg" src="../assets/media/motion-kit/NAME.mp4"></video>` with a one-line caption (song, BPM from song.json, size). Caption demo 3 with the branch name and that it is unmerged.
+  3. **Install**: `git clone`-free: `~/motion-kit/install.sh`, then `doctor.sh`; Homebrew and ffmpeg prerequisites.
+  4. **The skills**: a table of `motion-design`, `motion-video`, `motion-ui`: when it triggers, what it does, the one sentence to say to Claude.
+  5. **Pipeline**: song to `song.json` to state table (approval gate) to `seek(t)` page to beat stills to render; a small table of the scripts and their flags, including `--size` and `--theme`.
+  6. **Any project**: how `extract_theme.py` reads a project's `:root` tokens, the role names, `--map`, and the size presets.
+  7. **Song rules**: comfort band, spring settle 0.6 beat, `min_hold_beats`, cue placement.
+  8. **In-app motion**: motion-ui's rule that the project's motion spec wins; the dock pill as the worked example (two edges, zeta 1, token `--t-travel`).
+  9. **Troubleshooting**: seam failures, blurry text (`will-change`), unstyled page from `file://` (use `--serve`), Claude shell PATH.
+  Files outside the Wiki repo cannot use `<!--SRC:-->` blocks (sync_source_blocks refuses to read outside the repo); any code excerpt from motion-kit is short and labelled "hand copy from ~/motion-kit, may drift".
+  Copy rules: **no em dashes or en dashes anywhere** (write "100 to 130 BPM", not a range dash); no RB/DOC IDs in `<title>` or `<h1>`; plain operational voice matching the other claude/ pages.
+
+- [ ] **Step 3: Check**
+
+```bash
+cd ~/Documents/AUTOMATION/Wiki
+grep -nP '[\x{2013}\x{2014}]' claude/motion-kit.html && echo "DASHES FOUND" || echo "no dashes"
+python3 scripts/build_index.py
+python3 scripts/sync_source_blocks.py --check
+./serve.sh 8765 &   # then load http://localhost:8765/claude/motion-kit.html
+```
+Load the page with Playwright (reuse `~/motion-kit/skills/motion-video/node_modules/playwright`): screenshot at 1280 and 390 wide, confirm styles loaded (not unstyled), the three videos have a nonzero `duration` via `document.querySelectorAll('video')` after `loadedmetadata`, the card appears on `index.html` under Claude, no console errors. Read the screenshots. Stop the server.
+
+- [ ] **Step 4: Commit locally, do not push**
+
+```bash
+git add claude/motion-kit.html assets/media/motion-kit index.html assets/js/nav-data.js
+git commit -m "docs: add motion kit page with demo videos to the claude category
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+Then ask Jack to read the page (served locally) and, if happy, stamp it with `python3 scripts/mark_reviewed.py claude/motion-kit.html` and commit that. Ask for an explicit go-ahead before `git push` (the push publishes publicly and the CI rebuilds the index). Only push on a yes.
+
+---
+
 ### Task 11: Wrap-up
 
 - [ ] **Step 1:** `cd ~/motion-kit && npm test` — all PASS. `skills/motion-video/scripts/doctor.sh` — all ok.
 - [ ] **Step 2:** `ls -l ~/.claude/skills/` shows the three symlinks.
 - [ ] **Step 3:** Update memory `motion-kit.md`: status built, demo paths, Tints BPM, and that the finance change sits on `motion-demo` unmerged.
-- [ ] **Step 4:** Report to Jack: skill names and one-line "how to call", the three video paths, anything that did not work.
+- [ ] **Step 4:** Report to Jack: skill names and one-line "how to call", the three video paths, the wiki page (local URL, committed, not pushed unless he said so), anything that did not work.

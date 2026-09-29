@@ -193,3 +193,15 @@ Output per demo: `out/<name>.mp4`, `out/contact-sheet.png`, `song.json`.
 
 Homebrew 7.0.7, ffmpeg 9.0.2 (tmix present), Node 24.19, numpy 2.5.2, Playwright
 Chromium 1243 — all verified.
+
+## Amendments (2026-09-29, approved by Jack)
+
+- **Any project, any size.** `extract_theme.py` reads a project's `:root` CSS tokens into
+  roles (canvas, surface, ink, muted, accent, font) written to `theme.css`/`theme.json`;
+  STATES reference roles, not hex. `new_project.sh --size square|vertical|landscape|WxH`
+  writes `project.json`; the template reads stage size from it.
+- **Wiki.** A `claude/motion-kit.html` doc page (DOC-MOTION-001) in
+  `~/Documents/AUTOMATION/Wiki` embeds the three demo videos (web copies under 10 MB,
+  with the Tints audio at Jack's request) and documents install, skills, pipeline,
+  theming and troubleshooting. Committed locally; pushed only on Jack's go-ahead.
+  Finance promo shows made-up figures only.
