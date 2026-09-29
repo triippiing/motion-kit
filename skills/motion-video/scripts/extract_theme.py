@@ -5,7 +5,8 @@ Usage: extract_theme.py [CSS] --out DIR [--map role=--var ...]
 
 Writes DIR/theme.css (the CSS variables the template uses) and DIR/theme.json
 (the same, colours normalised to #rrggbb so springs can interpolate them).
-Reads the first :root block (the light theme) and body/html font-family.
+Reads the first :root block (the light theme) and body/html font-family (or font shorthand).
+Optional roles pos/neg (success/danger colours) are included only when found.
 Without CSS, writes the house theme: warm gray, black and white, Geist.
 """
 import argparse
@@ -22,6 +23,10 @@ ROLES = {
     "ink": ["--ink", "--text", "--fg", "--foreground", "--color-text", "--text-color"],
     "muted": ["--muted", "--text-muted", "--subtle", "--color-muted"],
     "accent": ["--accent", "--primary", "--brand", "--color-primary", "--color-accent"],
+}
+OPTIONAL_ROLES = {
+    "pos": ["--pos", "--success", "--positive", "--color-success", "--green"],
+    "neg": ["--neg", "--danger", "--error", "--negative", "--color-danger", "--red"],
 }
 FONT_VARS = ["--font", "--font-sans", "--font-family", "--font-body"]
 NAMED = {"white": "#ffffff", "black": "#000000"}
@@ -65,8 +70,15 @@ def to_hex(c):
     return None
 
 
+_BODY = r"(?:^|[}\s,])(?:html|body)\s*(?:,[^{]*)?\{[^}]*?"
+_SIZE = r"\d*\.?\d+(?:px|pt|em|rem|%)(?:\s*/\s*[\d.]+(?:px|pt|em|rem|%)?)?"
+
+
 def body_font(css):
-    m = re.search(r"(?:^|[}\s,])(?:html|body)\s*(?:,[^{]*)?\{[^}]*?font-family\s*:\s*([^;}]+)", css)
+    """font-family on html/body, else the family list of a `font:` shorthand (after size[/line-height])."""
+    m = re.search(_BODY + r"font-family\s*:\s*([^;}]+)", css)
+    if not m:
+        m = re.search(_BODY + r"(?<![\w-])font\s*:\s*(?:[a-z0-9-]+\s+)*?" + _SIZE + r"\s+([^;}]+)", css)
     return m.group(1).strip() if m else None
 
 
@@ -85,6 +97,12 @@ def extract(css, overrides=None):
             warnings.append(f"{found} is not a plain colour ({env[found]}); using the house {role}")
             continue
         theme[role] = hexed
+    for role, names in OPTIONAL_ROLES.items():
+        names = [overrides[role]] if overrides and role in overrides else names
+        found = next((n for n in names if n in env), None)
+        hexed = to_hex(resolve(env[found], env)) if found else None
+        if hexed:
+            theme[role] = hexed
     font = None
     if overrides and "font" in overrides and overrides["font"] in env:
         font = resolve(env[overrides["font"]], env)

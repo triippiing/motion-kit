@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, render a preview, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, render, beat_stills.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, render a preview, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, extract_theme, render, beat_stills.
 ---
 
 # Motion video
@@ -16,7 +16,7 @@ Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PA
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
 | Preview render | `node scripts/render.mjs DIR --preview` |
-| Section render | `node scripts/render.mjs DIR --from 4 --to 8 --preview` |
+| Section render (`--from`/`--to` are seconds) | `node scripts/render.mjs DIR --from 4 --to 8 --preview` |
 | Final render | `node scripts/render.mjs DIR` → `DIR/out/video.mp4` |
 
 ## Build loop
@@ -24,7 +24,7 @@ Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PA
 1. Start from the approved state plan (motion-design). If there is none, go back and make one.
 2. In `DIR/index.html` edit only the three tables — `states()`, `cursor()`, `content` —
    plus a `.layer` per state name. Colours in STATES are theme roles (`canvas surface ink muted accent`)
-   so the piece re-themes with the project; use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
+   so the piece re-themes with the project (theme.json may also carry optional `pos`/`neg` roles when the CSS defines success/danger colours; use `var(--pos)` / `var(--neg)` in layers, and only when present); use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
    pure `window.seek(t)` that does not wrap `t`, `window.inspect(t)`, `window.SFX`.
 3. Rules inside `seek(t)`: every style computed from `t`; no CSS transitions, animations,
    timers, `Date.now()` or variables written by an earlier frame; no `will-change`. Use

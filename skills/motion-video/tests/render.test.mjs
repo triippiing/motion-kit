@@ -62,7 +62,7 @@ click_track(${JSON.stringify(song)}, 120)`]);
   const proj = path.join(root, 'my proj');
   const script = path.join(SKILL, 'scripts', 'new_project.sh');
   execFileSync(script, [proj, song, '--bars', '4'], { stdio: 'pipe' });
-  for (const f of ['index.html', 'springs.js', 'song.json', 'clip.wav', 'sfx/click.wav']) assert.ok(existsSync(path.join(proj, f)), f);
+  for (const f of ['index.html', 'springs.js', 'song.json', 'clip.wav', 'sfx/click.wav', 'sfx/key.wav']) assert.ok(existsSync(path.join(proj, f)), f);
   assert.match(readFileSync(path.join(proj, 'springs.js'), 'utf8'), /globalThis\.Springs|root\.Springs/);
   const again = spawnSync(script, [proj, song], { encoding: 'utf8' });
   assert.equal(again.status, 1); assert.match(again.stderr, /not overwriting/);

@@ -12,7 +12,7 @@ for skill in "$ROOT"/skills/*/; do
     echo "error: $target exists and is not a symlink; move it aside first" >&2; exit 1
   fi
   ln -sfn "${skill%/}" "$target"
-  echo "linked $name -> $target"
+  echo "linked $name -> ${skill%/}"
 done
 [ "${1:-}" = "--link-only" ] && exit 0
 npm --prefix "$ROOT/skills/motion-video" install --no-audit --no-fund

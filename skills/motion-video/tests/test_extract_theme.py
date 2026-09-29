@@ -14,7 +14,7 @@ FINANCE_LIKE = """
 :root{
   --bg:#eef0f3; --panel:#ffffff; --panel-2:#f6f7f9;
   --ink:#161a21; --muted:#697082;
-  --accent:#0c7d74; --pos:#067647;
+  --accent:#0c7d74; --pos:#067647; --neg:#b42318;
 }
 @media (prefers-color-scheme:dark){ :root{ --bg:#171a20; --ink:#eef0f4; } }
 body{margin:0;font-family:-apple-system, "SF Pro Text", sans-serif}
@@ -25,12 +25,37 @@ class ExtractThemeTests(unittest.TestCase):
     def test_reads_light_theme_roles_and_body_font(self):
         theme, warnings = E.extract(FINANCE_LIKE)
         self.assertEqual(theme["canvas"], "#eef0f3")
+        self.assertIn("-apple-system", theme["font"])
         self.assertEqual(theme["surface"], "#ffffff")
         self.assertEqual(theme["ink"], "#161a21")
         self.assertEqual(theme["muted"], "#697082")
         self.assertEqual(theme["accent"], "#0c7d74")
         self.assertIn("-apple-system", theme["font"])
         self.assertEqual(warnings, [])
+
+    def test_font_shorthand_on_body(self):
+        theme, _ = E.extract(':root{--bg:#fff}body{font:13px/1.45 -apple-system, "SF Pro Text", sans-serif}')
+        self.assertEqual(theme["font"], '-apple-system, "SF Pro Text", sans-serif')
+        theme, _ = E.extract('html{font:italic bold 16px Georgia, serif;}')
+        self.assertEqual(theme["font"], "Georgia, serif")
+
+    def test_font_precedence(self):
+        both = 'body{font-family:Alpha;font:13px Beta}'
+        self.assertEqual(E.extract(both)[0]["font"], "Alpha")
+        self.assertEqual(E.extract(":root{--font-sans:Gamma}" + both)[0]["font"], "Gamma")
+        self.assertEqual(E.extract(":root{--f:Delta}" + both, {"font": "--f"})[0]["font"], "Delta")
+
+    def test_pos_neg_roles_included_only_when_found(self):
+        theme, warnings = E.extract(FINANCE_LIKE)
+        self.assertEqual(theme["pos"], "#067647")
+        self.assertEqual(theme["neg"], "#b42318")
+        self.assertEqual(warnings, [])
+        theme, warnings = E.extract(":root{--bg:#fff;--panel:#fff;--ink:#000;--muted:#888;--accent:#123456}body{font-family:X}")
+        self.assertNotIn("pos", theme)
+        self.assertNotIn("neg", theme)
+        self.assertEqual(warnings, [])
+        theme, _ = E.extract(":root{--color-success:#0a0;--danger:#a00}")
+        self.assertEqual((theme["pos"], theme["neg"]), ("#00aa00", "#aa0000"))
 
     def test_resolves_var_references(self):
         theme, _ = E.extract(":root{--teal:#0C7D74;--primary:var(--teal);--background:#fff;--text:#111;}")
@@ -71,6 +96,7 @@ class ExtractThemeTests(unittest.TestCase):
         theme, _ = E.extract(css.read_text())
         self.assertEqual(theme["accent"], "#0c7d74")
         self.assertEqual(theme["canvas"], "#eef0f3")
+        self.assertIn("-apple-system", theme["font"])
 
 
 if __name__ == "__main__":
