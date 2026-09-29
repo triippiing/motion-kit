@@ -81,3 +81,25 @@ click_track(${JSON.stringify(song)}, 120)`]);
   const song_ = JSON.parse(readFileSync(path.join(proj, 'song.json'), 'utf8'));
   assert.equal(Number(probe(out).streams.find((s) => s.codec_type === 'video').nb_read_frames), song_.loop.frames);
 });
+
+test('new_project.sh --size vertical --theme makes a 1080x1920 themed project', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sz-'));
+  const song = path.join(root, 's.wav');
+  execFileSync('python3', ['-c', `
+import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
+from test_analyze_song import click_track
+click_track(${JSON.stringify(song)}, 120)`]);
+  const css = path.join(root, 'app style.css');
+  writeFileSync(css, ':root{--bg:#eef0f3;--panel:#fff;--ink:#161a21;--muted:#697082;--accent:#0c7d74}');
+  const proj = path.join(root, 'v');
+  execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--size', 'vertical', '--theme', css, '--bars', '2'], { stdio: 'pipe' });
+  assert.deepEqual(JSON.parse(readFileSync(path.join(proj, 'project.json'), 'utf8')).stage, { width: 1080, height: 1920 });
+  assert.match(readFileSync(path.join(proj, 'theme.css'), 'utf8'), /--accent:#0c7d74/);
+  const v = probe(await render(proj, { preview: true })).streams.find((s) => s.codec_type === 'video');
+  assert.equal(v.width, 540); assert.equal(v.height, 960);
+});
+
+test('new_project.sh rejects a bad size', () => {
+  const r = spawnSync(path.join(SKILL, 'scripts', 'new_project.sh'), [path.join(tmpdir(), 'x'), 'song.wav', '--size', '1081x1920'], { encoding: 'utf8' });
+  assert.equal(r.status, 2); assert.match(r.stderr, /--size/);
+});
