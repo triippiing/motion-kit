@@ -1,0 +1,5 @@
+node_modules/
+__pycache__/
+demos/*/out/
+demos/*/clip.wav
+.DS_Store
