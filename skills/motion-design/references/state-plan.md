@@ -13,7 +13,8 @@ motion-video pastes that block into `index.html`, and `check_brief.mjs` validate
 Rules (checked by `check_brief.mjs`): something changes on every beat; every row holds at least
 `rules.min_hold_beats`; no more than `rules.max_states` states; the last row repeats the first
 (same component and props) and sits at least 2 beats before `END`; the last cursor row repeats the
-first. Presses click on their own; typing components play their key sounds.
+first. The last two rules are for loops: a launch video with `"loop": false` in project.json may end
+anywhere, and every beat to the end must then be busy. Presses click on their own; typing components play their key sounds.
 
 Consecutive rows with the same `use` are one component changing, not a cut: the second row
 continues from where the first left off and animates the difference (tabs `active: 'Day'` then

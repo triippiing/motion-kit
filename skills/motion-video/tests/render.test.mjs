@@ -273,3 +273,29 @@ test('new_project.sh flags with no value are a clear error, not an unbound-varia
     assert.match(r.stderr, new RegExp(`error: ${flag} needs a value`));
   }
 });
+
+test('project.json "loop": false lets a piece end on a different state; "designScale" scales the camera', async () => {
+  const { makeProject, openScene } = await import('./harness.mjs');
+  const setProject = (dir, extra) => {
+    const f = path.join(dir, 'project.json');
+    writeFileSync(f, JSON.stringify({ ...JSON.parse(readFileSync(f, 'utf8')), ...extra }));
+  };
+  const zoomAt = async (dir) => {
+    const s = await openScene(dir);
+    try {
+      await s.seek(0.2);
+      return { errors: s.errors, zoom: await s.page.evaluate(() => Number(document.querySelector('#camera').style.transform.match(/scale\(([\d.]+)\)/)[1])) };
+    } finally { await s.close(); }
+  };
+  const oneOff = { bars: 2, states: "[{ at: 0, use: 'button', label: 'Go' }, { at: 4, use: 'check', label: 'Done' }]",
+    cursor: '[{ at: 0, x: 240, y: 280 }, { at: 4, x: 0, y: 300 }]' };
+  await assert.rejects(openScene(makeProject(oneOff)), /the last row must repeat the first/, 'a loop still insists on the seam');
+  const launch = makeProject(oneOff);
+  setProject(launch, { loop: false });
+  const plain = await zoomAt(launch);
+  assert.deepEqual(plain.errors, []);
+  setProject(launch, { loop: false, designScale: 1.5 });
+  const scaled = await zoomAt(launch);
+  assert.deepEqual(scaled.errors, []);
+  assert.ok(Math.abs(scaled.zoom - 1.5 * plain.zoom) < 1e-6, `designScale 1.5 zooms 1.5x (${plain.zoom} -> ${scaled.zoom})`);
+});

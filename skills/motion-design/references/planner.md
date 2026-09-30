@@ -7,7 +7,7 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
 | Request looks like | Route |
 |---|---|
 | a looping social promo | full flow below |
-| a launch / non-looping video | full flow; intro and end cards are hand-built until sub-project D |
+| a launch / non-looping video | full flow, not a loop: after scaffolding, add `"loop": false` to `DIR/project.json` (check_brief.mjs and the page read it); intro and end cards are hand-built until sub-project D |
 | animation inside a real app | hand to motion-ui |
 | re-time or re-render an existing project | motion-video directly |
 
@@ -16,7 +16,7 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
 2. Where it will be posted → size (square 1440, vertical 1080x1920, landscape 1920x1080) and length in seconds. Bars are decided after the song is measured (Assessments).
 3. Which product → read its stylesheet (extract_theme.py, show the printed roles) and look at its real UI.
 4. The song → a file the user has the rights to use (never download music). If it is a commercial track, say once that social platforms will likely mute it.
-5. The 3 to 6 moments to show → propose one component per moment from `~/.claude/skills/motion-video/components/CATALOG.md` by its "Use when" line, props filled from the product's real screens and copy; name a transitions.dev idea when relevant (ideas and timings only, rebuilt with springs). A moment that is one thing changing (tabs Day then Month, a balance growing) is two consecutive rows of the same component: the second animates the change. The user approves or swaps each one.
+5. The 3 to 6 moments to show → propose one component per moment from `~/.claude/skills/motion-video/components/CATALOG.md` by its "Use when" line, props filled from the product's real screens and copy (`components/RECIPES.md` has five complete sequences to start from); name a transitions.dev idea when relevant (ideas and timings only, rebuilt with springs). A moment that is one thing changing (tabs Day then Month, a balance growing) is two consecutive rows of the same component: the second animates the change. The user approves or swaps each one.
 
 Write the understanding back (goal, size, length, product, song, moments) for correction before planning.
 
@@ -30,7 +30,7 @@ Write the understanding back (goal, size, length, product, song, moments) for co
 
 ## MOTION-BRIEF.md (write into the project)
 Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song window, one-line reasons), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`). Format and a worked example: `references/state-plan.md`.
-Then run `node $S/check_brief.mjs DIR`: fix every error, and read every warning and resolve it, or justify it in the brief. Do both before showing it.
+Then run `node $S/check_brief.mjs DIR` (a launch video is checked as a one-off when project.json has `"loop": false`; `--no-loop` does the same without it): fix every error, and read every warning and resolve it, or justify it in the brief. Do both before showing it.
 
 ## Gate
 Show the brief. Build nothing until the user approves or asks for changes. On approval hand to motion-video.

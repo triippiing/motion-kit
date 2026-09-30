@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, render a preview, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, extract_theme, render, beat_stills.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, render a preview, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, extract_theme, render, beat_stills, check_brief, build_catalog, gallery.
 ---
 
 # Motion video
@@ -18,12 +18,29 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Preview render | `node scripts/render.mjs DIR --preview` |
 | Section render (`--from`/`--to` are seconds) | `node scripts/render.mjs DIR --from 4 --to 8 --preview` |
 | Final render | `node scripts/render.mjs DIR` → `DIR/out/video.mp4` |
+| Check a brief's beat table | `node scripts/check_brief.mjs DIR [--no-loop]` |
+| Components: rebuild the catalog | `node scripts/build_catalog.mjs` (writes `components/index.js` + `components/CATALOG.md`) |
+| Components: watch or thumbnail them | `node scripts/gallery.mjs OUT [--only a,b] [--stills]` |
+
+## Components
+
+The library is in `components/`: 28 ready-made UI pieces (button, toggle, tabs, loader, toast,
+line-chart, dock...) that each fill the one shape. A table row names one with `use:` and passes its
+props; the cursor aims at its hotspots with `target:`.
+
+- `components/CATALOG.md`: every component with its picture, when to use it, how it moves, props and hotspots. Pick from here first.
+- `components/RECIPES.md`: five complete 7-bar sequences (onboarding, checkout, dashboard, AI reply, settings) to start from.
+- `components/WRITING-A-COMPONENT.md`: how to add one when the library lacks it.
 
 ## Build loop
 
-1. Start from the approved `DIR/MOTION-BRIEF.md` (motion-design): copy the `states()`/`cursor()` block under its `## Beat table` into the tables in `index.html`. If there is no approved brief, go back and make one.
-2. In `DIR/index.html` edit only the tables — `states()`, `cursor()`, `content`, `extraSfx()` —
-   plus a `.layer` per state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
+1. Start from the approved `DIR/MOTION-BRIEF.md` (motion-design). If there is no approved brief, go back and make one.
+2. Copy the `states()`/`cursor()` block under the brief's `## Beat table` over the example `states()` and `cursor()` in `DIR/index.html`. Rows with
+   `use:` are library components (`components/CATALOG.md`); they need nothing else: no layer, no
+   `content`. Only for something the library lacks, write a custom row (`name:` with `w`, `h`, `r`)
+   plus a `.layer[data-state=NAME]` and a `content` function, or add a component
+   (`components/WRITING-A-COMPONENT.md`). Edit only the tables: `states()`, `cursor()`, `content`,
+   `extraSfx()`, plus a `.layer` per custom state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
    (hold, for drags) and `sound: 'key'` (plays sfx/key.wav); `extraSfx()` returns `[{beat, file, gain}]`
    for any other cue. Every `press: 'down'` needs a later `press: 'up'`. Each `content` function takes absolute `t` and runs every frame (use `since(stateName, t)`). Colours in STATES are theme roles (`canvas surface ink muted accent`)
    so the piece re-themes with the project (theme.json may also carry optional `pos`/`neg` roles when the CSS defines success/danger colours; use `var(--pos)` / `var(--neg)` in layers, and only when present); use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
@@ -46,11 +63,16 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 - Outside 100–130 BPM: follow the warning (half-time events or half-beat accents).
 - A commercial track is for local viewing: remind the user before they post.
 
-## Long pieces and 4K
-No hard limits: `--bars 28` is about a minute at 109 BPM; `--size 3840x2160` is 4K. At a stage bigger than
-~1440 px, scale the zoom and cursor by `K = min(W, H) / 1440` so the design keeps its proportions (exact lines
-in the repo's CLAUDE.md, "Long pieces and 4K"). Full-quality 4K renders at about 19 s per second of video on
-an Apple M5: measure with `--from 0 --to 5` first, iterate with `--preview`, and render in full once.
+## Long pieces, 4K and launch videos
+No hard limits: `--bars 28` is about a minute at 109 BPM; `--size 3840x2160` is 4K. Components are sized
+for a 1440 stage; on a bigger stage the engine scales the camera and cursor by `K = min(W, H) / 1440`
+itself, so the design keeps its proportions (set `"designScale": N` in `project.json` to override K).
+Full-quality 4K renders at about 19 s per second of video on an Apple M5: measure with `--from 0 --to 5`
+first, iterate with `--preview`, and render in full once.
+
+A piece that does not loop (a launch video that ends on its own end card): add `"loop": false` to
+`DIR/project.json`. The page then allows a last row that differs from the first, `check_brief.mjs`
+checks it as a one-off, and the seam check in `beat_stills.mjs` can be ignored.
 
 ## When the loop stutters
 Seam check failing on frame: the last STATES/CURSOR row must equal the first and be

@@ -12,8 +12,8 @@ UI**. It ships as three Claude Code skills plus the scripts they call.
 
 | Skill (`skills/`) | Job |
 |---|---|
-| `motion-design` | Plan a piece: inputs, song analysis, a state table on the beat grid, then **stop for the user's approval** before any code. Style rules: `references/direction.md`. |
-| `motion-video` | Build and render: scaffold, `seek(t)` page, contact sheet + seam check, MP4. All scripts live here. |
+| `motion-design` | The planner, and the entry point: routes the request, asks, measures the song, writes a checked `MOTION-BRIEF.md` built from library components, then **stops for the user's approval** before any code. Style rules: `references/direction.md`. |
+| `motion-video` | Build and render: scaffold, `seek(t)` page, contact sheet + seam check, MP4. All scripts and the component library live here. |
 | `motion-ui` | In-app motion (indicators, toggles, drags). Rule one: **the project's own motion spec/tokens win**. Patterns: `references/patterns.md`. |
 
 ## Setup on a fresh Mac
@@ -35,15 +35,24 @@ loads its house font (Geist) from Google Fonts. Offline, it falls back to the sy
 
 ## How a video gets made
 
+Say what you want ("a 15 second promo of this app to ~/Music/song.mp3") and `motion-design` takes it
+from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
+
 ```
-1  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N]
+   -- motion-design (the planner, skills/motion-design/references/planner.md) --
+1  route the request, ask the open questions one at a time, run doctor.sh
+2  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N]
      -> analyze_song.py: song.json (BPM, downbeat, beats[] with t/cue_t/accent, loop window, rules) + clip.wav
      -> extract_theme.py: theme.css/theme.json from the project's :root CSS vars (roles below)
-     -> copies template/index.html + springs.js, synthesises sfx/click.wav and sfx/key.wav, writes project.json
-2  plan: a table of states on the beat grid (format: skills/motion-design/references/state-plan.md); get approval
-3  edit DIR/index.html: only the tables states(), cursor(), content (+ one .layer per state), extraSfx()
-4  node beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
-5  node render.mjs DIR --preview, then node render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
+     -> copies template/index.html, springs.js and components/, synthesises sfx/click.wav and sfx/key.wav, writes project.json
+3  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
+     (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
+4  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
+5  show the brief and STOP until the user approves it
+   -- motion-video --
+6  paste the brief's states()/cursor() block into DIR/index.html
+7  node $S/beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
+8  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
 ```
 
 Scripts are in `<clone>/skills/motion-video/scripts/`; after `install.sh` the same files are at
@@ -70,6 +79,54 @@ No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
 ```
 
+## The planner
+
+`skills/motion-design` is where every video starts. `references/planner.md` is its checklist (route,
+questions, assessments, brief, gate); `references/state-plan.md` is the beat-table format with a worked
+example that uses 12 components. The result is `DIR/MOTION-BRIEF.md` with sections `## Request`,
+`## Decisions`, `## Moments` and `## Beat table`; the last holds a readable table and ONE `js` block
+with the real `states()` and `cursor()`.
+
+`node $S/check_brief.mjs DIR` checks it: the sections, then the block with the engine's own validator in
+strict mode (every row holds `rules.min_hold_beats`, at most `rules.max_states` states, something starts
+on every beat, the loop seam). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
+loop gets `"loop": false` in `DIR/project.json` (or `check_brief.mjs DIR --no-loop`).
+
+## Components
+
+The library is `skills/motion-video/components/`: 28 UI pieces in four groups (controls, feedback,
+data, app chrome), each one file that draws inside the kit's one morphing shape. A table row uses one
+by name, the cursor aims at its hotspots, and consecutive rows of the same component are one component
+changing (tabs `active: 'Day'` then `active: 'Month'` slides the indicator), not a cut:
+
+```js
+{ at: 4, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' }   // states()
+{ at: 5, target: 'tab:Month', press: true }                             // cursor()
+{ at: 6, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Month' } // states(): the pressed result
+```
+
+| Doc | For |
+|---|---|
+| `components/CATALOG.md` | every component: picture, when to use it, how it moves, props, hotspots, one example. Generated; never edit |
+| `components/RECIPES.md` | five complete, tested 7-bar sequences (onboarding, checkout, dashboard tour, AI reply, settings) |
+| `components/WRITING-A-COMPONENT.md` | the contract, a working component to copy, the rules, and how to ship one |
+
+The contract in brief (the full one is the header of `components/core/engine.js`): a component exports
+`meta` (name, group, useWhen, motion, props with types and defaults, hotspots, sounds, a one-line
+example, edge cases), `geometry` (the shape's size and colours), `mount` (build DOM once), `render`
+(a pure function of `t`), `hotspot` (where the cursor lands), and optionally `sfx` and `endState` (the
+props after its presses, which the next row of the same component starts from as `ctx.prev`). Row 0 is
+shown settled so the loop seam matches; hover comes from `ctx.targets`; anything periodic takes its
+period from `loopPeriod`.
+
+After adding or changing a component: `node $S/build_catalog.mjs` (regenerates `components/index.js` and
+`CATALOG.md`; `npm test` fails when they are stale), `node $S/gallery.mjs '' --only NAME --stills` (its
+thumbnail; look at it), then `npm test`. `gallery.mjs OUT` without `--stills` writes a project that
+plays every component and edge case.
+
+New projects get their own copy of `components/` (so a project keeps working if the library changes);
+`check_brief.mjs` validates against the project's copy when there is one.
+
 ## Long pieces and 4K
 
 There is no hard limit on length or resolution. Length is `--bars N` (the song must be at least that
@@ -79,23 +136,21 @@ long); size is `--size WxH` (even numbers). A one-minute 4K piece:
 new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 bars ~ 1 min at 109 BPM
 ```
 
-- **Keep the design size.** The template's numbers (shape sizes, text, the 44 px cursor, the 2.4 zoom cap)
-  are tuned for a ~1440 px stage. At a bigger stage, scale the camera and cursor so the piece looks the
-  same, just sharper. In `index.html`, replace the `zoom` line in `build()` and the cursor `scale(...)`:
-  ```js
-  const K = Math.min(STAGE.width, STAGE.height) / 1440; // design size -> this stage
-  const zoom = (s) => K * Math.min(2.4, Math.max(1, (0.6 * 1440) / Math.max(s.w, s.h)));
-  // in seek():  scale(${p * Math.min(STAGE.width, STAGE.height) / 1440 / z})   (was scale(${p / z}))
-  ```
-  Everything is vector, so the camera zoom renders crisp text rather than upscaling.
+- **Keep the design size.** Components and the template are tuned for a ~1440 px stage (shape sizes,
+  text, the 44 px cursor, the 2.4 zoom cap). On a bigger stage the engine (`components/core/engine.js`,
+  the `zoom` line and the cursor `scale(...)` in `seek`) multiplies the camera zoom and the cursor by
+  `K = min(W, H) / 1440` (never below 1), so the piece looks the same, just sharper. To override it, set
+  `"designScale": N` in `DIR/project.json`. Everything is vector, so the zoom renders crisp text rather
+  than upscaling.
 - **Render time** grows with pixels, frames and subframes. Measured on an Apple M5: 1 s of full-quality
   4K (60 fps, 4 subframes) took ~19 s, so a minute is ~20 to 30 min. Frames stream into ffmpeg, so disk
   use stays small. Measure your own with `render.mjs DIR --from 0 --to 5` and scale up; iterate with
   `--preview` (half size, 1 subframe) and `beat_stills.mjs`, and do the full render once.
 - **Plan in chapters.** A minute is ~110 beats and up to ~55 states. Plan 3 or 4 sections that each
   return to a resting state, rather than one unbroken chain.
-- **Not a loop?** The seam check assumes the last frame equals the first. For a one-off piece that ends
-  elsewhere, its failure can be ignored.
+- **Not a loop?** Add `"loop": false` to `DIR/project.json`: the page then accepts a last row that
+  differs from the first and `check_brief.mjs` checks the brief as a one-off. The seam check in
+  `beat_stills.mjs` assumes the last frame equals the first; for a one-off its failure can be ignored.
 
 ## Rules that matter (the tests enforce most of them)
 
@@ -112,7 +167,7 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Style (direction.md):** one shape never cut; tiny overshoot at most; content swaps blur with
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
-- **Approval gate:** always show the state table and wait before building. If the user's request
+- **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs) and renders (`out/`)
   are git-ignored and must never be committed. Commercial tracks: local viewing only.
@@ -143,8 +198,19 @@ shared/springs.js                 closed-form springs: response, spring, track, 
                                   globalThis.Springs + module.exports; works in browser, Node, JavaScriptCore)
 skills/*/assets/springs.js        symlinks to it; projects get a copy (cp -L)
 skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only), new_project.sh,
-                                  render.mjs (Playwright + ffmpeg), beat_stills.mjs, doctor.sh
-skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from
+                                  render.mjs (Playwright + ffmpeg), beat_stills.mjs, doctor.sh,
+                                  check_brief.mjs (validates MOTION-BRIEF.md), build_catalog.mjs (index.js +
+                                  CATALOG.md from each meta), gallery.mjs (every component in one project; --stills)
+skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from (reads project.json:
+                                  stage, optional loop and designScale)
+skills/motion-video/components/   the component library: core/engine.js (runs the tables; its header is the
+                                  contract), core/validate.js (table rules, shared with check_brief),
+                                  core/helpers.js (pure building blocks), modifiers.js (shake, badge),
+                                  controls/ feedback/ data/ chrome/ (one file per component),
+                                  CATALOG.md + index.js (generated), docs-images/ (thumbnails),
+                                  RECIPES.md, WRITING-A-COMPONENT.md
+skills/motion-design/references/  planner.md (the planner checklist), state-plan.md (beat-table format),
+                                  direction.md (the look)
 skills/motion-ui/references/      patterns.md (pattern 2 is extracted and tested by tests/patterns.test.mjs)
 demos/                            worked examples (see "Demos" below)
 docs/superpowers/                 the design spec and implementation plan this was built from (historical: the

@@ -72,3 +72,36 @@ test('the state-plan.md worked example passes strict validation on a 7-bar 120 B
   const uses = new Set([...blocks[0].matchAll(/use: '([a-z-]+)'/g)].map((m) => m[1]));
   assert.ok(uses.size >= 12, `the example uses 12 library components (got ${uses.size}: ${[...uses].join(', ')})`);
 });
+
+// A launch video that ends on a different state than it starts: not a loop.
+const oneOff = good.replace("{ at: END - 2, use: 'button', label: 'Go' }", "{ at: END - 2, use: 'check', label: 'Done' }")
+  .replace("{ at: END - 2, x: 240, y: 280 }", "{ at: END - 2, x: 0, y: 300 }");
+
+test('a non-looping brief fails as a loop, passes with --no-loop or "loop": false in project.json', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(oneOff));
+  assert.match((await checkBrief(dir)).errors.join('\n'), /the last row must repeat the first/);
+  assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
+  assert.deepEqual((await checkBrief(dir, { loop: false })).errors, []);
+  const cli = spawnSync('node', [SCRIPT, dir, '--no-loop'], { encoding: 'utf8' });
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.match(cli.stdout, /brief OK \(not a loop\)/);
+  const pj = path.join(dir, 'project.json');
+  writeFileSync(pj, JSON.stringify({ ...JSON.parse(readFileSync(pj, 'utf8')), loop: false }));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.equal(spawnSync('node', [SCRIPT, dir]).status, 0);
+});
+
+test('not a loop: quiet beats run to the end (no seam tail)', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(oneOff));
+  assert.match((await checkBrief(dir, { loop: false })).warnings.join('\n'), /quiet beats \(nothing starts on them\): 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15;/);
+});
+
+test('an unknown flag is a usage error', () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  const r = spawnSync('node', [SCRIPT, dir, '--noloop'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown option "--noloop"/);
+});

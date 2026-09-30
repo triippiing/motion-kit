@@ -40,7 +40,7 @@
 <script src="springs.js"></script>
 <script type="module">
 import { createScene, registry } from './components/index.js';
-let STAGE, THEME, song, END, beatT, scene, since;
+let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
 // ---------------- the three tables you edit ----------------
@@ -49,7 +49,8 @@ const $ = (s) => document.querySelector(s);
 // `name` + w/h/r is a custom state (add a matching .layer in #shape and animate it
 // in `content`). fill/ink override colours with a theme role (canvas, surface, ink,
 // muted, accent, pos, neg) or #rrggbb. The last row must repeat the first and sit at
-// least 2 beats before END so everything settles by the seam.
+// least 2 beats before END so everything settles by the seam (not needed when
+// project.json has "loop": false, e.g. a launch video that ends on its own end card).
 const states = () => [
   { at: 0,       use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
   { at: 2,       use: 'loader', fill: 'ink', ink: 'surface' },
@@ -80,7 +81,10 @@ function seek(t) { scene.seek(t); }
 window.ready = (async () => {
   const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));
   song = await songR.json();
-  STAGE = projR.ok ? (await projR.json()).stage : { width: 1440, height: 1440 };
+  // project.json: stage size; optional "loop": false (a one-off piece, e.g. a launch video, that need not end
+  // where it starts) and "designScale" (overrides the camera scale for stages bigger than the 1440 design size).
+  PROJECT = projR.ok ? await projR.json() : {};
+  STAGE = PROJECT.stage ?? { width: 1440, height: 1440 };
   THEME = themeR.ok ? await themeR.json() : Object.fromEntries(['canvas', 'surface', 'ink', 'muted', 'accent']
     .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
   window.STAGE = STAGE;
@@ -94,7 +98,7 @@ window.ready = (async () => {
   await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
   scene = createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
-    beatT, Springs: window.Springs, registry, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
   since = scene.since;
   window.SFX = scene.sfx;
   seek(0);

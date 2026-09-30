@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// check_brief.mjs PROJECT -- validate MOTION-BRIEF.md: required sections, then the beat table's
+// check_brief.mjs PROJECT [--no-loop] -- validate MOTION-BRIEF.md: required sections, then the beat table's
 // states()/cursor() code with the engine's validator in strict mode (holds, budget, quiet beats).
+// A piece is checked as a loop (last rows repeat the first) unless --no-loop is given or the project's
+// project.json says "loop": false (a launch video that ends on its own end card).
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -15,7 +17,14 @@ export async function loadRegistry(dir) {
   return (await import(pathToFileURL(existsSync(own) ? own : lib).href)).registry;
 }
 
-export async function checkBrief(dir) {
+// Whether the project loops: an explicit option wins, else project.json's "loop" (default true).
+export function projectLoops(dir) {
+  const f = path.join(dir, 'project.json');
+  if (!existsSync(f)) return true;
+  try { return JSON.parse(readFileSync(f, 'utf8')).loop !== false; } catch { return true; }
+}
+
+export async function checkBrief(dir, { loop = projectLoops(dir) } = {}) {
   const errors = [], warnings = [];
   const md = readFileSync(path.join(dir, 'MOTION-BRIEF.md'), 'utf8');
   const heading = (s) => new RegExp(`^${s}[ \\t]*\\r?$`, 'm');
@@ -33,18 +42,21 @@ export async function checkBrief(dir) {
     const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
     return { errors: [...errors, `beat table code ${why}`], warnings };
   }
-  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, strict: true });
+  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, loop, strict: true });
   return { errors: [...errors, ...r.errors], warnings: r.warnings };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  const dir = process.argv[2];
+  const [dir, ...opts] = process.argv.slice(2);
+  const bad = opts.find((o) => o !== '--no-loop');
+  if (bad) { console.error(`error: unknown option "${bad}" (usage: check_brief.mjs PROJECT [--no-loop])`); process.exit(2); }
   if (!dir || !existsSync(path.join(dir, 'MOTION-BRIEF.md')) || !existsSync(path.join(dir, 'song.json'))) {
-    console.error('usage: check_brief.mjs PROJECT (needs PROJECT/MOTION-BRIEF.md and song.json)'); process.exit(2);
+    console.error('usage: check_brief.mjs PROJECT [--no-loop] (needs PROJECT/MOTION-BRIEF.md and song.json)'); process.exit(2);
   }
-  const r = await checkBrief(dir);
+  const loop = opts.includes('--no-loop') ? false : projectLoops(dir);
+  const r = await checkBrief(dir, { loop });
   for (const w of r.warnings) console.log(`warning: ${w}`);
   for (const e of r.errors) console.error(`error: ${e}`);
-  console.log(r.errors.length ? `brief has ${r.errors.length} error(s)` : 'brief OK');
+  console.log(r.errors.length ? `brief has ${r.errors.length} error(s)` : `brief OK${loop ? '' : ' (not a loop)'}`);
   process.exit(r.errors.length ? 1 : 0);
 }

@@ -13,9 +13,11 @@ rendered to MP4. This skill plans; `motion-video` builds from its approved MOTIO
 ask the open questions one per message, assess (tooling, song, length in bars, theme), write
 MOTION-BRIEF.md with real `use:`/`target:` tables (format: `references/state-plan.md`), run
 `node ~/.claude/skills/motion-video/scripts/check_brief.mjs PROJECT` until it passes, then stop for approval.
+A launch video that does not loop gets `"loop": false` in `PROJECT/project.json` first.
 
 Components come from `~/.claude/skills/motion-video/components/CATALOG.md`: pick one per moment by
 its "Use when" line. Consecutive rows of the same component animate a change (tabs Day then Month).
+Five complete sequences to start from: `~/.claude/skills/motion-video/components/RECIPES.md`.
 
 ## Red flags
 

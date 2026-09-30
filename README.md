@@ -15,7 +15,7 @@ Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.
 
 | Skill | Use it for | Say something like |
 |---|---|---|
-| `motion-design` | Planning a promo or reel: states on the song's beat grid, then an approval stop before any code | "Make a promo video for my app to ~/Music/song.mp3" |
+| `motion-design` | Planning a promo or reel: questions, song measurement, a checked `MOTION-BRIEF.md` built from library components, then an approval stop before any code | "Make a promo video for my app to ~/Music/song.mp3" |
 | `motion-video` | Building and rendering: song analysis, the `seek(t)` page, contact sheet, seam check, MP4 | "Render it" / "Re-time this to a new song" |
 | `motion-ui` | Live product UI: indicators, toggles, drags, interruptible transitions, following the project's own motion rules | "Make this tab indicator springier" |
 
@@ -31,6 +31,21 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 `install.sh` installs ffmpeg, numpy, Playwright and its Chromium when they are missing, then runs
 `skills/motion-video/scripts/doctor.sh`, which prints the exact fix for anything still missing
 (only Homebrew itself needs a manual, password-prompted install).
+
+## Components
+
+Videos are built from a library of 28 ready-made UI components (buttons, toggles, tabs, loaders,
+toasts, charts, a dock, a command palette...) that each fill the one morphing shape. A row in the
+video's state table names one and the cursor presses it:
+
+```js
+{ at: 6,  use: 'toggle', on: false, label: 'Notifications' },   // states()
+{ at: 7,  target: 'knob', press: true },                        // cursor(): flips it
+```
+
+- [CATALOG.md](skills/motion-video/components/CATALOG.md): every component with a picture, props and an example
+- [RECIPES.md](skills/motion-video/components/RECIPES.md): five complete sequences to start from
+- [WRITING-A-COMPONENT.md](skills/motion-video/components/WRITING-A-COMPONENT.md): adding your own
 
 ## Companion: transitions.dev
 
@@ -50,7 +65,8 @@ trigger on their own in any project, e.g. "make a 15 second promo of this app to
 ```bash
 S=~/.claude/skills/motion-video/scripts
 $S/new_project.sh ~/promo ~/Music/song.mp3 --bars 7 --theme ./app/style.css   # measure the song, scaffold
-# edit ~/promo/index.html: the states(), cursor() and content tables
+# edit ~/promo/index.html: the states() and cursor() tables (start from a recipe)
+node $S/check_brief.mjs ~/promo      # if you wrote a MOTION-BRIEF.md: check its tables
 node $S/beat_stills.mjs ~/promo      # contact sheet + loop-seam check
 node $S/render.mjs ~/promo           # -> ~/promo/out/video.mp4
 ```
@@ -71,7 +87,7 @@ render.mjs DIR ──▶ Playwright frames ─▶ ffmpeg tmix motion blur + audi
 ```
 shared/springs.js        closed-form damped springs (spring, track, live, fromSettle), no deps
 skills/motion-design/    planning skill + direction and state-plan references
-skills/motion-video/     scripts, seek(t) template, tests
+skills/motion-video/     scripts, seek(t) template, component library, tests
 skills/motion-ui/        in-app motion skill + tested patterns
 demos/                   01 reference sequence, 02 finance-app promo, 03 dock pill capture
 docs/superpowers/        the original design spec and implementation plan (historical record)

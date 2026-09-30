@@ -2,6 +2,9 @@
 // Rows with `use` are library components; rows with `name` are custom states whose
 // content lives in `.layer[data-state=name]` and the page's `content` functions,
 // exactly as before the library existed.
+// createScene options beyond the tables: loop (default true; false for a one-off piece whose last row need not
+// repeat the first) and designScale (the camera scale K; default min(W, H) / 1440, never below 1). The template
+// reads both from project.json.
 //
 // Component module contract:
 //   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
@@ -34,7 +37,7 @@ import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
 export function createScene(o) {
-  const { states, cursor, extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true } = o;
+  const { states, cursor, extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
   const { errors } = validate({ states, cursor, registry, song, loop });
   if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
   const { track, fromSettle } = Springs;
@@ -132,7 +135,11 @@ export function createScene(o) {
   const down = (c) => ({ t: beatT(c.at) - 0.08 * bs, to: 0.82 });
   const up = (c, d = 0) => ({ t: beatT(c.at) + d * bs, to: 1 });
   const G = rows.map((r) => ({ ...r.geo, at: r.row.at }));
-  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height)) / Math.max(s.w, s.h)));
+  // Design scale: components are sized for a 1440 stage. On a bigger stage K = min(W, H) / 1440 scales the camera
+  // (and so the cursor) so the piece keeps its proportions, just sharper; smaller stages keep K = 1 (the zoom below
+  // already fits the shape to them). project.json `designScale` overrides K.
+  const K = designScale ?? Math.max(1, Math.min(stage.width, stage.height) / 1440);
+  const zoom = (s) => K * Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height) / K) / Math.max(s.w, s.h)));
   const tracks = {
     w: mk(G, (s) => s.w, SHAPE), h: mk(G, (s) => s.h, SHAPE), r: mk(G, (s) => s.r, SHAPE),
     fill: [0, 1, 2].map((k) => mk(G, (s) => hex(s.fill)[k], SHAPE)),
@@ -196,7 +203,7 @@ export function createScene(o) {
     renderBadges(badges, t, { w, h, dx, CX, CY, base });
     const p = v(tracks.press, t);
     const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
-    dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
+    dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${(p * K) / z})`;
   }
 
   const inspect = (t) => { const z = v(tracks.zoom, t); return { cursor: { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z } }; };

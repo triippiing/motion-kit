@@ -134,3 +134,22 @@ test('ctx.targets: a continuation starts with the previous row\'s latest aim, re
   // A continuation whose predecessor saw no cursor row carries nothing.
   assert.deepEqual(s.rows[4].ctx.targets, [{ t: 6, target: null, press: null }]);
 });
+
+// The design is laid out at a 1440 stage. A bigger stage scales the camera and cursor by
+// K = min(W, H) / 1440 (never below 1) so the piece looks the same, just sharper; designScale overrides K.
+test('design scale: a bigger stage zooms by K = min(W, H) / 1440; the cursor keeps its design size; designScale overrides', () => {
+  const at = (stage, extra = {}) => {
+    const dom = fakeDom();
+    const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }], { dom, stage, ...extra });
+    s.seek(1);
+    const num = (tr) => Number(tr.match(/scale\(([\d.]+)\)/)[1]);
+    return { zoom: num(dom.camera.style.transform), cursor: num(dom.cursor.style.transform) };
+  };
+  const base = at({ width: 1440, height: 1440 }), big = at({ width: 5120, height: 2880 });
+  assert.equal(base.zoom, 2.4, 'a 200x100 shape hits the 2.4 zoom cap at 1440');
+  assert.ok(Math.abs(big.zoom - 2 * base.zoom) < 1e-9, `2880 short side: zoom doubles (${big.zoom})`);
+  assert.ok(Math.abs(big.cursor - base.cursor) < 1e-9, 'cursor scale in camera space is unchanged, so on screen it doubles with the camera');
+  assert.equal(at({ width: 1080, height: 1920 }).zoom, 2.4, 'stages smaller than 1440 keep K = 1 (the zoom already adapts)');
+  assert.equal(at({ width: 5120, height: 2880 }, { designScale: 1 }).zoom, 2.4, 'designScale: 1 turns the scaling off');
+  assert.ok(Math.abs(at({ width: 1440, height: 1440 }, { designScale: 1.25 }).zoom - 3) < 1e-9, 'designScale 1.25 at 1440');
+});

@@ -15,6 +15,11 @@ motion-kit stands on other people's work. Thank you to all of them.
   and which `motion-ui` and `motion-design` suggest from. None of its transitions are copied into this
   repo: its [terms](https://transitions.dev/terms.html) allow using and modifying them in your own
   projects but not republishing the collection. Pro transitions are sold on its site.
+- **Component names**: the components in `skills/motion-video/components/` are named after common UI
+  patterns (button, toggle, tabs, toast, dock, command palette...), and some share names with entries
+  in the transitions.dev catalog, so they are easy to find and match to a plan. They are original
+  implementations written for this kit (closed-form springs, a pure function of time); no code or
+  asset was copied from anywhere.
 - **Jesse Vincent, [Superpowers](https://github.com/obra/superpowers)** (MIT): the Claude Code skills
   workflow used to design, plan, build and review this kit (brainstorming, writing plans,
   subagent-driven development, code review). `docs/superpowers/` holds the resulting spec and plan.
