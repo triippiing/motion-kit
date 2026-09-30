@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<!-- Made with motion-kit (github.com/triippiing/motion-kit). Direction adapted from the open
+     prompt template by zero (@twoclipping). House font: Geist by Vercel (SIL OFL 1.1). -->
+<head>
+<meta charset="utf-8">
+<title>motion</title>
+<style>
+  /* House fallbacks: black and white on warm gray. theme.css (extract_theme.py)
+     overrides them. Use --accent in STATES for one accent colour; never
+     gradients, glows or particle effects. */
+  :root { --canvas:#ECEAE6; --surface:#FFFFFF; --ink:#0B0B0B; --muted:#8C8883; --accent:#0B0B0B;
+          --font:Geist, system-ui, sans-serif; }
+  html, body { margin:0; background:var(--canvas); overflow:hidden; }
+  #stage { position:relative; overflow:hidden; background:var(--canvas);
+           font-family:var(--font); color:var(--ink);
+           -webkit-font-smoothing:antialiased; }
+  /* The camera scales about the stage centre (its transform is translate-scale-translate, so the origin must be 0 0). No will-change here or inside:
+     text under a scaled will-change layer renders blurry. */
+  #camera { position:absolute; inset:0; transform-origin:0 0; }
+  #shape { position:absolute; box-sizing:border-box; overflow:hidden; }
+  .layer { position:absolute; inset:0; display:grid; place-items:center; white-space:nowrap; opacity:0; }
+  .label { font-size:34px; font-weight:500; letter-spacing:-0.01em; }
+  #cursor { position:absolute; left:0; top:0; width:44px; height:44px; transform-origin:7px 4px; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=block" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
+</head>
+<body>
+<div id="stage">
+  <div id="camera">
+    <div id="shape">
+      <!-- Component rows (use:) get their layers from the engine. For a custom row (name:), add <div class="layer" data-state="NAME">...</div> here and animate it in content. -->
+    </div>
+    <svg id="cursor" viewBox="0 0 44 44"><path d="M7 4 L7 33 L14.5 25.5 L20 37 L25 34.8 L19.6 23.6 L30 23.6 Z" fill="#0B0B0B" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>
+  </div>
+</div>
+<script src="springs.js"></script>
+<script type="module">
+import { createScene, registry } from './components/index.js';
+let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
+const $ = (s) => document.querySelector(s);
+
+// ---------------- the three tables you edit ----------------
+// STATES: what the one shape is from beat `at`. `use` names a component from
+// components/CATALOG.md (its other keys are that component's props); a row with
+// `name` + w/h/r is a custom state (add a matching .layer in #shape and animate it
+// in `content`). fill/ink override colours with a theme role (canvas, surface, ink,
+// muted, accent, pos, neg) or #rrggbb. The last row must repeat the first and sit at
+// least 2 beats before END so everything settles by the seam (not needed when
+// project.json has "loop": false, e.g. a launch video that ends on its own end card).
+const states = () => [
+  { at: 0,       use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
+  { at: 2,       use: 'loader', fill: 'ink', ink: 'surface' },
+  { at: 4,       use: 'check' },
+  { at: END - 2, use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
+];
+// CURSOR: where the pointer is from beat `at`. Either x/y in px from the stage
+// centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
+// optionally with dx/dy. press: true clicks (click sound); 'down' presses and holds,
+// 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.
+// First and last rows must match, the last at least 2 beats before END.
+const cursor = () => [
+  { at: 0,       x: 240, y: 280 },
+  { at: 1.25,    x: 60,  y: 18 },
+  { at: 2,       x: 60,  y: 18, press: true },
+  { at: 3,       x: 200, y: 230 },
+  { at: END - 2, x: 240, y: 280 },
+];
+// EXTRA_SFX: any other sound cues, [{ beat, file, gain }], merged into window.SFX.
+const extraSfx = () => [];
+// Custom-state animation: functions of ABSOLUTE t, run every frame. since(name, t)
+// gives seconds since the latest custom row `name` began. Components need nothing here.
+const content = {};
+// ------------------------------------------------------------
+
+function seek(t) { scene.seek(t); }
+
+window.ready = (async () => {
+  const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));
+  song = await songR.json();
+  // project.json: stage size; optional "loop": false (a one-off piece, e.g. a launch video, that need not end
+  // where it starts) and "designScale" (overrides the camera scale for stages bigger than the 1440 design size).
+  PROJECT = projR.ok ? await projR.json() : {};
+  STAGE = PROJECT.stage ?? { width: 1440, height: 1440 };
+  THEME = themeR.ok ? await themeR.json() : Object.fromEntries(['canvas', 'surface', 'ink', 'muted', 'accent']
+    .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
+  window.STAGE = STAGE;
+  END = song.beats.length;
+  beatT = (b) => {
+    const i = Math.floor(b), beat = song.beats[i];
+    return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
+  };
+  Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
+  const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
+  await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
+  await document.fonts.ready;
+  scene = createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
+    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+  since = scene.since;
+  window.SFX = scene.sfx;
+  seek(0);
+})();
+window.seek = seek;
+window.inspect = (t) => scene.inspect(t);
+
+// ?play: watch it live in a browser with the audio (click to start).
+if (location.search.includes('play')) {
+  window.ready.then(() => {
+    const audio = new Audio('clip.wav'); audio.loop = true;
+    document.body.addEventListener('click', () => audio.play(), { once: true });
+    const D = song.loop.duration_sec;
+    const tick = () => { seek(audio.paused ? 0 : audio.currentTime % D); requestAnimationFrame(tick); };
+    tick();
+  });
+}
+</script>
+</body>
+</html>
