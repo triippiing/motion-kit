@@ -56,10 +56,10 @@ let song, END, SHAPE, beatT;
 // surface, ink, muted, accent) or #rrggbb. The last row must repeat the
 // first and sit at least 2 beats before END so everything settles by the seam.
 const states = () => [
-  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
+  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'accent', ink: 'surface' },
   { at: 2,       name: 'loader', w: 112, h: 112, r: 56, fill: 'ink', ink: 'surface' },
   { at: 4,       name: 'check',  w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
-  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
+  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'accent', ink: 'surface' },
 ];
 // CURSOR: where the pointer is from beat `at`, in px from the stage centre.
 // press: true clicks on that beat (dip and release, plays sfx/click.wav at the beat's cue).

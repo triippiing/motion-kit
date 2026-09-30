@@ -28,7 +28,9 @@ command. Re-run `install.sh` after. `skills/motion-video/scripts/doctor.sh` is t
 truth for "is this machine ready"; run it whenever something fails oddly.
 
 Claude's shell usually does not load `~/.zprofile`, so `/opt/homebrew/bin` may be missing from
-PATH. Every script adds it itself; for ad-hoc commands use `/opt/homebrew/bin/ffmpeg`.
+PATH. Every script adds it itself; for ad-hoc commands use `/opt/homebrew/bin/ffmpeg` and
+`/opt/homebrew/bin/ffprobe`. Rendering needs network access once per page load: the template
+loads its house font (Geist) from Google Fonts. Offline, it falls back to the system UI font.
 
 ## How a video gets made
 
@@ -43,8 +45,29 @@ PATH. Every script adds it itself; for ad-hoc commands use `/opt/homebrew/bin/ff
 5  node render.mjs DIR --preview, then node render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
 ```
 
-Scripts are in `skills/motion-video/scripts/` (after install also `~/.claude/skills/motion-video/scripts/`).
-`node render.mjs DIR --serve` serves the page; open the printed `?play` URL and click to watch it live with sound.
+Scripts are in `<clone>/skills/motion-video/scripts/`; after `install.sh` the same files are at
+`~/.claude/skills/motion-video/scripts/` (a symlink). Use whichever exists, e.g.
+`S=~/.claude/skills/motion-video/scripts` or `S=<clone>/skills/motion-video/scripts`.
+
+Details worth knowing:
+- `--preview` renders **half size** with 1 subframe (fast); the final render is full size with 4.
+- `node render.mjs DIR --serve` serves the page; open the printed `?play` URL and click to watch it live with sound.
+- The loop window: unless you pass `--start-bar N`, `analyze_song.py` picks the loudest N-bar window,
+  preferring one that starts on a detected section boundary (listed in `song.json` `sections`). To move
+  it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json and clip.wav).
+- Loop length vs states: each state holds at least `rules.min_hold_beats`, so `max_states` = beats / min hold.
+  The template's 4 states exactly fill a 2-bar loop at ~120 BPM; use 7 bars for a 12-state piece.
+- The template's button uses the `accent` role; the house accent is black, so a new project looks black and
+  white until a theme sets an accent.
+
+Changing colours: re-run `extract_theme.py project.css --out DIR` (it warns, harmlessly, for roles the CSS
+lacks and keeps the house value), use `--map accent=--brand` when it picks the wrong variable, or edit
+`theme.json` **and** `theme.css` together by hand (both are read: JSON for animated colours, CSS for `var(--role)`).
+
+No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
+```bash
+python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
+```
 
 ## Rules that matter (the tests enforce most of them)
 
@@ -61,6 +84,8 @@ Scripts are in `skills/motion-video/scripts/` (after install also `~/.claude/ski
 - **Style (direction.md):** one shape never cut; tiny overshoot at most; content swaps blur with
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
+- **Approval gate:** always show the state table and wait before building. If the user's request
+  already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs) and renders (`out/`)
   are git-ignored and must never be committed. Commercial tracks: local viewing only.
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;

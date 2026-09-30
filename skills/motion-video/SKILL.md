@@ -5,7 +5,7 @@ description: Use when building or rendering a code-only motion video (HTML seek(
 
 # Motion video
 
-Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PATH themselves.
+Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install.sh`; in a clone of the repo the same files are at `<clone>/skills/motion-video/`). Paths below are relative to that folder. Scripts put Homebrew on PATH themselves; for ad-hoc checks use `/opt/homebrew/bin/ffmpeg` and `/opt/homebrew/bin/ffprobe`.
 
 | Job | Command |
 |---|---|
