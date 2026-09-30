@@ -1,7 +1,7 @@
 // export.mjs: stage override, shape grouping, per-preset encodes, loudness, --silent, warnings, manifest,
 // size caps (two-pass, step-down, errors), web outputs (mp4, webm, poster) and GIF.
 // Tiny test presets (MOTION_PRESETS) and small stages keep the renders and encodes quick.
-import test, { before } from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -15,6 +15,8 @@ import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, lou
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
+const temps = [TMP];   // temp dirs this file makes; removed when it ends
+after(() => { for (const d of temps) rmSync(d, { recursive: true, force: true }); });
 const zero = { top: 0, bottom: 0, left: 0, right: 0 };
 const preset = (o) => ({ label: o.name, group: 'test', fps: 30, maxSeconds: null, maxMB: null, video: { codec: 'h264', crf: 26, profile: 'high' },
   audio: { codec: 'aac', kbps: 96, lufs: -14, truePeak: -1 }, safe: zero, public: true, source: 'https://example.com/spec', checked: '2026-09-30',
@@ -334,7 +336,9 @@ test('commercial music on a public preset warns', () => {
 });
 
 test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill dir', () => {
-  const link = path.join(mkdtempSync(path.join(tmpdir(), 'mk-symlink-')), 'motion-video');
+  const linkDir = mkdtempSync(path.join(tmpdir(), 'mk-symlink-'));
+  temps.push(linkDir);
+  const link = path.join(linkDir, 'motion-video');
   symlinkSync(SKILL, link);
   const cli = (...args) => spawnSync('node', [path.join(link, 'scripts', 'export.mjs'), ...args], { encoding: 'utf8', env: { ...process.env, MOTION_PRESETS: PRESETS } });
   let r = cli(DIR, '--for', 'reels,reelz');
@@ -385,7 +389,10 @@ const psnr = (a, b) => {
   return m[1] === 'inf' ? Infinity : Number(m[1]);
 };
 const noStaging = (dir) => readdirSync(dir).filter((n) => n.startsWith('.'));
+// Two-pass log dirs this file's encodes left behind: the ones present after that were not there before (other test
+// files run in parallel and may have their own in flight, so the tmpdir is never expected to be empty).
 const passlogs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('mk-2pass-'));
+const leftPasslogs = (before) => passlogs().filter((n) => !before.includes(n));
 
 test('capSizes steps the preset size down to 1080/720/540 short side, never up; fitToCap picks the largest size over its floor', () => {
   assert.deepEqual(capSizes([1080, 1920]), [[1080, 1920], [720, 1280], [540, 960]]);
@@ -421,14 +428,15 @@ async function capProject() {
 // maxMB that leaves `videoKbps` for video after `audioKbps` of audio over the project's loop.
 const maxMBFor = (dir, videoKbps, audioKbps = 96) => Math.ceil(((videoKbps + audioKbps + 1) * 1000 * loopSec(dir) / 8 / 0.97)) / 1e6;
 
-let capM;
+let capM, capPasslogs;
 async function capRun() {
   if (capM) return capM;
-  const dir = await capProject();
+  const dir = await capProject(), logs = passlogs();
   capM = await withPresets({
     fits: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 1200) }),   // 1200 kbps >= the 720 floor (800)
     steps: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 600) }),   // under 800 at 720, over 450 at 540
   }, () => exportProject(dir, { for: ['fits', 'steps'], log: () => {} }));
+  capPasslogs = leftPasslogs(logs);
   return capM;
 }
 
@@ -439,7 +447,7 @@ test('over a cap, two-pass bitrate lands just under maxMB', async () => {
   assert.deepEqual([f.width, f.height, f.fps, f.vcodec, f.acodec], [720, 720, 30, 'h264', 'aac']);
   assert.equal(f.stepDown, null);
   assert.ok(f.notes.some((n) => /^over [\d.]+ MB at CRF 26 \([\d.]+ MB\): two-pass at \d+ kbps$/.test(n)), JSON.stringify(f.notes));
-  assert.deepEqual(passlogs(), [], 'passlog files cleaned up');
+  assert.deepEqual(capPasslogs, [], 'passlog files cleaned up');
 });
 
 test('when full size cannot meet the floor, resolution steps down and the manifest says so', async () => {
@@ -454,7 +462,7 @@ test('when full size cannot meet the floor, resolution steps down and the manife
 test('when even the smallest size cannot meet the floor, the export stops with a clear error and writes no file', async () => {
   const dir = await capProject(), exportsDir = path.join(dir, 'out', 'exports');
   await capRun();
-  const manifest = readFileSync(path.join(exportsDir, 'manifest.json'));
+  const manifest = readFileSync(path.join(exportsDir, 'manifest.json')), logs = passlogs();
   await withPresets({
     ok: preset({ shape: 'design', public: false }),
     tiny: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 300) }),   // 300 kbps is under 540's floor (450)
@@ -469,7 +477,7 @@ test('when even the smallest size cannot meet the floor, the export stops with a
   assert.ok(!existsSync(path.join(exportsDir, 'ok.mp4')), 'nothing from a failed export lands in out/exports');
   assert.deepEqual(noStaging(exportsDir), [], 'staging cleaned up');
   assert.deepEqual(readFileSync(path.join(exportsDir, 'manifest.json')), manifest, 'the previous manifest is untouched');
-  assert.deepEqual(passlogs(), [], 'passlog files cleaned up');
+  assert.deepEqual(leftPasslogs(logs), [], 'passlog files cleaned up');
 });
 
 test('web writes mp4 (faststart), webm (vp9/opus) and a poster jpg from a settled frame', () => {
