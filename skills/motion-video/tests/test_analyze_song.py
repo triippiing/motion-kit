@@ -101,6 +101,8 @@ class AnalyzeTests(unittest.TestCase):
         r = self._cli(str(song_path), "--out", str(out), "--bars", "4")
         self.assertEqual(r.returncode, 0, r.stderr)
         song = json.loads((out / "song.json").read_text())
+        # Only the file name is recorded: no local path (or user name) ends up in a published song.json.
+        self.assertEqual(song["source"], "Tints (feat. Test) copy.wav")
         with wave.open(str(out / "clip.wav")) as w:
             dur = w.getnframes() / w.getframerate()
         self.assertAlmostEqual(dur, song["loop"]["duration_sec"], delta=0.005)

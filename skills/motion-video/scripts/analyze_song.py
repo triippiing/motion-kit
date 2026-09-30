@@ -212,7 +212,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
                         f"this loop has {total}. Use --bars {need} or fewer states.")
 
     return {
-        "source": str(path), "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
+        "source": Path(path).name, "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
         "alternatives": [round(c[0], 2) for c in cands[1:4]],
         "beat_sec": beat_sec, "beats_per_bar": bpb, "downbeat_sec": round(downbeat_sec, 6), "fps": fps,
         "loop": {"start_sec": round(start_sec, 6), "start_bar": start, "bars": bars,
