@@ -35,7 +35,7 @@ Success means:
 |---|---|---|
 | Reels / TikTok / Shorts | `reels`, `tiktok`, `shorts` | vertical 1080x1920 |
 | X / LinkedIn | `x`, `linkedin` | square 1440 by default; `x-landscape`, `linkedin-landscape` for 1920x1080 |
-| Discord / chat | `discord` (10 MB cap), `discord-nitro` (50 MB) | the design shape |
+| Discord / chat | `discord` (10 MB cap), `discord-nitro` (500 MB per Jack, 2026-09-30; rising to 1 GB soon: confirm against Discord's official page at build time) | the design shape |
 | Web / wiki / GitHub | `web` (small MP4 + WebM + poster JPG), `gif` (README-friendly GIF) | the design shape |
 
 Exact limits (max length, max file size, bitrate ceilings, recommended loudness, safe-zone margins)
