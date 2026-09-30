@@ -28,7 +28,25 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 ~/motion-kit/install.sh   # links skills into ~/.claude/skills, installs Playwright, runs the doctor
 ```
 
-`skills/motion-video/scripts/doctor.sh` checks everything and prints the exact fix for anything missing.
+`install.sh` installs ffmpeg, numpy, Playwright and its Chromium when they are missing, then runs
+`skills/motion-video/scripts/doctor.sh`, which prints the exact fix for anything still missing
+(only Homebrew itself needs a manual, password-prompted install).
+
+## Using it with Claude
+
+Open Claude Code in the cloned folder, or just give it this repo's URL: `CLAUDE.md` explains
+the whole project (pipeline, page contract, rules, code map, tests). Once installed, the skills
+trigger on their own in any project, e.g. "make a 15 second promo of this app to ~/Music/song.mp3".
+
+## Using it by hand
+
+```bash
+S=~/.claude/skills/motion-video/scripts
+$S/new_project.sh ~/promo ~/Music/song.mp3 --bars 7 --theme ./app/style.css   # measure the song, scaffold
+# edit ~/promo/index.html: the states(), cursor() and content tables
+node $S/beat_stills.mjs ~/promo      # contact sheet + loop-seam check
+node $S/render.mjs ~/promo           # -> ~/promo/out/video.mp4
+```
 
 ## Pipeline
 
