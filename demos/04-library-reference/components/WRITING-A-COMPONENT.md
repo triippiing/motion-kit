@@ -49,6 +49,8 @@ export const meta = {
   example: "{ at: 0, use: 'tag', label: 'Design' }",   // ONE line, used in the catalog and tests
   edgeCases: [{ label: '' }],                          // rows (without at/use) that push the limits
   hotspotExample: { 'item:<label>': 'item:Plan' },     // only if a hotspot is a family: one real name
+  drag: ['thumb'],          // only if a hotspot is dragged (you read ctx.cursorAt): which ones; validate then
+                            // warns when a drag on it never moves the cursor between the 'down' and the 'up'
 };
 export function geometry(props, ctx) { return { w, h, r, fill: 'surface', ink: 'ink' }; }
 export function mount(layer, props, ctx) { /* build DOM once */ }

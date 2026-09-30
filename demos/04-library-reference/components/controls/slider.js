@@ -7,6 +7,7 @@ export const meta = {
   motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value.",
   props: { value: ['number', 0.4], min: ['number', 0], max: ['number', 1], overstretch: ['boolean', true], icon: ['enum:volume|none', 'volume'] },
   hotspots: ['thumb', 'track'],
+  drag: ['thumb'],
   sounds: [],
   example: "{ at: 0, use: 'slider', value: 0.6 }",
   edgeCases: [{ value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }],

@@ -9,7 +9,9 @@
 // Component module contract:
 //   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
 //            hotspots: [..], sounds: [..], edgeCases: [rowObjects],
-//            hotspotExample?: { 'tab:<item>': 'tab:Month' } }  // docs only; validate/engine ignore it
+//            hotspotExample?: { 'tab:<item>': 'tab:Month' },  // docs only; validate/engine ignore it
+//            drag?: ['thumb'] }  // hotspots a press 'down' drags (the component reads cursorAt); validate warns
+//                                // when a drag on one never moves the cursor between 'down' and 'up'
 //   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
 //   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
