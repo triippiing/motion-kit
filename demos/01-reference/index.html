@@ -15,11 +15,21 @@
            -webkit-font-smoothing:antialiased; }
   /* The camera scales about the stage centre. No will-change here or inside:
      text under a scaled will-change layer renders blurry. */
-  #camera { position:absolute; inset:0; }
+  #camera { position:absolute; inset:0; transform-origin:0 0; } /* demo fix: the transform below assumes a 0 0 origin */
   #shape { position:absolute; box-sizing:border-box; overflow:hidden; }
   .layer { position:absolute; inset:0; display:grid; place-items:center; white-space:nowrap; opacity:0; }
   .label { font-size:34px; font-weight:500; letter-spacing:-0.01em; }
   #cursor { position:absolute; left:0; top:0; width:44px; height:44px; transform-origin:7px 4px; }
+  /* Demo layout helpers. Every icon uses stroke-width 4 in layout px. */
+  .box { position:relative; }
+  .abs { position:absolute; }
+  .num { font-variant-numeric:tabular-nums; }
+  svg { display:block; overflow:visible; }
+  .ico { fill:none; stroke:currentColor; stroke-width:4; stroke-linecap:round; stroke-linejoin:round; }
+  .t-title { font-size:32px; font-weight:600; letter-spacing:-0.02em; }
+  .t-body  { font-size:26px; font-weight:500; letter-spacing:-0.01em; }
+  .t-small { font-size:20px; font-weight:500; color:var(--muted); }
+  .dim { color:var(--muted); }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,12 +42,136 @@
     <div id="shape">
       <!-- One .layer per state NAME in STATES. Only content lives in layers; the
            shape's size, radius and colours come from STATES. -->
-      <div class="layer" data-state="button"><span class="label">Get started</span></div>
-      <div class="layer" data-state="loader">
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none"><circle id="spin" cx="22" cy="22" r="17" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="70 200"/></svg>
+
+      <!-- button 380x112 -->
+      <div class="layer" data-state="button">
+        <div id="btn-hover" class="abs" style="inset:0;background:var(--surface);opacity:0"></div>
+        <span class="label" style="position:relative">Get started</span>
       </div>
+
+      <!-- loader 112x112 -->
+      <div class="layer" data-state="loader">
+        <svg width="44" height="44" viewBox="0 0 44 44"><circle id="spin" class="ico" cx="22" cy="22" r="17" stroke-dasharray="70 200"/></svg>
+      </div>
+
+      <!-- check 112x112 -->
       <div class="layer" data-state="check">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path id="tick" d="M12 25 L21 34 L37 15" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1"/></svg>
+        <svg id="tickwrap" width="48" height="48" viewBox="0 0 48 48"><path id="tick" class="ico" d="M12 25 L21 34 L37 15" pathLength="1" stroke-dasharray="1 1"/></svg>
+      </div>
+
+      <!-- island 400x96 (ink) -->
+      <div class="layer" data-state="island">
+        <div class="box" style="width:400px;height:96px">
+          <div class="abs" style="left:20px;top:20px;width:56px;height:56px;border-radius:14px;background:var(--surface);color:var(--ink);display:grid;place-items:center">
+            <svg width="24" height="24" viewBox="0 0 24 24"><circle class="ico" cx="12" cy="12" r="8"/></svg>
+          </div>
+          <div class="abs t-body" style="left:94px;top:0;line-height:96px;font-size:28px">Now playing</div>
+          <div id="eq" class="abs" style="right:30px;top:24px;height:48px;width:42px;display:flex;gap:6px;align-items:center">
+            <i style="display:block;width:6px;border-radius:3px;background:currentColor"></i>
+            <i style="display:block;width:6px;border-radius:3px;background:currentColor"></i>
+            <i style="display:block;width:6px;border-radius:3px;background:currentColor"></i>
+            <i style="display:block;width:6px;border-radius:3px;background:currentColor"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- player 560x360 (surface) -->
+      <div class="layer" data-state="player">
+        <div class="box" style="width:560px;height:360px">
+          <div class="abs" style="left:32px;top:32px;width:128px;height:128px;border-radius:22px;background:var(--ink);color:var(--surface);display:grid;place-items:center">
+            <svg width="56" height="56" viewBox="0 0 56 56"><circle class="ico" cx="28" cy="28" r="22"/><circle cx="28" cy="28" r="5" fill="currentColor"/></svg>
+          </div>
+          <div class="abs t-title" style="left:184px;top:48px">Night Drive</div>
+          <div class="abs t-body dim" style="left:184px;top:96px">Side A</div>
+          <div class="abs" style="left:32px;top:200px;width:496px;height:8px;border-radius:4px;background:var(--muted);opacity:.28"></div>
+          <div id="pl-fill" class="abs" style="left:32px;top:200px;height:8px;border-radius:4px;background:currentColor"></div>
+          <div id="pl-knob" class="abs" style="top:193px;width:22px;height:22px;margin-left:-11px;border-radius:11px;background:currentColor"></div>
+          <div id="pl-time" class="abs t-small num" style="left:32px;top:226px">1:02</div>
+          <div class="abs t-small num" style="right:32px;top:226px">3:41</div>
+          <svg class="abs" style="left:186px;top:286px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M20 7 L11 14 L20 21 M7 7 V21"/></svg>
+          <div class="abs" style="left:248px;top:268px;width:64px;height:64px;border-radius:32px;background:currentColor;display:grid;place-items:center">
+            <svg width="28" height="28" viewBox="0 0 28 28" style="color:var(--surface)">
+              <polygon id="pp-a" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+              <polygon id="pp-b" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <svg class="abs" style="left:346px;top:286px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M8 7 L17 14 L8 21 M21 7 V21"/></svg>
+        </div>
+      </div>
+
+      <!-- volume 520x96 (surface); content may stretch the shape past max -->
+      <div class="layer" data-state="volume">
+        <div id="vol-box" class="box" style="width:520px;height:96px">
+          <svg class="abs" style="left:30px;top:30px" width="36" height="36" viewBox="0 0 36 36">
+            <path class="ico" d="M5 13 H11 L19 6 V30 L11 23 H5 Z"/>
+            <path class="ico" d="M25 13 Q28.5 18 25 23"/>
+            <path id="vol-wave" class="ico" d="M29 8 Q36 18 29 28"/>
+          </svg>
+          <div id="vol-track" class="abs" style="left:92px;top:44px;height:8px;border-radius:4px;background:var(--muted);opacity:.28"></div>
+          <div id="vol-fill" class="abs" style="left:92px;top:44px;height:8px;border-radius:4px;background:currentColor"></div>
+          <div id="vol-knob" class="abs" style="top:37px;width:22px;height:22px;margin-left:-11px;border-radius:11px;background:currentColor"></div>
+        </div>
+      </div>
+
+      <!-- toggle 200x112 (muted off -> ink on) -->
+      <div class="layer" data-state="toggle">
+        <div class="box" style="width:200px;height:112px">
+          <div id="tg-knob" class="abs" style="top:12px;height:88px;border-radius:44px;background:var(--surface)"></div>
+        </div>
+      </div>
+
+      <!-- tabs 600x104 (ink); indicator is two-edge -->
+      <div class="layer" data-state="tabs">
+        <div class="box" style="width:600px;height:104px">
+          <div id="tb-ind" class="abs" style="top:8px;height:88px;border-radius:44px;background:var(--surface)"></div>
+          <div class="abs t-body" style="inset:0;display:grid;grid-template-columns:repeat(3,1fr);padding:0 8px;place-items:center;opacity:.72"><span>Day</span><span>Week</span><span>Month</span></div>
+          <div id="tb-on" class="abs t-body" style="inset:0;display:grid;grid-template-columns:repeat(3,1fr);padding:0 8px;place-items:center;color:var(--ink)"><span>Day</span><span>Week</span><span>Month</span></div>
+        </div>
+      </div>
+
+      <!-- chart 600x480 (surface) -->
+      <div class="layer" data-state="chart">
+        <div class="box" style="width:600px;height:480px">
+          <div class="abs t-body dim" style="left:40px;top:36px">Revenue · Month</div>
+          <div id="ch-num" class="abs num" style="left:40px;top:74px;font-size:60px;font-weight:600;letter-spacing:-0.03em">$48.2k</div>
+          <svg class="abs" style="left:0;top:0" width="600" height="480" viewBox="0 0 600 480">
+            <path id="ch-line" class="ico" pathLength="1" stroke-dasharray="1 1" d=""/>
+          </svg>
+          <div class="abs t-small" style="left:40px;right:40px;top:434px;display:flex;justify-content:space-between"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+          <div id="ch-dot" class="abs" style="width:26px;height:26px;margin:-13px 0 0 -13px;box-sizing:border-box;border-radius:13px;border:4px solid currentColor;background:var(--surface)"></div>
+          <div id="ch-tip" class="abs t-body num" style="height:52px;line-height:52px;padding:0 20px;border-radius:26px;background:var(--ink);color:var(--surface);font-size:24px">$12.4k</div>
+        </div>
+      </div>
+
+      <!-- cmdk 620x392 -> 620x188 (surface); anchored to the shape's top -->
+      <div class="layer" data-state="cmdk" style="display:block">
+        <svg class="abs" width="28" height="28" viewBox="0 0 28 28" style="left:34px;top:34px;color:var(--muted)"><circle class="ico" cx="12" cy="12" r="8"/><path class="ico" d="M18 18 L24 24"/></svg>
+        <div class="abs t-body" style="left:84px;top:0;line-height:96px;font-size:28px"><span id="k-ph" class="dim">Search commands</span><span id="k-typed"></span><span id="k-caret" style="display:inline-block;width:3px;height:32px;margin-left:2px;vertical-align:-6px;background:currentColor"></span></div>
+        <div class="abs" style="left:0;right:0;top:95px;height:2px;background:var(--muted);opacity:.2"></div>
+        <div class="k-row abs" data-i="0" style="left:12px;right:12px;height:68px;border-radius:16px">
+          <svg class="abs" style="left:22px;top:20px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M14 5 V23 M5 14 H23"/></svg>
+          <span class="abs t-body" style="left:72px;line-height:68px">New project</span></div>
+        <div class="k-row abs" data-i="1" data-match style="left:12px;right:12px;height:68px;border-radius:16px">
+          <div class="k-hl abs" style="inset:0;border-radius:16px;background:var(--canvas);opacity:0"></div>
+          <svg class="abs" style="left:22px;top:20px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M14 4 V17 M8 11 L14 17 L20 11 M5 23 H23"/></svg>
+          <span class="abs t-body" style="left:72px;line-height:68px">Export report</span></div>
+        <div class="k-row abs" data-i="2" style="left:12px;right:12px;height:68px;border-radius:16px">
+          <svg class="abs" style="left:22px;top:20px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M11 17 L17 11 M12 7 L14 5 A5 5 0 0 1 23 14 L21 16 M16 21 L14 23 A5 5 0 0 1 5 14 L7 12"/></svg>
+          <span class="abs t-body" style="left:72px;line-height:68px">Share link</span></div>
+        <div class="k-row abs" data-i="3" style="left:12px;right:12px;height:68px;border-radius:16px">
+          <svg class="abs" style="left:22px;top:20px" width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M4 6 H24 V11 H4 Z M6 11 V23 H22 V11 M11 16 H17"/></svg>
+          <span class="abs t-body" style="left:72px;line-height:68px">Archive</span></div>
+      </div>
+
+      <!-- toast 420x96 (ink) -->
+      <div class="layer" data-state="toast">
+        <div class="box" style="width:420px;height:96px">
+          <svg class="abs" style="left:24px;top:24px" width="48" height="48" viewBox="0 0 48 48">
+            <circle id="ts-ring" class="ico" cx="24" cy="24" r="20" pathLength="1" stroke-dasharray="1 1" transform="rotate(-90 24 24)"/>
+            <path id="ts-tick" class="ico" d="M15 25 L21 31 L33 18" pathLength="1" stroke-dasharray="1 1"/>
+          </svg>
+          <div class="abs t-body" style="left:92px;top:0;line-height:96px;font-size:28px">Report exported</div>
+        </div>
       </div>
     </div>
     <svg id="cursor" viewBox="0 0 44 44"><path d="M7 4 L7 33 L14.5 25.5 L20 37 L25 34.8 L19.6 23.6 L30 23.6 Z" fill="#0B0B0B" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>
@@ -45,9 +179,10 @@
 </div>
 <script src="springs.js"></script>
 <script type="module">
-const { track, fromSettle } = window.Springs;
+const { track, fromSettle, response } = window.Springs;
 let STAGE, CX, CY, THEME;
 const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
 
 let song, END, SHAPE, beatT;
 
@@ -56,25 +191,189 @@ let song, END, SHAPE, beatT;
 // surface, ink, muted, accent) or #rrggbb. The last row must repeat the
 // first and sit at least 2 beats before END so everything settles by the seam.
 const states = () => [
-  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
-  { at: 2,       name: 'loader', w: 112, h: 112, r: 56, fill: 'ink', ink: 'surface' },
+  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'ink',     ink: 'surface' },
+  { at: 2,       name: 'loader', w: 112, h: 112, r: 56, fill: 'ink',     ink: 'surface' },
   { at: 4,       name: 'check',  w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
-  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
+  { at: 6,       name: 'island', w: 400, h: 96,  r: 48, fill: 'ink',     ink: 'surface' },
+  { at: 8,       name: 'player', w: 560, h: 360, r: 40, fill: 'surface', ink: 'ink' },
+  { at: 12,      name: 'volume', w: 520, h: 96,  r: 48, fill: 'surface', ink: 'ink' },
+  { at: 14,      name: 'toggle', w: 200, h: 112, r: 56, fill: 'muted',   ink: 'surface' },
+  { at: 15,      name: 'toggle', w: 200, h: 112, r: 56, fill: 'ink',     ink: 'surface' },
+  { at: 16,      name: 'tabs',   w: 600, h: 104, r: 52, fill: 'ink',     ink: 'surface' },
+  { at: 18,      name: 'chart',  w: 600, h: 480, r: 40, fill: 'surface', ink: 'ink' },
+  { at: 21,      name: 'cmdk',   w: 620, h: 392, r: 32, fill: 'surface', ink: 'ink' },
+  { at: 23,      name: 'cmdk',   w: 620, h: 188, r: 32, fill: 'surface', ink: 'ink' },
+  { at: 24,      name: 'toast',  w: 420, h: 96,  r: 48, fill: 'ink',     ink: 'surface' },
+  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'ink',     ink: 'surface' },
 ];
 // CURSOR: where the pointer is from beat `at`, in px from the stage centre.
 // press: true clicks on that beat (and plays sfx/click.wav at the beat's cue).
+// press: 'down' / 'up' hold the pointer for a drag (click sound on 'down').
 // First and last rows must match, the last at least 2 beats before END.
+const HOME = { x: 190, y: 220 };
+const KNOB0 = -108;                  // player progress knob x at p0 (centred)
 const cursor = () => [
-  { at: 0,       x: 240, y: 280 },
-  { at: 1.25,    x: 60,  y: 18 },
-  { at: 2,       x: 60,  y: 18, press: true },
-  { at: 3,       x: 200, y: 230 },
-  { at: END - 2, x: 240, y: 280 },
+  { at: 0,       ...HOME },
+  { at: 0.5,     x: 60,   y: 18 },                   // glide onto button
+  { at: 2,       x: 60,   y: 18,  press: true },     // press -> loader
+  { at: 3,       x: 170,  y: 200 },                  // drift off
+  { at: 6.75,    x: 130,  y: 92 },                   // toward the island
+  { at: 8,       x: 6,    y: 128 },                  // onto play
+  { at: 9,       x: 6,    y: 128, press: true },     // play -> pause
+  { at: 9.15,    x: KNOB0, y: 26 },                  // to the progress knob
+  { at: 10,      x: KNOB0, y: 26, press: 'down' },   // grab
+  { at: 10.4,    x: 120,  y: 26 },                   // scrub right
+  { at: 12,      x: 120,  y: 4,   press: 'up' },     // release; bar becomes volume
+  { at: 12.5,    x: 120,  y: 4,   press: 'down' },   // grab volume knob
+  { at: 12.55,   x: 330,  y: 4 },                    // drag past max
+  { at: 13.25,   x: 330,  y: 4,   press: 'up' },     // release -> springs back
+  { at: 14,      x: 14,   y: 20 },                   // onto the toggle
+  { at: 15,      x: 14,   y: 20,  press: true },     // flip
+  { at: 16.2,    x: 200,  y: 16 },                   // to tab 3
+  { at: 17,      x: 200,  y: 16,  press: true },     // press tab 3
+  { at: 19.3,    x: 177,  y: 6 },                    // hover a chart point
+  { at: 21,      x: 300,  y: 280 },                  // out of the way while typing
+  { at: 23.25,   x: -60,  y: 50 },                   // onto the Export row
+  { at: 24,      x: -60,  y: 50,  press: true },     // enter -> toast
+  { at: 24.4,    x: -10,  y: 150 },                  // drift off the toast
+  { at: END - 2, ...HOME },
 ];
-// Per-state content animation, given seconds since that state began.
+// Typing ticks (sfx/key.wav), one per letter of 'exp'.
+const KEYS = [22, 22.25, 22.5];
+
+// Per-state content, a pure function of absolute t. Every layer runs every
+// frame (not just the active one) so a fading-out layer is still exact.
+// May return { dw, dx } to stretch/shift the shape (volume overstretch).
+const once = (t, b, settleBeats = 0.5, zeta = 1) => (t < beatT(b) ? 0
+  : 1 + response(t - beatT(b), -1, 0, fromSettle(settleBeats * song.beat_sec, zeta), zeta).e);
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+// Two-edge indicator: each edge on its own spring, the leading edge faster.
+function edges(t, from, moves) {
+  const fast = fromSettle(0.4 * song.beat_sec, SHAPE.zeta), slow = fromSettle(0.85 * song.beat_sec, SHAPE.zeta);
+  const L = { from: from[0], zeta: SHAPE.zeta, omega: slow, changes: [] }, R = { from: from[1], zeta: SHAPE.zeta, omega: slow, changes: [] };
+  let prev = from;
+  for (const m of moves) {
+    const right = m.to[0] > prev[0];
+    L.changes.push({ t: beatT(m.at), to: m.to[0], omega: right ? slow : fast });
+    R.changes.push({ t: beatT(m.at), to: m.to[1], omega: right ? fast : slow });
+    prev = m.to;
+  }
+  return [track(t, L).value, track(t, R).value];
+}
+const P0 = 0.28, PL = { x0: 32, len: 496, w: 560 };
+const VOL = { x0: -168, x1: 220 };      // volume track, centred px
+const rubber = (over, R = 110) => R * (1 - 1 / (over / R + 1));
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const CHART = [0.22, 0.4, 0.3, 0.6, 0.48, 0.8, 0.68].map((v, i) => [40 + i * (520 / 6), 410 - v * 210]);
+const HOVER = 5;
+
 const content = {
-  loader: (s) => { $('#spin').style.transform = `rotate(${s * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px'; },
-  check:  (s) => { $('#tick').style.strokeDashoffset = String(1 - Math.min(1, s / (0.8 * song.beat_sec))); },
+  button: (t) => {
+    const hover = once(t, 1.05, 0.35) - once(t, 1.9, 0.3);
+    $('#btn-hover').style.opacity = String(0.16 * hover);
+  },
+  loader: (t) => {
+    const s = Math.max(0, t - beatT(2));
+    $('#spin').style.transform = `rotate(${s * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px';
+  },
+  check: (t) => {
+    $('#tick').style.strokeDashoffset = String(1 - clamp(once(t, 4.15, 0.85)));
+    const pop = once(t, 4.9, 0.15) - once(t, 5.05, 0.6);
+    $('#tickwrap').style.transform = `scale(${1 + 0.14 * pop})`;
+  },
+  island: (t) => {
+    const ph = t / song.beat_sec;
+    $$('#eq i').forEach((el, i) => {
+      const k = 0.5 + 0.5 * Math.sin(Math.PI * 2 * (ph * [1, 0.5, 1, 0.5][i] + [0, 0.3, 0.55, 0.8][i]));
+      el.style.height = `${12 + 32 * k * k}px`;
+    });
+  },
+  player: (t) => {
+    // play -> pause morph
+    const m = once(t, 9, 0.6, SHAPE.zeta);
+    const A = [[5, 3.5, 4, 3], [15, 8.5, 11, 3], [15, 19.5, 11, 25], [5, 24.5, 4, 25]];
+    const Bq = [[15, 8.5, 17, 3], [25, 14, 24, 3], [25, 14, 24, 25], [15, 19.5, 17, 25]];
+    const pts = (q) => q.map(([x0, y0, x1, y1]) => `${lerp(x0, x1, m).toFixed(2)},${lerp(y0, y1, m).toFixed(2)}`).join(' ');
+    $('#pp-a').setAttribute('points', pts(A)); $('#pp-b').setAttribute('points', pts(Bq));
+    // scrub: direct manipulation between grab (10) and release (12), keeping the grab offset
+    const G = beatT(10), Rl = beatT(12);
+    const play = (tt) => P0 + Math.max(0, tt - beatT(9)) * 0.006;
+    let p = play(Math.min(t, G));
+    if (t >= G) {
+      const off = (PL.x0 + play(G) * PL.len - PL.w / 2) - curX(G);
+      p = clamp((curX(Math.min(t, Rl)) + off + PL.w / 2 - PL.x0) / PL.len);
+    }
+    const x = PL.x0 + p * PL.len;
+    $('#pl-fill').style.width = `${x - PL.x0}px`;
+    $('#pl-knob').style.left = `${x}px`;
+    $('#pl-knob').style.transform = `scale(${1 + 0.45 * (once(t, 10, 0.3) - once(t, 12, 0.4))})`;
+    $('#pl-time').textContent = fmt(p * 221);
+  },
+  volume: (t) => {
+    const G = beatT(12.5), Rl = beatT(13.25);
+    let raw = 120;
+    if (t >= G) raw = curX(Math.min(t, Rl)) + (120 - curX(G));
+    const kx = Math.min(raw, VOL.x1);
+    let disp = rubber(Math.max(0, raw - VOL.x1));
+    if (t >= Rl) disp *= 1 - once(t, 13.25, 0.6, SHAPE.zeta);
+    const knob = kx + disp, end = VOL.x1 + disp;
+    const L = (x) => x + 260;             // centred -> box px
+    $('#vol-track').style.width = `${L(end) - 92}px`;
+    $('#vol-fill').style.width = `${L(knob) - 92}px`;
+    $('#vol-knob').style.left = `${L(knob)}px`;
+    $('#vol-knob').style.transform = `scale(${1 + 0.4 * (once(t, 12.5, 0.3) - once(t, 13.25, 0.4))})`;
+    $('#vol-wave').style.opacity = String(clamp(((kx - VOL.x0) / (VOL.x1 - VOL.x0) - 0.5) * 3, 0.25, 1));
+    $('#vol-box').style.transform = `translateX(${-disp / 2}px)`;
+    return { dw: disp, dx: disp / 2 };
+  },
+  toggle: (t) => {
+    const [l, r] = edges(t, [-88, 0], [{ at: 15, to: [0, 88] }]);
+    Object.assign($('#tg-knob').style, { left: `${l + 100}px`, width: `${r - l}px` });
+  },
+  tabs: (t) => {
+    const W = 584 / 3, x = (i) => -292 + i * W;
+    const [l, r] = edges(t, [x(0), x(0) + W], [{ at: 17, to: [x(2), x(2) + W] }]);
+    Object.assign($('#tb-ind').style, { left: `${l + 300}px`, width: `${r - l}px` });
+    $('#tb-on').style.clipPath = `inset(8px ${300 - r}px 8px ${l + 300}px round 44px)`;
+  },
+  chart: (t) => {
+    const n = once(t, 18.15, 0.8);
+    $('#ch-num').textContent = `$${(48.2 * n).toFixed(1)}k`;
+    const line = $('#ch-line');
+    if (!line.getAttribute('d')) {
+      line.setAttribute('d', CHART.map(([x, y], i) => {
+        if (!i) return `M${x} ${y}`;
+        const [px, py] = CHART[i - 1], mx = (px + x) / 2;
+        return `C${mx} ${py} ${mx} ${y} ${x} ${y}`;
+      }).join(' '));
+    }
+    line.style.strokeDashoffset = String(1 - clamp(once(t, 18.75, 1)));
+    const tip = once(t, 20, 0.5, SHAPE.zeta), dot = once(t, 19.85, 0.35, SHAPE.zeta);
+    const [hx, hy] = CHART[HOVER];
+    Object.assign($('#ch-dot').style, { left: `${hx}px`, top: `${hy}px`, opacity: String(clamp(dot)), transform: `scale(${0.4 + 0.6 * dot})` });
+    Object.assign($('#ch-tip').style, { left: `${hx}px`, top: `${hy - 34}px`, opacity: String(clamp(tip)),
+      transform: `translate(-50%, -100%) translateY(${10 * (1 - tip)}px) scale(${0.92 + 0.08 * tip})`, transformOrigin: '50% 100%' });
+  },
+  cmdk: (t) => {
+    const n = KEYS.filter((b) => t >= beatT(b)).length;
+    $('#k-typed').textContent = 'exp'.slice(0, n);
+    $('#k-ph').style.display = n ? 'none' : '';
+    const typing = t >= beatT(21.8) && t < beatT(23);
+    const blink = ((t - beatT(21)) / song.beat_sec) % 1 < 0.5;
+    $('#k-caret').style.opacity = typing || blink ? '1' : '0';
+    const f = once(t, 23, 0.6, SHAPE.zeta), gone = clamp(once(t, 23, 0.35));
+    for (const row of $$('.k-row')) {
+      const i = Number(row.dataset.i), match = row.hasAttribute('data-match');
+      const y = 108 + 68 * (match ? lerp(i, 0, f) : i);
+      Object.assign(row.style, { top: `${y}px`, opacity: String(match ? 1 : 1 - gone) });
+    }
+    $('.k-hl').style.opacity = String(clamp(once(t, 23.6, 0.35)));
+  },
+  toast: (t) => {
+    $('#ts-ring').style.strokeDashoffset = String(1 - clamp(once(t, 24.15, 0.75)));
+    $('#ts-tick').style.strokeDashoffset = String(1 - clamp(once(t, 24.6, 0.9)));
+  },
 };
 // ------------------------------------------------------------
 
@@ -88,7 +387,10 @@ function build() {
   const CAM = { omega: fromSettle(song.beat_sec, 1), zeta: 1 };
   const PTR = { omega: fromSettle(0.8 * song.beat_sec, 1), zeta: 1 };
   const mk = (rows, get, o) => ({ from: get(rows[0]), changes: rows.slice(1).map((r) => ({ t: beatT(r.at), to: get(r) })), ...o });
-  const zoom = (s) => Math.min(2.4, Math.max(1, Math.sqrt((0.5 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h))));
+  // Demo: fill ~60% of the frame (the template's sqrt curve leaves cards at ~44%).
+  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h)));
+  const down = (c) => ({ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 });
+  const up = (c, d = 0) => ({ t: beatT(c.at) + d * song.beat_sec, to: 1 });
   tracks = {
     w: mk(S, (s) => s.w, SHAPE), h: mk(S, (s) => s.h, SHAPE), r: mk(S, (s) => s.r, SHAPE),
     fill: [0, 1, 2].map((k) => mk(S, (s) => hex(s.fill)[k], SHAPE)),
@@ -96,7 +398,7 @@ function build() {
     zoom: mk(S, zoom, CAM),
     cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
     press: { from: 1, omega: fromSettle(0.15 * song.beat_sec, 1), zeta: 1,
-             changes: C.filter((c) => c.press).flatMap((c) => [{ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 }, { t: beatT(c.at) + 0.1 * song.beat_sec, to: 1 }]) },
+             changes: C.filter((c) => c.press).flatMap((c) => c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)]) },
   };
   // Content swaps: each layer enters a beat-fraction after its state starts (so
   // the container leads) and exits fast when the next state starts.
@@ -104,7 +406,7 @@ function build() {
   layers = [...document.querySelectorAll('.layer')].map((el) => {
     const name = el.dataset.state, changes = [];
     S.forEach((s, i) => {
-      if (s.name !== name || i === 0) return;
+      if (s.name !== name || i === 0 || S[i - 1].name === name) return;
       changes.push({ t: beatT(s.at) + 0.15 * song.beat_sec, to: 1, omega: enter });
     });
     S.forEach((s, i) => {
@@ -112,34 +414,35 @@ function build() {
     });
     return { el, name, tr: { from: S[0].name === name ? 1 : 0, changes, omega: enter, zeta: 1 } };
   });
-  window.SFX = C.filter((c) => c.press).map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 }));
+  window.SFX = [
+    ...C.filter((c) => c.press === true || c.press === 'down').map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 })),
+    ...KEYS.map((b) => ({ beat: b, file: 'sfx/key.wav', gain: 0.6 })),
+  ];
 }
 
 const v = (tr, t) => track(t, tr).value;
+const curX = (t) => v(tracks.cx, t);
 
 function cursorAt(t) {
   const z = v(tracks.zoom, t);
   return { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z };
 }
 
-function stateAt(t) {
-  let i = 0;
-  while (S[i + 1] && beatT(S[i + 1].at) <= t) i++;
-  return { s: S[i], since: t - beatT(S[i].at) };
-}
-
 function seek(t) {
   const w = v(tracks.w, t), h = v(tracks.h, t), r = v(tracks.r, t), z = v(tracks.zoom, t);
   const rgb = (arr) => `rgb(${arr.map((tr) => Math.round(v(tr, t))).join(',')})`;
   $('#camera').style.transform = `translate(${CX}px,${CY}px) scale(${z}) translate(${-CX}px,${-CY}px)`;
-  Object.assign($('#shape').style, { left: `${CX - w / 2}px`, top: `${CY - h / 2}px`, width: `${w}px`, height: `${h}px`,
-    borderRadius: `${Math.min(r, w / 2, h / 2)}px`, background: rgb(tracks.fill), color: rgb(tracks.ink) });
+  let dw = 0, dx = 0;
+  for (const name in content) {
+    const o = content[name](t);
+    if (o) { dw += o.dw ?? 0; dx += o.dx ?? 0; }
+  }
+  Object.assign($('#shape').style, { left: `${CX - (w + dw) / 2 + dx}px`, top: `${CY - h / 2}px`, width: `${w + dw}px`, height: `${h}px`,
+    borderRadius: `${Math.min(r, (w + dw) / 2, h / 2)}px`, background: rgb(tracks.fill), color: rgb(tracks.ink) });
   for (const L of layers) {
     const o = Math.max(0, Math.min(1, v(L.tr, t)));
     Object.assign(L.el.style, { opacity: o, filter: o > 0.999 ? 'none' : `blur(${(1 - o) * 10}px)`, transform: `scale(${0.96 + 0.04 * o})` });
   }
-  const { s, since } = stateAt(t);
-  content[s.name]?.(since);
   const p = v(tracks.press, t);
   const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
   $('#cursor').style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
@@ -158,7 +461,8 @@ window.ready = (async () => {
     return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
   };
   Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
-  await document.fonts.load(`500 34px ${getComputedStyle(document.documentElement).getPropertyValue('--font')}`).catch(() => {});
+  const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
+  await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
   build();
   seek(0);
