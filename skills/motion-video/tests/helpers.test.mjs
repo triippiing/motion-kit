@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
-import { edges, loopPeriod, fmt, role, cssRole, icon, pressDepth, prog, fade } from '../components/core/helpers.js';
+import { edges, loopPeriod, fmt, role, cssRole, icon, pressDepth, prog, fade, resample, plotLine, morphLine, pathD, landed } from '../components/core/helpers.js';
 
 const ctx = { Springs, beat_sec: 0.5, theme: { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0c7d74', pos: 'oops' } };
 
@@ -87,4 +87,28 @@ test('loopPeriod: a whole number of cycles per loop, nominal outside a loop', ()
   const L = 7.5, p = loopPeriod({ loop_sec: L }, 0.8);            // 4 bars at 128 bpm
   assert.ok(Math.abs(L / p - Math.round(L / p)) < 1e-9 && Math.abs(p - 0.8) < 0.05, `period ${p}`);
   assert.equal(loopPeriod({ loop_sec: 0.3 }, 1.2), 0.3);          // a loop shorter than one cycle: one cycle
+});
+
+test('resample, plotLine, morphLine: lines keep their shape and morph between point counts', () => {
+  assert.deepEqual(resample([0, 10], 3), [0, 5, 10]);
+  assert.deepEqual(resample([1, 3, 2], 3), [1, 3, 2]);
+  assert.deepEqual(resample([4], 3), [4, 4, 4]);
+  assert.deepEqual(resample([], 3), []);
+  assert.deepEqual(plotLine([0, 5, 10], 100, 50), [{ x: 0, y: 50 }, { x: 50, y: 25 }, { x: 100, y: 0 }]);
+  assert.deepEqual(plotLine([2, 2], 100, 50).map((q) => q.y), [25, 25], 'flat sits mid height');
+  assert.deepEqual(plotLine([7], 100, 50), [{ x: 50, y: 25 }]);
+  const to = [3, 2, 1, 4];
+  assert.deepEqual(morphLine([1, 2, 3], to, 90, 30, 1), plotLine(to, 90, 30));
+  assert.deepEqual(morphLine([], to, 90, 30, 0), plotLine(to, 90, 30), 'nothing to morph from');
+  const start = morphLine([1, 2, 3], to, 90, 30, 0);
+  assert.deepEqual(start.map((q) => q.x), [0, 30, 60, 90]);
+  assert.ok(start[0].y > start[3].y && Math.abs(start[0].y - 30) < 1e-9, 'starts on the old rising line');
+  assert.equal(pathD([{ x: 0, y: 1 }, { x: 2.5, y: 3 }]), 'M0.00 1.00 L2.50 3.00');
+});
+
+test('landed: a count reaches exactly 1 once the spring is within its settle tolerance', () => {
+  assert.equal(landed(0), 0);
+  assert.equal(landed(0.49), 0.5);
+  assert.equal(landed(0.98), 1);
+  assert.equal(landed(0.999), 1);
 });

@@ -12,6 +12,14 @@ import * as loader from './feedback/loader.js';
 import * as progress from './feedback/progress.js';
 import * as status from './feedback/status.js';
 import * as toast from './feedback/toast.js';
+import * as barChart from './data/bar-chart.js';
+import * as calendar from './data/calendar.js';
+import * as card from './data/card.js';
+import * as counter from './data/counter.js';
+import * as goal from './data/goal.js';
+import * as lineChart from './data/line-chart.js';
+import * as list from './data/list.js';
+import * as sparkline from './data/sparkline.js';
 export const registry = {
   'button': button,
   'checkbox': checkbox,
@@ -25,4 +33,12 @@ export const registry = {
   'progress': progress,
   'status': status,
   'toast': toast,
+  'bar-chart': barChart,
+  'calendar': calendar,
+  'card': card,
+  'counter': counter,
+  'goal': goal,
+  'line-chart': lineChart,
+  'list': list,
+  'sparkline': sparkline,
 };

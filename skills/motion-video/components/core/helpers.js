@@ -29,6 +29,10 @@ export function prog(ctx, t, t0, settleBeats = 0.6, zeta = 1) {
   return ctx.Springs.spring(t, { from: 0, to: 1, t0, omega, zeta }).value;
 }
 
+// Progress for a counted number (0..1 from a no-overshoot prog): the spring's last 2% (its settle tolerance)
+// is folded in, so the count lands exactly on its final value at the settle time instead of creeping on.
+export const landed = (k) => Math.min(1, k / 0.98);
+
 // Sub-element enter/exit inside a row: rises 12px and unblurs after tIn, leaves fast at tOut.
 export function fade(ctx, t, tIn, tOut = Infinity) {
   const i = prog(ctx, t, tIn, 0.5), o = t >= tOut ? 1 - prog(ctx, t, tOut, 0.2) : 1;
@@ -43,6 +47,34 @@ export const applyFade = (e, f) => Object.assign(e.style, { opacity: f.o, transf
 export const loopPeriod = (ctx, sec) => (ctx.loop_sec ? ctx.loop_sec / Math.max(1, Math.round(ctx.loop_sec / sec)) : sec);
 
 export const drawOn = (ctx, t, t0, beats = 0.8) => Math.max(0, Math.min(1, prog(ctx, t, t0, beats)));
+
+// A series linearly resampled to n values over the same span, so a line can morph point for point into
+// one with a different point count.
+export function resample(v, n) {
+  if (!v.length || n <= 0) return [];
+  if (v.length === 1 || n === 1) return Array(n).fill(v.at(-1));
+  return Array.from({ length: n }, (_, j) => {
+    const x = (j / (n - 1)) * (v.length - 1), i = Math.min(v.length - 2, Math.floor(x)), f = x - i;
+    return v[i] + (v[i + 1] - v[i]) * f;
+  });
+}
+
+// Pixel points of a series in a w x h box: first to last across, the range lo..hi from the bottom to the top
+// (a flat series, or a single point, sits at mid height; a single point also at mid width).
+export function plotLine(v, w, h, lo = Math.min(...v), hi = Math.max(...v)) {
+  const n = v.length;
+  return v.map((y, i) => ({ x: n > 1 ? (i / (n - 1)) * w : w / 2, y: hi > lo ? h - ((y - lo) / (hi - lo)) * h : h / 2 }));
+}
+
+// A continuing line at k (0..1): the previous series, resampled to this one's count and plotted on its own
+// scale, moving point for point onto this series on its scale.
+export function morphLine(from, to, w, h, k) {
+  const b = plotLine(to, w, h);
+  if (!from.length || !to.length || k >= 1) return b;
+  const a = plotLine(resample(from, to.length), w, h, Math.min(...from), Math.max(...from));
+  return b.map((q, i) => ({ x: a[i].x + (q.x - a[i].x) * k, y: a[i].y + (q.y - a[i].y) * k }));
+}
+export const pathD = (pts) => pts.map((q, i) => `${i ? 'L' : 'M'}${q.x.toFixed(2)} ${q.y.toFixed(2)}`).join(' ');
 
 // The sign comes from the rounded value, so -0.4 shows as 0, not -0.
 export function fmt(n, { decimals = 0, prefix = '', suffix = '' } = {}) {

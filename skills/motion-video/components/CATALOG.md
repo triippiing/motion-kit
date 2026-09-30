@@ -82,7 +82,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** Something is typed: a search, an amount, a name.
 
-**Motion:** Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a 1 Hz blink after. The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.
+**Motion:** Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a blink about once a second after (trimmed so whole blinks fit the loop). The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -264,4 +264,182 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 ```js
 { at: 0, use: 'toast', text: 'Moved to archive', action: 'Undo' }
+```
+
+## Data and content
+
+[bar-chart](#bar-chart) · [calendar](#calendar) · [card](#card) · [counter](#counter) · [goal](#goal) · [line-chart](#line-chart) · [list](#list) · [sparkline](#sparkline)
+
+### bar-chart
+
+![bar-chart](docs-images/bar-chart.png)
+
+**Use when:** A few amounts side by side: sessions per day, spending per category.
+
+**Motion:** Bars grow from the baseline 0.08 beat apart (no overshoot). With `highlight` set to a bar's label that bar is accent and the rest muted; a press on `bar:<label>` moves the highlight there, and a following bar-chart row continues from it (write it as its `highlight`). A following row also morphs: bars with the same label slide and grow to their new place and height, new bars grow in, missing ones shrink away.
+
+| Prop | Type | Default |
+|---|---|---|
+| `bars` | `object[]` | `[{"label":"Mon","value":3},{"label":"Tue","value":5},{"label":"Wed","value":4},{"label":"Thu","value":7}]` |
+| `label` | `string` | `"Sessions"` |
+| `highlight` | `string` | `""` |
+
+**Hotspots:** `bar:<label>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'bar-chart', label: 'Sessions', highlight: 'Thu' }
+```
+
+### calendar
+
+![calendar](docs-images/calendar.png)
+
+**Use when:** Something lands on a day: payday, a bill due, a booking.
+
+**Motion:** The days rise in left to right, then the event chips. `week` is any ISO date (YYYY-MM-DD); the week shown is the Monday-to-Sunday week containing it, with real weekdays and dates. `selected` (1 = Monday ... 7 = Sunday) or a press on `day:<n>` gives that day an accent border; a following calendar row continues from the pressed day (write it as its `selected`). A following row in the same week keeps the days, fades changed chips out and in, and moves the selection; a different week crossfades the days.
+
+| Prop | Type | Default |
+|---|---|---|
+| `week` | `string` | `"2026-03-23"` |
+| `marks` | `object[]` | `[{"day":3,"label":"Payday"},{"day":5,"label":"Rent £850"}]` |
+| `selected` | `number` | `-1` |
+| `title` | `string` | `"March"` |
+
+**Hotspots:** `day:<n>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'calendar', week: '2026-03-23', title: 'March', selected: 5 }
+```
+
+### card
+
+![card](docs-images/card.png)
+
+**Use when:** A headline number with a line of context: a monthly surplus, a balance, a score.
+
+**Motion:** Title, figure and body rise in 0.08 beat apart. A following card row keeps what is unchanged and crossfades what changed (a new figure blurs out and back in) while the shape morphs to the new size.
+
+| Prop | Type | Default |
+|---|---|---|
+| `title` | `string` | `"Monthly surplus"` |
+| `figure` | `string` | `"£900"` |
+| `body` | `string` | `"£540 to goals, £360 spare"` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'card', title: 'Monthly surplus', figure: '£900', body: '£540 to goals, £360 spare' }
+```
+
+### counter
+
+![counter](docs-images/counter.png)
+
+**Use when:** A number changes and the change is the story: a balance growing, a count going down.
+
+**Motion:** The value rolls from `from` to `to` over about 1.2 beats (no overshoot), in tabular figures so the width never jitters. A following counter row rolls on from the previous row's `to` (its own `from` is ignored); a changed label crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `from` | `number` | `0` |
+| `to` | `number` | `2450` |
+| `prefix` | `string` | `""` |
+| `suffix` | `string` | `""` |
+| `decimals` | `number` | `0` |
+| `label` | `string` | `""` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'counter', from: 0, to: 2450, prefix: '£', label: 'Saved this year' }
+```
+
+### goal
+
+![goal](docs-images/goal.png)
+
+**Use when:** Progress towards a target amount: a savings pot, a fundraiser, a budget.
+
+**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount; a changed label crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `label` | `string` | `"Holiday fund"` |
+| `saved` | `number` | `2450` |
+| `target` | `number` | `4000` |
+| `prefix` | `string` | `"£"` |
+| `met` | `boolean` | `false` |
+
+**Hotspots:** `bar`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'goal', label: 'Holiday fund', saved: 2450, target: 4000 }
+```
+
+### line-chart
+
+![line-chart](docs-images/line-chart.png)
+
+**Use when:** A value over time: a portfolio, a balance, a weekly total.
+
+**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: aimed at `point:<i>`, the dot and tooltip come up as it arrives and go when it leaves. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `points` | `number[]` | `[4,6,5,8,7,10,9,13]` |
+| `label` | `string` | `"Portfolio value"` |
+| `hover` | `number` | `-1` |
+| `format` | `object` | `{"prefix":"£","decimals":0}` |
+
+**Hotspots:** `point:<i>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'line-chart', label: 'Portfolio value', points: [4, 6, 5, 8, 7, 10, 9, 13] }
+```
+
+### list
+
+![list](docs-images/list.png)
+
+**Use when:** A short list of items with amounts: upcoming bills, recent transactions, goals.
+
+**Motion:** Rows rise in one after another (0.06 beat apart). `highlight` (a row index) or a press on `row:<i>` gives that row a soft accent background; a following list row continues from the pressed row (write it as its `highlight`). A following row keeps rows that are unchanged, crossfades changed ones, and the shape grows or shrinks for added or removed rows. At most 8 rows show.
+
+| Prop | Type | Default |
+|---|---|---|
+| `rows` | `object[]` | `[{"title":"Rent","detail":"Tomorrow","value":"£850"},{"title":"Holiday fund","detail":"Weekly","value":"£120"},{"title":"Coffee","detail":"Today","value":"£3.40"}]` |
+| `highlight` | `number` | `-1` |
+
+**Hotspots:** `row:<i>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'list', highlight: 1 }
+```
+
+### sparkline
+
+![sparkline](docs-images/sparkline.png)
+
+**Use when:** A figure with its recent trend: this week's spend, a streak, a balance.
+
+**Motion:** The label and figure rise in, the line draws on over about a beat, then the last point's dot pops (a small overshoot). A following sparkline row morphs the line point for point into the new points, the dot riding the last point; a changed label or figure crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `points` | `number[]` | `[3,4,3.5,5,4.8,6,7]` |
+| `label` | `string` | `"This week"` |
+| `value` | `string` | `"+£410"` |
+
+**Hotspots:** `last`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'sparkline', label: 'This week', value: '+£410', points: [3, 4, 3.5, 5, 4.8, 6, 7] }
 ```

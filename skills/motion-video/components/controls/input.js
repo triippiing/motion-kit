@@ -1,10 +1,10 @@
 // input.js -- a text field that types its text a character at a time, with a caret and a clear button.
-import { el, textW, frame, icon, prog, fade, applyFade, pressesOn } from '../core/helpers.js';
+import { el, textW, frame, icon, prog, fade, applyFade, pressesOn, loopPeriod } from '../core/helpers.js';
 
 export const meta = {
   name: 'input', group: 'controls',
   useWhen: 'Something is typed: a search, an amount, a name.',
-  motion: "Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a 1 Hz blink after. The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.",
+  motion: "Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a blink about once a second after (trimmed so whole blinks fit the loop). The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.",
   props: { placeholder: ['string', 'Search'], text: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], icon: ['enum:search|none', 'search'] },
   hotspots: ['field', 'clear'],
   sounds: ['key'],
@@ -65,9 +65,11 @@ export function render(root, p, ctx, t) {
   const cleared = t >= tClear;
   f.querySelector('.in-text').textContent = p.text.slice(0, n);
   f.querySelector('.in-typed').style.opacity = String(cleared ? 1 - prog(ctx, t, tClear, 0.3) : 1);
-  // The caret only exists while there is typing to show: solid while typing, then a 1 Hz blink.
+  // The caret only exists while there is typing to show: solid while typing, then a ~1 Hz blink. The blink's
+  // period fits the loop and its phase runs from t = 0 (not from the last key), so the seam matches.
   const typing = p.typeAt >= 0 && p.text.length > keep;
-  const caretOn = typing && !cleared && t >= first && (t < end || Math.floor((t - end) / 0.5) % 2 === 0);
+  const blink = loopPeriod(ctx, 1.0), phase = (((t / blink) % 1) + 1) % 1;
+  const caretOn = typing && !cleared && t >= first && (t < end || phase < 0.5);
   f.querySelector('.in-caret').style.opacity = caretOn ? '1' : '0';
   const prevEl = f.querySelector('.in-prev');
   if (prevEl) applyFade(prevEl, fade(ctx, t, -Infinity, ctx.t0));

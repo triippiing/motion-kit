@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
 import { registry } from '../components/index.js';
-import { typeOk, validate } from '../components/core/validate.js';
+import { typeOk, validate, RESERVED } from '../components/core/validate.js';
 import { collect } from '../scripts/build_catalog.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -45,6 +45,7 @@ for (const [name, c] of Object.entries(registry)) {
     const ex = exampleRow(m);
     assert.equal(ex.use, name);
     for (const [k, [ty, def]] of Object.entries(m.props)) assert.ok(typeOk(ty, def), `default of ${k} matches ${ty}`);
+    for (const k of Object.keys(m.props)) assert.ok(!RESERVED.has(k), `prop "${k}" is a reserved row key (${[...RESERVED].join(', ')})`);
     for (const f of ['geometry', 'mount', 'render', 'hotspot']) assert.equal(typeof c[f], 'function', f);
   });
 

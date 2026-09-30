@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeProject, openScene } from './harness.mjs';
+import { beatStills } from '../scripts/beat_stills.mjs';
 
 // Open a project, hand the test a seek-by-beat helper, and always close the browser.
 async function scene(opts, fn) {
@@ -156,4 +157,13 @@ test('tabs: a continuation after a press keeps the indicator on the pressed tab'
 test('dropdown: a continuation after a press keeps the pressed item highlighted', async () => {
   await noFlash({ use: 'dropdown', a: "open: true, selected: 'Newest'", b: "open: true, selected: 'Oldest'", press: 'item:Oldest', read: (row) =>
     [...document.querySelectorAll(`.c-dropdown[data-row="${row}"] .dd-item`)].map((e) => [e.classList.contains('dd-hl'), e.style.background, e.style.opacity]) });
+});
+
+// Ruling G: the caret blink is periodic motion, so its period fits the loop and its phase is the loop's:
+// a finished input as the first and last row matches at the seam even when 1 s does not divide the loop.
+test('input: a 4-bar loop at 128 bpm starting and ending on a finished input passes the seam check', async () => {
+  const row = "use: 'input', text: 'Bills', typeAt: 0";
+  const dir = makeProject({ bars: 4, bpm: 128, states: `[{ at: 0, ${row} }, { at: 6, use: 'button' }, { at: END - 2, ${row} }]`, cursor: '[{ at: 0, x: 0, y: 200 }, { at: END - 2, x: 0, y: 200 }]' });
+  const r = await beatStills(dir);
+  assert.equal(r.seam.ok, true, r.seam.notes.join('; '));
 });
