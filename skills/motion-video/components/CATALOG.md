@@ -12,7 +12,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 ## Controls
 
-[button](#button)
+[button](#button) · [checkbox](#checkbox) · [dropdown](#dropdown) · [input](#input) · [slider](#slider) · [tabs](#tabs) · [toggle](#toggle)
 
 ### button
 
@@ -32,4 +32,132 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 ```js
 { at: 0, use: 'button', label: 'Import payslip', icon: 'upload' }
+```
+
+### checkbox
+
+![checkbox](docs-images/checkbox.png)
+
+**Use when:** An option is ticked: remember me, agree to terms, a to-do done.
+
+**Motion:** Checking fills the box with the accent and draws the tick on; a press on the box dips it and checks it at the press. A checked row draws its tick as it arrives; a continuation to unchecked empties the box.
+
+| Prop | Type | Default |
+|---|---|---|
+| `checked` | `boolean` | `false` |
+| `label` | `string` | `"Remember me"` |
+
+**Hotspots:** `box`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'checkbox', checked: true, label: 'Remember me' }
+```
+
+### dropdown
+
+![dropdown](docs-images/dropdown.png)
+
+**Use when:** A menu opens and an option is chosen: sort order, a filter, an account.
+
+**Motion:** Write the closed and open states as consecutive rows: the shape grows to open, the chevron turns, and the items stagger in. A press on an item highlights it and moves the check there. A closed row after an open one fades the items out as the shape closes and shows the choice in the trigger.
+
+| Prop | Type | Default |
+|---|---|---|
+| `label` | `string` | `"Sort by"` |
+| `items` | `string[]` | `["Newest","Oldest","Popular"]` |
+| `open` | `boolean` | `false` |
+| `selected` | `string` | `""` |
+
+**Hotspots:** `trigger`, `item:<item>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'dropdown', label: 'Sort by', open: true, selected: 'Newest' }
+```
+
+### input
+
+![input](docs-images/input.png)
+
+**Use when:** Something is typed: a search, an amount, a name.
+
+**Motion:** Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a 1 Hz blink after. The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A continuation whose text extends the previous row's keeps typing on; other text changes dissolve the old text.
+
+| Prop | Type | Default |
+|---|---|---|
+| `placeholder` | `string` | `"Search"` |
+| `text` | `string` | `""` |
+| `typeAt` | `number` | `-1` |
+| `perChar` | `number` | `0.25` |
+| `icon` | `enum:search\|none` | `"search"` |
+
+**Hotspots:** `field`, `clear`  
+**Sounds:** key
+
+```js
+{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25 }
+```
+
+### slider
+
+![slider](docs-images/slider.png)
+
+**Use when:** A value is dragged: volume, brightness, an amount.
+
+**Motion:** Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A continuation with a new value glides to it.
+
+| Prop | Type | Default |
+|---|---|---|
+| `value` | `number` | `0.4` |
+| `min` | `number` | `0` |
+| `max` | `number` | `1` |
+| `overstretch` | `boolean` | `true` |
+| `icon` | `enum:volume\|none` | `"volume"` |
+
+**Hotspots:** `thumb`, `track`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'slider', value: 0.6 }
+```
+
+### tabs
+
+![tabs](docs-images/tabs.png)
+
+**Use when:** A view switches between a few peers: day/week/month, list/grid, plans.
+
+**Motion:** A press on a tab sends the indicator there: the leading edge moves first, so it stretches and settles, and quick reversals stay inside the bar. The active label is shown in the indicator. A continuation with a new active tab travels on arrival.
+
+| Prop | Type | Default |
+|---|---|---|
+| `items` | `string[]` | `["Day","Week","Month"]` |
+| `active` | `string` | `"Day"` |
+
+**Hotspots:** `tab:<item>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Week' }
+```
+
+### toggle
+
+![toggle](docs-images/toggle.png)
+
+**Use when:** A setting switches on or off: notifications, dark mode, auto-save.
+
+**Motion:** Each press on the knob flips it: the leading edge moves first, so the knob stretches across and settles; the track fades from muted to accent. A continuation from the opposite state flips on arrival.
+
+| Prop | Type | Default |
+|---|---|---|
+| `on` | `boolean` | `false` |
+| `label` | `string` | `""` |
+
+**Hotspots:** `knob`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'toggle', on: true, label: 'Notifications' }
 ```

@@ -10,6 +10,14 @@ export function el(parent, tag, attrs = {}, text) {
   return e;
 }
 
+// A fixed design-size box in a component's layer, centred (or pinned to the top), so the content keeps
+// its layout while the shape morphs around it (the shape clips whatever is outside).
+export function frame(layer, cls, w, h, top = false) {
+  const f = el(layer, 'div', { class: cls });
+  Object.assign(f.style, { position: 'absolute', left: `calc(50% - ${w / 2}px)`, top: top ? '0px' : `calc(50% - ${h / 2}px)`, width: `${w}px`, height: `${h}px` });
+  return f;
+}
+
 // Deterministic text width estimate (no layout at geometry time): ~0.56em per character.
 export const textW = (text, size, weight = 500) => String(text).length * size * (weight >= 600 ? 0.6 : 0.56);
 
