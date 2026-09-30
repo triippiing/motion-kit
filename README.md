@@ -82,8 +82,9 @@ node ~/.claude/skills/motion-video/scripts/export.mjs ~/promo --for reels,x,disc
 
 The files land in `~/promo/out/exports/` with a `manifest.json` describing each one. Each shape
 (vertical for Reels/TikTok/Shorts, square or landscape for X/LinkedIn) is rendered natively, not
-letterboxed. Every file keeps to its platform's limits (the presets and their sources are in
-[presets.json](skills/motion-video/presets.json)), or the export stops with an error. The presets are
+letterboxed. Every file stays under its platform's size cap (the presets and their sources are in
+[presets.json](skills/motion-video/presets.json)), or the export stops with an error rather than ship an
+over-limit file; a piece longer than a platform allows gets a warning. The presets are
 `reels`, `tiktok`, `shorts`, `x`, `x-landscape`, `linkedin`, `linkedin-landscape`, `discord`,
 `discord-nitro`, `web` and `gif`. Add `--silent` to drop the audio. The full guide is the Export section
 of [the motion-video skill](skills/motion-video/SKILL.md).
