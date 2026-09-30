@@ -9,7 +9,9 @@
 // design size, or the shapes/ one) is reused only when its render.json stamp says it is a full-quality,
 // full-loop render at that size by the current renderer, and it is newer than every project file. Each preset is then
 // encoded from its shape's render (fps drop, scale, CRF capped by maxrate, two-pass loudnorm to the preset's LUFS and
-// true peak, or no audio with --silent) into out/exports/<preset>.mp4. Over the preset's maxMB, the MP4 is re-encoded
+// true peak, or no audio with --silent) into out/exports/<preset>.mp4. The AAC audio is encoded on its own and muxed in;
+// when its true peak overshoots the ceiling (AAC does on sharp transients) it steps down a ladder of AAC coders
+// (media.mjs AAC_LADDER), and the manifest records the one used as audioCoder. Over the preset's maxMB, the MP4 is re-encoded
 // two-pass at the bitrate that fills the cap, stepping the resolution down (1080/720/540 short side) when that bitrate is
 // under the size's quality floor; when no size works the export stops with an error. `web` also writes <preset>.webm
 // (VP9/Opus) and <preset>.jpg (a poster at beat 1.5); `gif` writes <preset>.gif, narrowing until it fits gif.maxMB.
@@ -31,7 +33,7 @@ import path from 'node:path';
 import { beatTime, render, renderStamp, stampPath, UsageError } from './render.mjs';
 import { designStage, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
 import { briefCommercial } from './check_brief.mjs';
-import { capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
+import { aacWithinPeak, capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
 
 // A size cap the numbers show cannot be met before encoding: bad input for this project (exit 2), but not a
 // usage mistake. A cap missed only after encoding (two-pass retry, GIF tries, webm/jpg check) is a plain Error (exit 1).
@@ -136,7 +138,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
     const at = (ext) => ({ staged: path.join(staging, `${name}.${ext}`), final: path.join(exportsDir, `${name}.${ext}`) });
     const out = [];
     // Measure a finished file and build its manifest entry (warnings that depend on what it contains are added here).
-    const entry = async (format, where, { stepDown = null, extraNotes = [], still = false, ...extra } = {}) => {
+    const entry = async (format, where, { stepDown = null, extraNotes = [], still = false, audioCoder = null, ...extra } = {}) => {
       const m = await probe(where.staged), warnings = [];
       const loud = m.acodec ? await measureLoudness(where.staged) : null;
       if (m.acodec && commercial && p.public)
@@ -145,7 +147,8 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
       if (!still && p.maxSeconds && m.duration > p.maxSeconds)
         warnings.push(`over the ${p.maxSeconds} s maximum length for ${label} (${m.duration.toFixed(2)} s): the platform may reject or trim it`);
       return { preset: name, format, path: rel(where.final), bytes: m.bytes, duration: still ? null : m.duration, width: m.width, height: m.height,
-        fps: still ? null : m.fps, vcodec: m.vcodec, acodec: m.acodec, lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
+        fps: still ? null : m.fps, vcodec: m.vcodec, acodec: m.acodec, audioCoder: m.acodec ? audioCoder : null,
+        lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
         ...extra, stepDown, notes: [...notes, ...extraNotes], warnings, source: p.source ?? null, checked: p.checked ?? null,
         estimated: p.estimated ?? [], staged: where.staged, final: where.final };
     };
@@ -174,7 +177,15 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
       if (cap && bytes > capBytes(cap)) throw new Error(`${name}: ${path.basename(where.final)} is ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
     };
     if (outputs.includes('mp4')) {
-      const where = at('mp4'), opts = { size, fps: p.fps, video: p.video, audio: p.audio, silent: noAudio, af };
+      const where = at('mp4');
+      // The audio is encoded once, down the AAC coder ladder until its true peak is within the ceiling; every video
+      // try (CRF, then two-pass for a cap) muxes that same file, so the size check counts the audio's real bytes.
+      let aac = null;
+      if (!noAudio) {
+        aac = { file: path.join(staging, `${name}.m4a`) };
+        Object.assign(aac, await aacWithinPeak(input, aac.file, { af, kbps: p.audio.kbps ?? 128, truePeak: af.skipped ? null : p.audio.truePeak ?? null }));
+      }
+      const opts = { size, fps: p.fps, video: p.video, silent: noAudio, audioFile: aac?.file };
       await encode(input, where.staged, opts);
       let bytes = (await stat(where.staged)).size, stepDown = null;
       const capNotes = [];
@@ -192,13 +203,15 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
         }
         if (bytes > capBytes(cap)) throw new Error(`${name}: two-pass encode still ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
       }
-      out.push(await entry('mp4', where, { stepDown, extraNotes: capNotes }));
+      if (aac?.missed) capNotes.push(`audio coder ${aac.coder}: every AAC coder tried overshot the ${p.audio.truePeak} dBTP ceiling`);
+      else if (aac && aac.coder !== 'aac') capNotes.push(`audio coder ${aac.coder}: the default aac coder overshot the ${p.audio.truePeak} dBTP ceiling`);
+      out.push(await entry('mp4', where, { stepDown, extraNotes: capNotes, audioCoder: aac?.coder ?? null }));
     }
     if (outputs.includes('webm')) {
       const where = at('webm');
       await encodeWebm(input, where.staged, { size, fps: p.fps, silent: noAudio, af });
       await checkCap(where);
-      out.push(await entry('webm', where));
+      out.push(await entry('webm', where, { audioCoder: 'libopus' }));
     }
     if (outputs.includes('poster')) {
       const where = at('jpg');

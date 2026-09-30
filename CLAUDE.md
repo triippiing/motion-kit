@@ -74,7 +74,10 @@ Details worth knowing:
   bitrate is too low, steps the short side down (1080, 720, 540); if the cap still cannot be met it stops with `error: ...`,
   exit 2 when the numbers rule it out and exit 1 when an encode missed it, and writes nothing to
   `out/exports`. Every preset with audio aims at -14 LUFS / -1 dBTP and warns when a file misses by more
-  than 1 LU, or its true peak ceiling by 0.5 dB (very peaky audio, like a click track, can). `--silent` drops
+  than 1 LU, or its true peak ceiling by 0.5 dB. AAC adds true-peak overshoot on sharp transients (the click
+  and key sounds), so the audio is encoded alone and, on a miss, re-encoded down a coder ladder (`aac`, `aac
+  -aac_coder fast`, then `aac_at` when ffmpeg lists it) before muxing; the manifest's `audioCoder` names the one
+  used, and only a miss on every coder (or very peaky audio, like a click track) warns. `--silent` drops
   the audio. A commercial track (`**Song:** ..., a commercial track` or `**Music:** commercial` in the
   brief's Decisions, or `"music": "commercial"` in project.json) warns on every public preset that carries
   audio. `export.mjs DIR --for reels,tiktok --guides` renders previews with translucent

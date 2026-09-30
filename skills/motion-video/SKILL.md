@@ -134,8 +134,15 @@ Both print `error: ...`. Every file is staged first, so a failed export writes n
 
 **Loudness.** Every preset with audio targets -14 LUFS integrated with a -1 dBTP true-peak ceiling (two-pass
 `loudnorm`, then measured). A file more than 1 LU off target, or more than 0.5 dB over the ceiling, gets a
-warning. Very peaky audio (a click track, sparse hits) can miss, because `loudnorm` then falls back to its
-dynamic mode; a near-silent clip (below -50 LUFS) is not normalised and gets a note.
+warning. The AAC encode itself can push true peak over the ceiling: ffmpeg's native `aac` adds a few dB of
+overshoot on sharp transients such as the click and key sounds, even when `loudnorm`'s output is under it (on
+demo 04, -2.4 dBTP after `loudnorm` became about +1 in the file). So the audio is encoded on its own, measured,
+and on a miss re-encoded down a ladder of AAC coders: native `aac`, then `aac -aac_coder fast`, then Apple's
+`aac_at` where ffmpeg lists it (macOS). The video is encoded once and the audio muxed in, so a retry never
+re-encodes video; the manifest's `audioCoder` says which coder each file used, and a note says when it was not
+the default. Lowering the ceiling does not help (the overshoot moves with it). If every coder misses, the
+warning stays. Very peaky audio (a click track, sparse hits) can also miss because `loudnorm` falls back to its
+dynamic mode; a near-silent clip (below -50 LUFS) is not normalised and gets a note. WebM (Opus) is unaffected.
 
 **`--silent`** drops the audio from every file (use it for public posts of a commercial track).
 

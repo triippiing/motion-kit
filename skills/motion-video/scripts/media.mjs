@@ -89,7 +89,7 @@ export async function loudnormArgs(file, { lufs, truePeak }) {
 }
 
 // After an encode: a warning when the file missed its loudness target by more than 1 LU or its true
-// peak ceiling by more than 0.5 dB (loudnorm falls back to dynamic mode, or AAC adds overshoot); else null.
+// peak ceiling by more than 0.5 dB (loudnorm falls back to dynamic mode, or every AAC coder overshot); else null.
 export function loudnessMiss({ I, TP }, { lufs, truePeak }) {
   const miss = [];
   if (!(Math.abs(I - lufs) <= 1)) miss.push(`integrated ${I.toFixed(1)} LUFS vs target ${lufs}`);
@@ -113,28 +113,79 @@ async function atomically(output, args) {
 }
 
 const scaleTo = ([w, h]) => `scale=${w}:${h}:flags=lanczos,setsar=1`;
-const aacArgs = ({ silent, af, audio }) => (silent ? ['-an'] : ['-map', '0:a:0', ...af, '-c:a', 'aac', '-b:a', `${audio.kbps ?? 128}k`, '-ar', '48000']);
 
-// Encode one delivery MP4: drop to `fps`, scale to `size`, H.264 High yuv420p, AAC after `af` (loudnormArgs),
-// or no audio when `silent`; faststart. Rate control: the preset's CRF (capped by its maxrate, bufsize =
-// 2 x maxrate) or, with `videoKbps`, a two-pass average bitrate with maxrate = 2 x videoKbps (or the preset's
-// maxrate if lower) and bufsize = 2 x maxrate. The pass log lives in a temp dir removed on every path.
-export async function encode(input, output, { size, fps, video = {}, audio = {}, silent = false, af = [], videoKbps = null }) {
+// AAC true peak. ffmpeg's native `aac` encoder (its default twoloop coder) can add a few dB of true peak on sharp
+// transients (clicks, key sounds) after loudnorm has capped them: demo 04's loudnorm output measured -2.4 dBTP and
+// its AAC files +0.9 to +1.2. Lowering loudnorm's ceiling does not help (the overshoot moves with it), and a volume trim
+// trades loudness for peak. So a miss steps down this ladder of coders instead, most common first: native aac, native
+// aac with its fast coder, then Apple AudioToolbox (`aac_at`, macOS builds only). All three write AAC LC.
+export const AAC_LADDER = [
+  { coder: 'aac', args: ['-c:a', 'aac'] },
+  { coder: 'aac -aac_coder fast', args: ['-c:a', 'aac', '-aac_coder', 'fast'] },
+  { coder: 'aac_at', args: ['-c:a', 'aac_at'] },
+];
+
+// The ladder this ffmpeg can run, from its `-encoders` listing (aac_at only when listed).
+export function aacLadder(encoders) {
+  return AAC_LADDER.filter((c) => c.coder !== 'aac_at' || /^\s*A\S*\s+aac_at\b/m.test(encoders));
+}
+
+let encoderList;   // `ffmpeg -encoders`, read once per process
+export function ffmpegEncoders() {
+  encoderList ??= run(FFMPEG, ['-hide_banner', '-encoders'], { maxBuffer: 16 << 20 }).then((r) => r.stdout, () => '');
+  return encoderList;
+}
+
+// Encode the audio of `input` alone (after `af`) to an AAC `output` (.m4a) with one coder's `args`, at 48 kHz.
+export async function encodeAudio(input, output, { af = [], kbps = 128, args = AAC_LADDER[0].args }) {
+  return atomically(output, (part) => ['-y', '-v', 'error', '-i', input, '-map', '0:a:0', ...af, ...args, '-b:a', `${kbps}k`, '-ar', '48000', '-vn', part]);
+}
+
+// Encode the audio to `output` down the coder ladder until its true peak is within 0.5 dB of `truePeak` (the same
+// margin loudnessMiss allows); with truePeak null (no target, or loudness skipped) the first coder is used as is.
+// Returns { coder, TP, missed }: missed means even the last coder was over, and the file holds that last try.
+// `coders`, `encodeAudio` and `measure` are injectable for tests.
+export async function aacWithinPeak(input, output, { af = [], kbps = 128, truePeak = null, coders, encodeAudio: enc = encodeAudio, measure = measureLoudness }) {
+  coders ??= aacLadder(await ffmpegEncoders());
+  let TP = null, used;
+  for (used of truePeak == null ? coders.slice(0, 1) : coders) {
+    await enc(input, output, { af, kbps, args: used.args });
+    ({ TP } = await measure(output));
+    if (truePeak == null || TP <= truePeak + 0.5) return { coder: used.coder, TP, missed: false };
+  }
+  return { coder: used.coder, TP, missed: true };
+}
+
+// Encode one delivery MP4: drop to `fps`, scale to `size`, H.264 High yuv420p, then mux with `audioFile` (an AAC
+// .m4a from aacWithinPeak, stream-copied, so a video retry never re-encodes the audio), or no audio when `silent`;
+// faststart. Rate control: the preset's CRF (capped by its maxrate, bufsize = 2 x maxrate) or, with `videoKbps`,
+// a two-pass average bitrate with maxrate = 2 x videoKbps (or the preset's maxrate if lower) and bufsize = 2 x maxrate.
+// The pass log lives in a temp dir removed on every path; the video-only file beside `output` is removed too.
+export async function encode(input, output, { size, fps, video = {}, silent = false, audioFile = null, videoKbps = null }) {
+  if (!silent && !audioFile) throw new Error('encode needs an audioFile (aacWithinPeak) unless silent');
   const head = ['-y', '-v', 'error', '-i', input, '-map', '0:v:0', '-vf', `fps=${fps},${scaleTo(size)}`,
     '-c:v', 'libx264', '-preset', 'slow', '-profile:v', video.profile ?? 'high', '-pix_fmt', 'yuv420p'];
-  const tail = (part) => [...aacArgs({ silent, af, audio }), '-movflags', '+faststart', part];
-  if (!videoKbps) {
-    const rate = ['-crf', String(video.crf ?? 20)];
-    if (video.maxrate) { const b = parseRate(video.maxrate); rate.push('-maxrate', String(b), '-bufsize', String(2 * b)); }
-    return atomically(output, (part) => [...head, ...rate, ...tail(part)]);
-  }
-  const b = videoKbps * 1000, max = Math.min(2 * b, video.maxrate ? parseRate(video.maxrate) : Infinity);
-  const logDir = await mkdtemp(path.join(tmpdir(), 'mk-2pass-'));
-  const rate = ['-b:v', String(b), '-maxrate', String(max), '-bufsize', String(2 * max), '-passlogfile', path.join(logDir, 'x264')];
+  const { dir, name, ext } = path.parse(output);
+  const target = silent ? output : path.join(dir, `${name}.video${ext}`);
+  const tail = (part) => ['-an', ...(silent ? ['-movflags', '+faststart'] : []), part];
+  const mux = () => (silent ? null : atomically(output, (part) => ['-y', '-v', 'error', '-i', target, '-i', audioFile,
+    '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-movflags', '+faststart', part]));
   try {
-    await ffmpeg([...head, ...rate, '-pass', '1', '-an', '-f', 'null', '-']);
-    await atomically(output, (part) => [...head, ...rate, '-pass', '2', ...tail(part)]);
-  } finally { await rm(logDir, { recursive: true, force: true }); }
+    if (!videoKbps) {
+      const rate = ['-crf', String(video.crf ?? 20)];
+      if (video.maxrate) { const b = parseRate(video.maxrate); rate.push('-maxrate', String(b), '-bufsize', String(2 * b)); }
+      await atomically(target, (part) => [...head, ...rate, ...tail(part)]);
+      return await mux();
+    }
+    const b = videoKbps * 1000, max = Math.min(2 * b, video.maxrate ? parseRate(video.maxrate) : Infinity);
+    const logDir = await mkdtemp(path.join(tmpdir(), 'mk-2pass-'));
+    const rate = ['-b:v', String(b), '-maxrate', String(max), '-bufsize', String(2 * max), '-passlogfile', path.join(logDir, 'x264')];
+    try {
+      await ffmpeg([...head, ...rate, '-pass', '1', '-an', '-f', 'null', '-']);
+      await atomically(target, (part) => [...head, ...rate, '-pass', '2', ...tail(part)]);
+    } finally { await rm(logDir, { recursive: true, force: true }); }
+    return await mux();
+  } finally { if (!silent) await rm(target, { force: true }); }
 }
 
 // WebM: VP9 at constant quality (CRF 34, -b:v 0) and Opus 96k after `af`, same fps drop and scale.

@@ -11,7 +11,7 @@ import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
 import { beatTime, FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
-import { capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
+import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
@@ -216,6 +216,31 @@ test('a missed loudness target is a warning naming measured vs target', () => {
   assert.equal(loudnessMiss({ I: -14, TP: 0.3 }, { lufs: -14, truePeak: -1 }), 'loudness missed its target: true peak 0.3 dBTP vs ceiling -1');
 });
 
+test('AAC true peak: a miss steps down the coder ladder (aac, aac fast coder, aac_at when listed), audio only', async () => {
+  // Stubs: each encode records the coder; measure returns a scripted true peak per try. Real fixtures do not overshoot.
+  const ladder = async (peaks, opts = {}) => {
+    const tried = [];
+    const r = await aacWithinPeak('in.mp4', 'out.m4a', { af: ['-af', 'x'], kbps: 192, truePeak: -1, coders: AAC_LADDER,
+      encodeAudio: async (input, output, o) => { tried.push(o.args.join(' ')); assert.deepEqual([input, output, o.kbps, o.af], ['in.mp4', 'out.m4a', 192, ['-af', 'x']]); },
+      measure: async () => ({ I: -14, TP: peaks[tried.length - 1] }), ...opts });
+    return { ...r, tried };
+  };
+  assert.deepEqual(await ladder([-1.5]), { coder: 'aac', TP: -1.5, missed: false, tried: ['-c:a aac'] });
+  assert.deepEqual(await ladder([-0.5]), { coder: 'aac', TP: -0.5, missed: false, tried: ['-c:a aac'] }, 'within 0.5 dB is a hit');
+  assert.deepEqual(await ladder([1.2, -1.4]), { coder: 'aac -aac_coder fast', TP: -1.4, missed: false, tried: ['-c:a aac', '-c:a aac -aac_coder fast'] });
+  assert.deepEqual(await ladder([1.2, 0.3, -2.1]), { coder: 'aac_at', TP: -2.1, missed: false,
+    tried: ['-c:a aac', '-c:a aac -aac_coder fast', '-c:a aac_at'] });
+  assert.deepEqual(await ladder([1.2, 0.3, 0.1]), { coder: 'aac_at', TP: 0.1, missed: true,
+    tried: ['-c:a aac', '-c:a aac -aac_coder fast', '-c:a aac_at'] }, 'every coder missed: the last try stands, and export warns');
+  assert.deepEqual(await ladder([1.2], { truePeak: null }), { coder: 'aac', TP: 1.2, missed: false, tried: ['-c:a aac'] }, 'no target: one try');
+  // aac_at is on the ladder only when ffmpeg lists it (macOS builds).
+  const listing = ' A....D aac                  AAC (Advanced Audio Coding)\n A..... aac_at               aac (AudioToolbox) (codec aac)\n';
+  assert.deepEqual(aacLadder(listing).map((c) => c.coder), ['aac', 'aac -aac_coder fast', 'aac_at']);
+  assert.deepEqual(aacLadder(listing.split('\n')[0]).map((c) => c.coder), ['aac', 'aac -aac_coder fast']);
+  const two = await ladder([1.2, 0.9], { coders: aacLadder('') });
+  assert.deepEqual([two.coder, two.missed, two.tried.length], ['aac -aac_coder fast', true, 2]);
+});
+
 test('--silent exports have no audio stream', async () => {
   const outDir = path.join(TMP, 'silent');
   const m = await exportProject(DIR, { for: ['reels', 'discord'], silent: true, outDir, log: () => {} });
@@ -224,7 +249,7 @@ test('--silent exports have no audio stream', async () => {
     const p = f.path;
     assert.ok(path.isAbsolute(p) && p.startsWith(outDir), `outside the project, paths are absolute: ${p}`);
     assert.ok(!hasAudio(p), `${f.preset} has no audio`);
-    assert.equal(f.acodec, null); assert.equal(f.lufs, null);
+    assert.equal(f.acodec, null); assert.equal(f.lufs, null); assert.equal(f.audioCoder, null);
     assert.deepEqual(f.warnings, [], 'no commercial-music warning without audio');
   }
   assert.ok(existsSync(path.join(outDir, 'manifest.json')));
@@ -243,6 +268,7 @@ test('manifest lists every file with bytes, duration, size, fps, LUFS, warnings 
     if (f.format !== 'mp4') continue;
     assert.ok(Math.abs(f.duration - duration(abs(f))) < 1e-3, f.preset);
     assert.equal(f.vcodec, 'h264'); assert.equal(f.acodec, 'aac');
+    assert.ok(['aac', 'aac -aac_coder fast', 'aac_at'].includes(f.audioCoder), `${f.preset} audioCoder ${f.audioCoder}`);
     assert.ok(Number.isFinite(f.lufs) && Number.isFinite(f.truePeak), f.preset);
     assert.ok(Array.isArray(f.notes) && Array.isArray(f.warnings), f.preset);
     assert.equal(f.checked, '2026-09-30');
@@ -272,9 +298,11 @@ test('commercial music on a public preset warns', () => {
   // discord is not public, so no commercial warning; its one warning is the loudness miss. The fixture's audio is a click
   // track: about -24.5 LUFS with -2.2 dBTP peaks, a 22 dB peak-to-loudness ratio. Reaching -14 LUFS linearly would put the
   // peaks near +8 dBTP, so loudnorm falls back to dynamic mode, which cannot limit clicks that hard: it lands near -20 LUFS
-  // with peaks near 0 dBTP (AAC adds overshoot on the clicks). The same audio looped to 22 s misses the same way, so this is
-  // the signal, not the fixture's length; the export reports it honestly rather than shipping a silent miss.
+  // with peaks near 0 dBTP, and AAC adds overshoot on the clicks that no coder on the ladder removes (the file keeps the
+  // last coder's try, and a note says so). The same audio looped to 22 s misses the same way, so this is the signal,
+  // not the fixture's length; the export reports it honestly rather than shipping a silent miss.
   assert.equal(file('discord').warnings.length, 1, JSON.stringify(file('discord').warnings));
+  assert.ok(file('discord').notes.some((n) => /^audio coder \S+: every AAC coder tried overshot the -1 dBTP ceiling$/.test(n)), JSON.stringify(file('discord').notes));
   assert.match(file('discord').warnings[0], /^loudness missed its target: integrated -?[\d.]+ LUFS vs target -14; true peak -?[\d.]+ dBTP vs ceiling -1$/);
 });
 
