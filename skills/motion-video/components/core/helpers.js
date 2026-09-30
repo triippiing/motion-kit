@@ -16,6 +16,7 @@ export const textW = (text, size, weight = 500) => String(text).length * size * 
 // 0 -> 1 progress of a critically damped (default) spring released at t0.
 export function prog(ctx, t, t0, settleBeats = 0.6, zeta = 1) {
   if (t < t0) return 0;
+  if (t0 === -Infinity) return 1; // released forever ago (the spring maths would give NaN)
   const omega = ctx.Springs.fromSettle(settleBeats * ctx.beat_sec, zeta);
   return ctx.Springs.spring(t, { from: 0, to: 1, t0, omega, zeta }).value;
 }
@@ -30,9 +31,11 @@ export const applyFade = (e, f) => Object.assign(e.style, { opacity: f.o, transf
 
 export const drawOn = (ctx, t, t0, beats = 0.8) => Math.max(0, Math.min(1, prog(ctx, t, t0, beats)));
 
+// The sign comes from the rounded value, so -0.4 shows as 0, not -0.
 export function fmt(n, { decimals = 0, prefix = '', suffix = '' } = {}) {
-  const s = Math.abs(n).toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  return `${n < 0 ? '-' : ''}${prefix}${s}${suffix}`;
+  const k = 10 ** decimals, r = Math.round(Math.abs(n) * k) / k;
+  const s = r.toLocaleString('en-GB', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return `${n < 0 && r > 0 ? '-' : ''}${prefix}${s}${suffix}`;
 }
 
 // A theme role if the theme defines it as a colour, else the fallback role.
@@ -52,17 +55,30 @@ export const ICONS = {
   command: 'M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z', wallet: 'M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4zM4 7V5h12M16 13h.01',
 };
 export function icon(parent, name, size = 32) {
+  if (!Object.hasOwn(ICONS, name)) throw new Error(`unknown icon "${name}" (icons: ${Object.keys(ICONS).join(', ')})`);
   const s = el(parent, 'svg:svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
     'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: `ico ico-${name}` });
-  el(s, 'svg:path', { d: ICONS[name] ?? ICONS.sparkle });
+  el(s, 'svg:path', { d: ICONS[name] });
   return s;
 }
 
 // Presses aimed at a hotspot (`button`) or any of a parametrised family (`tab` -> `tab:Month`).
 export const pressesOn = (ctx, prefix) => ctx.presses.filter((p) => p.hotspot && (p.hotspot === prefix || p.hotspot.startsWith(prefix + ':')));
 
+// How far a pressed control is pushed in, 0..1, following the cursor's press kinds:
+// true dips just before the beat and recovers just after; 'down' dips and holds; 'up' recovers.
+// Same timing as the engine's cursor press, so the control and the pointer move together.
+export function pressDepth(ctx, t, presses = ctx.presses) {
+  const bs = ctx.beat_sec, down = (p) => ({ t: p.t - 0.08 * bs, to: 1 });
+  const changes = presses.flatMap((p) => (p.kind === 'down' ? [down(p)] : p.kind === 'up' ? [{ t: p.t, to: 0 }] : [down(p), { t: p.t + 0.1 * bs, to: 0 }]));
+  if (!changes.length) return 0;
+  return ctx.Springs.track(t, { from: 0, changes, omega: ctx.Springs.fromSettle(0.15 * bs, 1), zeta: 1 }).value;
+}
+
 // Two-edge travelling indicator (reversal-safe): same maths as motion-ui pattern 2.
-// changes: [{ t, index }]; returns the indicator's edges in slot units, clamped to 0..n.
+// from: starting slot; changes: [{ t, index }] (t in seconds); settle: trailing edge's settle time
+// in SECONDS (pass k * ctx.beat_sec); n: slot count; lead: the leading edge settles in settle * lead.
+// Returns the indicator's edges in slot units, clamped to 0..n.
 export function edges(ctx, from, changes, t, settle, n, lead = 0.7) {
   const { Springs } = ctx;
   const trail = Springs.fromSettle(settle, 1), fast = Springs.fromSettle(settle * lead, 1);

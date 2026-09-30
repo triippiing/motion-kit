@@ -1,5 +1,5 @@
 // button.js -- the reference component: every other component follows this shape.
-import { el, textW, icon, pressesOn, prog } from '../core/helpers.js';
+import { el, textW, icon, pressesOn, pressDepth, fade, applyFade } from '../core/helpers.js';
 
 export const meta = {
   name: 'button', group: 'controls',
@@ -18,24 +18,36 @@ export function geometry(p) {
   return { w: Math.min(w, 1200), h: 112, r: 56, fill: 'accent', ink: 'surface' };
 }
 
-export function mount(root, p) {
-  const row = el(root, 'div', { class: 'btn-row' });
-  Object.assign(row.style, { display: 'flex', alignItems: 'center', gap: `${GAP}px`, font: '500 34px var(--font)', letterSpacing: '-0.01em' });
+// The label (with its icon) for one set of props.
+function content(parent, p, cls) {
+  const row = el(parent, 'div', { class: `btn-row ${cls}` });
+  Object.assign(row.style, { gridArea: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: `${GAP}px`,
+    font: '500 34px var(--font)', letterSpacing: '-0.01em' });
   if (p.icon !== 'none') icon(row, p.icon, ICON);
   el(row, 'span', { class: 'btn-label' }, p.label);
 }
+const changed = (a, b) => a.label !== b.label || a.icon !== b.icon;
 
-// No entrance of its own (the engine's layer fade is it), so a continuation needs nothing
-// special: the new row's label simply replaces the old one.
+// Continuations (copy this pattern): when ctx.continues, ctx.prev holds the previous row's props and
+// this layer replaces that row's layer at ctx.t0 with no fade of its own. Build the previous content
+// too (only if it differs), then in render take it out with fade(..., tOut = ctx.t0) and bring the new
+// content in with fade(ctx, t, ctx.t0 + ...), so the swap blurs with its own exit/enter timing.
+// Skip the component's own entrance when continuing: the shape is already there.
+export function mount(root, p, ctx) {
+  const box = el(root, 'div', { class: 'btn' });
+  box.style.display = 'grid';
+  if (ctx.continues && changed(ctx.prev, p)) content(box, ctx.prev, 'btn-prev');
+  content(box, p, 'btn-cur');
+}
+
 export function render(root, p, ctx, t) {
-  // Dip to 0.97 on each press aimed at this button, recovering with the press spring.
-  let s = 1;
-  for (const pr of pressesOn(ctx, 'button')) {
-    if (t < pr.t - 0.08 * ctx.beat_sec) continue;
-    const d = prog(ctx, t, pr.t - 0.08 * ctx.beat_sec, 0.15), u = prog(ctx, t, pr.t + 0.1 * ctx.beat_sec, 0.15);
-    s = Math.min(s, 1 - 0.03 * d * (1 - u));
+  // Dip to 0.97 while pressed: a tap dips and recovers, 'down' holds the dip until 'up'.
+  const box = root.firstChild;
+  box.style.transform = `scale(${1 - 0.03 * pressDepth(ctx, t, pressesOn(ctx, 'button'))})`;
+  if (box.children.length === 2) {
+    applyFade(box.children[0], fade(ctx, t, -Infinity, ctx.t0));
+    applyFade(box.children[1], fade(ctx, t, ctx.t0 + 0.05 * ctx.beat_sec));
   }
-  root.firstChild.style.transform = `scale(${s})`;
 }
 
 export function hotspot(name, p, geo) {

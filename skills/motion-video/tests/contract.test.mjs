@@ -4,6 +4,28 @@ import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
 import { registry } from '../components/index.js';
 import { typeOk, validate } from '../components/core/validate.js';
+import { collect } from '../scripts/build_catalog.mjs';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const COMP = path.join(import.meta.dirname, '..', 'components');
+const ROLES = /^(canvas|surface|ink|muted|accent|pos|neg|#[0-9a-f]{6})$/i;
+// Anything that makes render depend on more than t. Comments are stripped first (strings are kept,
+// so a CSS 'transition: ...' string still counts).
+// transition/animation as a CSS property in any spelling: 'transition: ...', style.transition =, transitionDuration.
+const IMPURE = /\b(?:transition|animation)|Date\.now|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
+const code = (src) => src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => str ?? '');
+
+test('shared code and every component file read no clock and use no CSS transitions', async () => {
+  const files = ['core/helpers.js', 'core/engine.js', 'modifiers.js', ...(await collect()).map((c) => c.file)];
+  for (const f of files) {
+    const hit = code(readFileSync(path.join(COMP, f), 'utf8')).match(IMPURE);
+    assert.equal(hit, null, `${f} uses ${hit?.[0]}: render must be a pure function of t`);
+  }
+  assert.match(code("x = 1; // setTimeout here is fine\n/* Date.now */ y = 'transition: all'"), IMPURE, 'strings still scanned');
+  assert.doesNotMatch(code('x = 1; // setTimeout in a comment\n/* Date.now */'), IMPURE, 'comments ignored');
+  for (const bad of ['e.style.transition = x', 'Object.assign(e.style, { transitionDuration: 1 })', "e.style.animation = 'spin 1s'"]) assert.match(code(bad), IMPURE, bad);
+});
 
 const theme = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b' }; // house: no pos/neg
 const base = { beat_sec: 0.5, Springs, theme, stage: { width: 1440, height: 1440 }, beatT: (b) => b * 0.5, hex: () => [0, 0, 0] };
@@ -31,7 +53,8 @@ for (const [name, c] of Object.entries(registry)) {
       const g = c.geometry(withDefaults(c.meta, row), base);
       for (const k of ['w', 'h', 'r']) assert.ok(Number.isFinite(g[k]) && g[k] > 0, `${k} for ${JSON.stringify(row)}`);
       assert.ok(g.w <= 1400 && g.h <= 1400, `fits 1440 stage: ${g.w}x${g.h}`);
-      assert.ok(typeof g.fill === 'string' && typeof g.ink === 'string');
+      assert.match(g.fill, ROLES, `fill for ${JSON.stringify(row)} is a theme role or #rrggbb`);
+      assert.match(g.ink, ROLES, `ink for ${JSON.stringify(row)} is a theme role or #rrggbb`);
     }
   });
 

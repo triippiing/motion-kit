@@ -19,6 +19,7 @@ export function makeProject({ states, cursor, bars = 4, bpm = 120, extraSfx = '[
   if (states) {
     const f = path.join(dir, 'index.html'), html = readFileSync(f, 'utf8');
     const a = html.indexOf(START), b = html.indexOf(END_MARK, a);
+    if (a < 0 || b < 0) throw new Error(`harness: template table markers not found in ${f} (expected "${START}" then "${END_MARK}")`);
     const tables = `${START}\nconst states = () => ${states};\nconst cursor = () => ${cursor};\nconst extraSfx = () => ${extraSfx};\nconst content = ${content};\n`;
     writeFileSync(f, html.slice(0, a) + tables + html.slice(b));
   }
