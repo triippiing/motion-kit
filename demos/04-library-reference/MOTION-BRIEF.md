@@ -14,6 +14,9 @@ components only, to prove the planner and the component library end to end. No p
 - **Rules (song.json):** `max_states` 14, `min_hold_beats` 2, spring settle 0.33 s. Strongest accents: beat 5 (.95), 6 (.91), 15 (.88), 19 (.87), 0 (.73), 16 (.68).
 - **Theme:** house theme, no product stylesheet, so every role is the default: canvas #eceae6, surface #ffffff, ink #0b0b0b, muted #8c8883, accent #0b0b0b, Geist. Nothing to remap.
 - **Budget:** 13 rows = 12 states plus the return, within 14. All copy is 22 design px or larger except component captions.
+- **Exports:** reels, x, discord, web, gif
+- **Audio:** kept for local viewing only (commercial track); public posts would use --silent
+- **Accepted:** commercial-track warning, these exports are for local viewing only and a public post would be exported with --silent
 
 ## Moments
 

@@ -26,6 +26,35 @@ node $S/render.mjs demos/04-library-reference --serve  # watch live with audio (
 node $S/render.mjs demos/04-library-reference          # final: demos/04-library-reference/out/video.mp4
 ```
 
+## Exports
+
+The brief lists `**Exports:** reels, x, discord, web, gif`. One command made every file, with audio,
+for local viewing only (a public post of this track would use `--silent`):
+
+```bash
+node $S/export.mjs demos/04-library-reference --for reels,x,discord,web,gif
+```
+
+It rendered two native shapes, 1080x1920 for Reels and 1440x1440 for everything else, and encoded
+each preset from its shape. The full record is `exports-manifest.json` (a copy of
+`out/exports/manifest.json`, paths relative to this folder).
+
+| Preset | File | Resolution | fps | Size (MB) | Duration (s) | LUFS / true peak | Warnings |
+|---|---|---|---|---|---|---|---|
+| reels | reels.mp4 | 1080x1920 | 30 | 0.69 | 15.43 | -14.0 / +1.2 dBTP | commercial track; true peak over -1 |
+| x | x.mp4 | 1440x1440 | 30 | 0.90 | 15.43 | -14.1 / +1.1 dBTP | commercial track; true peak over -1 |
+| discord | discord.mp4 | 1440x1440 | 60 | 0.88 | 15.42 | -14.1 / +0.9 dBTP | true peak over -1 |
+| web | web.mp4 | 1440x1440 | 60 | 0.72 | 15.42 | -14.0 / +1.2 dBTP | commercial track; true peak over -1 |
+| web | web.webm | 1440x1440 | 60 | 0.96 | 15.42 | -14.0 / -1.5 dBTP | commercial track |
+| web | web.jpg | 1440x1440 | still | 0.03 | | | poster at beat 1.5 |
+| gif | gif.gif | 720x720 | 15 | 1.35 | 15.40 | no audio | none |
+
+Every file is within its preset's size cap and length limit. Loudness hit -14 LUFS on every file, but
+the AAC files peak about 1 dB over zero: the loudnorm output peaks at -2.4 dBTP, and ffmpeg's built-in
+AAC encoder adds about 3.6 dB of overshoot on this track (the Opus WebM stays at -1.5). The commercial
+track warning is accepted in the brief. `check_brief.mjs` also reports the cursor and, for half a beat,
+the line chart entering the Reels safe zones; those are open for a decision and the brief is unchanged.
+
 ## Compared with demo 1
 
 | | Demo 1 (`01-reference`) | Demo 4 (`04-library-reference`) |
