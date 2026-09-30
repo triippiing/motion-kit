@@ -135,8 +135,8 @@
       "group": "feed",
       "shape": "square",
       "size": [
-        1440,
-        1440
+        1200,
+        1200
       ],
       "fps": 30,
       "maxSeconds": 140,
@@ -161,13 +161,14 @@
       },
       "public": true,
       "source": "https://help.x.com/en/using-x/x-videos",
-      "checked": "2026-09-30",
+      "checked": "2026-10-01",
       "estimated": [
+        "size",
         "safe",
         "lufs",
         "truePeak"
       ],
-      "notes": "140 s / 512 MB for non-Premium accounts (Premium is longer and larger: https://help.x.com/en/using-x/premium-longer-videos). Direct fetch returned 403; figures taken from search results quoting the official page. Estimated: safe (feed shows the full frame without overlays); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
+      "notes": "Size: 1200x1200, because X's documented maximum upload resolution is 1920x1200 landscape or 1200x1900 portrait (the help page, quoted by search results; a direct fetch of it returned 403 on 2026-09-30 and 2026-10-01), so a 1440 square is over it. Export renders the 1440 square natively and scales it down. The developer page https://docs.x.com/x-api/media/quickstart/best-practices (fetched 2026-10-01) is stricter for API uploads (dimensions 32x32 to 1280x1024; recommended 720x720 square, 1080p for subscribers) and now gives Post video 20 min / 8 GB default and 125 min / 16 GB Premium (\"Post-video caps match the X app\"); 140 s / 512 MB, kept here as the conservative cap, is the DM video limit there. Estimated: size (from the help page as quoted, not fetched); safe (feed shows the full frame without overlays); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "x-landscape": {
       "label": "X (landscape)",
@@ -200,13 +201,13 @@
       },
       "public": true,
       "source": "https://help.x.com/en/using-x/x-videos",
-      "checked": "2026-09-30",
+      "checked": "2026-10-01",
       "estimated": [
         "safe",
         "lufs",
         "truePeak"
       ],
-      "notes": "Same limits as x: 140 s / 512 MB non-Premium; direct fetch returned 403, figures from search results quoting the official page. Estimated: safe (no overlays in feed); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
+      "notes": "1920x1080 is within X's documented 1920x1200 maximum (the help page, quoted by search results; direct fetch returned 403 on 2026-10-01). Same limits as x: 140 s / 512 MB kept as the conservative cap (https://docs.x.com/x-api/media/quickstart/best-practices, fetched 2026-10-01, gives Post video 20 min / 8 GB default; its API-only dimension limit is 1280x1024). Estimated: safe (no overlays in feed); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "linkedin": {
       "label": "LinkedIn (square)",

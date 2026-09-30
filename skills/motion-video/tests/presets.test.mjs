@@ -10,7 +10,11 @@ test('every destination exists', () => { for (const n of NAMES) assert.ok(P.pres
 test('every preset is complete and consistent', () => {
   for (const [n, p] of Object.entries(P.presets)) {
     assert.ok(['square','vertical','landscape','design'].includes(p.shape), n);
-    if (p.shape !== 'design') assert.deepEqual(p.size ?? P.shapes[p.shape], P.shapes[p.shape], `${n} size matches its shape`);
+    // A preset's size is its shape's render size, or that shape scaled down (x: the 1440 square exported at 1200).
+    if (p.shape !== 'design') {
+      const [w, h] = p.size ?? P.shapes[p.shape], [sw, sh] = P.shapes[p.shape];
+      assert.ok(w <= sw && h <= sh && w * sh === h * sw, `${n} size ${w}x${h} is its shape ${sw}x${sh} or smaller, same aspect`);
+    }
     assert.ok([30, 60].includes(p.fps), n);
     assert.ok(p.maxSeconds === null || p.maxSeconds > 0, n);
     const maxMB = p.gif ? p.gif.maxMB : p.maxMB;
@@ -26,6 +30,11 @@ test('every preset is complete and consistent', () => {
     assert.ok(p.safe.left + p.safe.right < w && p.safe.top + p.safe.bottom < h, `${n} safe zone leaves room`);
     assert.equal(typeof p.public, 'boolean', n);
   }
+});
+test('x is 1200 square (X documents 1920x1200 / 1200x1900 as the maximum), x-landscape 1920x1080', () => {
+  assert.deepEqual(P.presets.x.size, [1200, 1200]);
+  assert.deepEqual(P.presets['x-landscape'].size, [1920, 1080]);
+  assert.ok(P.presets.x.estimated.includes('size'));
 });
 test('discord caps: free 20 MB, Nitro 1 GB (stored as 1000 MB)', () => {
   assert.equal(P.presets.discord.maxMB, 20);

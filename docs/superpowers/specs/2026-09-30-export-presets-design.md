@@ -34,7 +34,7 @@ Success means:
 | Group | Presets | Shape |
 |---|---|---|
 | Reels / TikTok / Shorts | `reels`, `tiktok`, `shorts` | vertical 1080x1920 |
-| X / LinkedIn | `x`, `linkedin` | square 1440 by default; `x-landscape`, `linkedin-landscape` for 1920x1080 |
+| X / LinkedIn | `x`, `linkedin` | square 1440 by default (`x` exports it at 1200x1200, X's documented maximum being 1920x1200 or 1200x1900); `x-landscape`, `linkedin-landscape` for 1920x1080 |
 | Discord / chat | `discord` (10 MB cap), `discord-nitro` (500 MB per Jack, 2026-09-30; rising to 1 GB soon: confirm against Discord's official page at build time) | the design shape |
 | Web / wiki / GitHub | `web` (small MP4 + WebM + poster JPG), `gif` (README-friendly GIF) | the design shape |
 

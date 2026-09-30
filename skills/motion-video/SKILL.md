@@ -88,7 +88,7 @@ manifest copies for every file.
 | Reels / TikTok / Shorts | `reels` | 1080x1920 | 30 | 900 s | 300 MB | yes |
 | | `tiktok` | 1080x1920 | 30 | 600 s | 4000 MB | yes |
 | | `shorts` | 1080x1920 | 60 | 180 s | none | yes |
-| X / LinkedIn | `x` | 1440x1440 | 30 | 140 s | 512 MB | yes |
+| X / LinkedIn | `x` | 1200x1200 (from the 1440 square) | 30 | 140 s | 512 MB | yes |
 | | `x-landscape` | 1920x1080 | 30 | 140 s | 512 MB | yes |
 | | `linkedin` | 1440x1440 | 30 | 600 s | 5000 MB | yes |
 | | `linkedin-landscape` | 1920x1080 | 30 | 600 s | 5000 MB | yes |
@@ -98,7 +98,8 @@ manifest copies for every file.
 | | `gif`: README GIF | 720 wide | 15 | none | 10 MB | none |
 
 "design" is the project's own stage (`project.json`). Only `discord` and `discord-nitro` are private;
-every other preset is public.
+every other preset is public. `x` renders the 1440 square and scales it to 1200x1200, because X documents
+1920x1200 (or 1200x1900) as its largest upload.
 
 **What it writes.** `DIR/out/exports/<preset>.mp4` (plus `web.webm` and `web.jpg` for `web`, `gif.gif`
 for `gif`) and `DIR/out/exports/manifest.json`, which records every file: size, duration, resolution,
