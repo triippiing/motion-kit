@@ -6,7 +6,8 @@
 //
 // Full renders take `sub` subframes per output frame, centred on the frame time,
 // and blend them with ffmpeg tmix for motion blur. Times wrap modulo the loop,
-// so the blur across the seam is continuous. --preview is half size, 1 subframe.
+// so the blur across the seam is continuous; a one-off piece (project.json "loop": false)
+// clamps them to [0, D] instead, so its end never blurs into its start. --preview is half size, 1 subframe.
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -97,6 +98,12 @@ function sfxInputs(dir, song, sfx, offset, duration) {
   return { inputs, filters, labels: filters.map((f) => f.slice(f.lastIndexOf('['))) };
 }
 
+// Whether a project loops: project.json's "loop" (default true). An unreadable project.json is reported
+// by the caller that cares (check_brief); here it means the default.
+export async function projectLoops(root) {
+  try { return JSON.parse(await readFile(path.join(root, 'project.json'), 'utf8')).loop !== false; } catch { return true; }
+}
+
 export async function render(dir, opts = {}) {
   const root = path.resolve(dir);
   const preview = !!opts.preview;
@@ -109,13 +116,14 @@ export async function render(dir, opts = {}) {
     if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || from >= to || to > D + 1e-9)
       throw new UsageError(`--from/--to must satisfy 0 <= from < to <= ${D} (the loop duration in seconds); got from ${from}, to ${to}`);
     const sub = preview ? 1 : (opts.sub ?? 4);
+    const loops = await projectLoops(root);
     const f0 = opts.from != null ? Math.max(0, Math.floor(opts.from / dt)) : 0;
     const f1 = opts.to != null ? Math.min(frames, Math.ceil(opts.to / dt)) : frames;
     const total = (f1 - f0) * sub;
     const timeAt = (i) => {
       const f = f0 + Math.floor(i / sub), k = i % sub;
       const t = (f + (sub === 1 ? 0 : (k - (sub - 1) / 2) / sub)) * dt;
-      return ((t % D) + D) % D;
+      return loops ? ((t % D) + D) % D : Math.min(D, Math.max(0, t));
     };
     const out = path.resolve(opts.out ?? path.join(root, 'out', preview ? 'preview.mp4' : 'video.mp4'));
     await mkdir(path.dirname(out), { recursive: true });

@@ -139,7 +139,7 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Keep the design size.** Components and the template are tuned for a ~1440 px stage (shape sizes,
   text, the 44 px cursor, the 2.4 zoom cap). On a bigger stage the engine (`components/core/engine.js`,
   the `zoom` line and the cursor `scale(...)` in `seek`) multiplies the camera zoom and the cursor by
-  `K = min(W, H) / 1440` (never below 1), so the piece looks the same, just sharper. To override it, set
+  `K = max(1, min(W, H) / 1440)` (never below 1), so the piece looks the same, just sharper. To override it, set
   `"designScale": N` in `DIR/project.json`. Everything is vector, so the zoom renders crisp text rather
   than upscaling.
 - **Render time** grows with pixels, frames and subframes. Measured on an Apple M5: 1 s of full-quality
@@ -149,7 +149,9 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Plan in chapters.** A minute is ~110 beats and up to ~55 states. Plan 3 or 4 sections that each
   return to a resting state, rather than one unbroken chain.
 - **Not a loop?** Add `"loop": false` to `DIR/project.json`: the page then accepts a last row that
-  differs from the first and `check_brief.mjs` checks the brief as a one-off. The seam check in
+  differs from the first, `check_brief.mjs` checks the brief as a one-off, and `render.mjs` clamps the
+  motion-blur subframes to the piece instead of wrapping them (so the end card never ghosts into frame 0).
+  `render.mjs --serve` with `?play` still loops playback. The seam check in
   `beat_stills.mjs` assumes the last frame equals the first; for a one-off its failure can be ignored.
 
 ## Rules that matter (the tests enforce most of them)

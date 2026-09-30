@@ -32,6 +32,14 @@ const theme = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#
 const base = { beat_sec: 0.5, Springs, theme, stage: { width: 1440, height: 1440 }, beatT: (b) => b * 0.5, hex: () => [0, 0, 0] };
 const withDefaults = (m, row) => Object.fromEntries(Object.entries(m.props).map(([k, [, d]]) => [k, k in row ? row[k] : structuredClone(d)]));
 const exampleRow = (m) => Function(`return (${m.example})`)();
+// Family hotspots ('item:<label>') without a hotspotExample naming a real member of the family.
+const missingFamilyExamples = (m) => m.hotspots.filter((h) => h.includes(':<'))
+  .filter((h) => { const ex = m.hotspotExample?.[h]; return typeof ex !== 'string' || !ex.startsWith(h.slice(0, h.indexOf(':<') + 1)) || ex.length <= h.indexOf(':<') + 1; });
+
+test('a family hotspot without a hotspotExample is caught', () => {
+  assert.deepEqual(missingFamilyExamples({ hotspots: ['box', 'item:<label>', 'tab:<item>'], hotspotExample: { 'tab:<item>': 'tab:Month' } }), ['item:<label>']);
+  assert.deepEqual(missingFamilyExamples({ hotspots: ['tab:<item>'], hotspotExample: { 'tab:<item>': 'item:Month' } }), ['tab:<item>'], 'the example must be in the family');
+});
 
 test('the registry has at least the reference component', () => {
   assert.ok(registry.button, 'button is registered');
@@ -47,6 +55,7 @@ for (const [name, c] of Object.entries(registry)) {
     assert.equal(ex.use, name);
     for (const [k, [ty, def]] of Object.entries(m.props)) assert.ok(typeOk(ty, def), `default of ${k} matches ${ty}`);
     for (const k of Object.keys(m.props)) assert.ok(!RESERVED.has(k), `prop "${k}" is a reserved row key (${[...RESERVED].join(', ')})`);
+    assert.deepEqual(missingFamilyExamples(m), [], 'every family hotspot needs a hotspotExample naming one real member (e.g. { \'tab:<item>\': \'tab:Month\' })');
     for (const f of ['geometry', 'mount', 'render', 'hotspot']) assert.equal(typeof c[f], 'function', f);
   });
 

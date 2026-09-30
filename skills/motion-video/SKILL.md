@@ -65,14 +65,16 @@ props; the cursor aims at its hotspots with `target:`.
 
 ## Long pieces, 4K and launch videos
 No hard limits: `--bars 28` is about a minute at 109 BPM; `--size 3840x2160` is 4K. Components are sized
-for a 1440 stage; on a bigger stage the engine scales the camera and cursor by `K = min(W, H) / 1440`
-itself, so the design keeps its proportions (set `"designScale": N` in `project.json` to override K).
+for a 1440 stage; on a bigger stage the engine scales the camera and cursor by
+`K = max(1, min(W, H) / 1440)` itself (never below 1, so 1080-wide stages are unchanged), so the design keeps its proportions (set `"designScale": N` in `project.json` to override K).
 Full-quality 4K renders at about 19 s per second of video on an Apple M5: measure with `--from 0 --to 5`
 first, iterate with `--preview`, and render in full once.
 
 A piece that does not loop (a launch video that ends on its own end card): add `"loop": false` to
 `DIR/project.json`. The page then allows a last row that differs from the first, `check_brief.mjs`
-checks it as a one-off, and the seam check in `beat_stills.mjs` can be ignored.
+checks it as a one-off, `render.mjs` clamps its motion blur at both ends instead of blending the end
+into the start, and the seam check in `beat_stills.mjs` can be ignored. `--serve` with `?play` still
+loops playback (it is a preview; the rendered MP4 plays once).
 
 ## When the loop stutters
 Seam check failing on frame: the last STATES/CURSOR row must equal the first and be

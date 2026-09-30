@@ -138,6 +138,8 @@ export function createScene(o) {
   // Design scale: components are sized for a 1440 stage. On a bigger stage K = min(W, H) / 1440 scales the camera
   // (and so the cursor) so the piece keeps its proportions, just sharper; smaller stages keep K = 1 (the zoom below
   // already fits the shape to them). project.json `designScale` overrides K.
+  if (designScale !== undefined && !(typeof designScale === 'number' && Number.isFinite(designScale) && designScale > 0))
+    throw new Error(`motion-kit: designScale in project.json must be a positive number, got ${typeof designScale === 'string' ? JSON.stringify(designScale) : String(designScale)}`);
   const K = designScale ?? Math.max(1, Math.min(stage.width, stage.height) / 1440);
   const zoom = (s) => K * Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height) / K) / Math.max(s.w, s.h)));
   const tracks = {

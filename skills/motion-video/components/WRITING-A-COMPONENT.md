@@ -260,7 +260,9 @@ Use the roles `canvas surface ink muted accent` (`'accent'` from `geometry`, `va
 
 Everything is in design pixels at a 1440 stage (the engine scales bigger stages). Type scale:
 label 34/500, body 28/400, small 22/500, caption 18/500 uppercase with `letter-spacing: .08em`,
-figure 72/600 with `font-variant-numeric: tabular-nums`. Nothing under 18 px. Icons come from
+figure 72/600 with `font-variant-numeric: tabular-nums`. Two floors: 18 px is the smallest text a
+component may use at all (captions only), and 22 design px is the legibility bar for anything a
+viewer must read (body copy, labels, values). Icons come from
 `icon(parent, name, size)` (24-unit grid, stroke 2, round caps): one stroke weight everywhere.
 Springs only, through `ctx.Springs` and the helpers; position and size springs have zeta 1.
 

@@ -105,3 +105,14 @@ test('an unknown flag is a usage error', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /unknown option "--noloop"/);
 });
+
+test('a malformed project.json is a warning (checked as a loop), not silently ignored', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  writeFileSync(path.join(dir, 'project.json'), '{ "loop": false,');
+  const r = await checkBrief(dir);
+  assert.deepEqual(r.errors, []);
+  assert.match(r.warnings.join('\n'), /project\.json is not valid JSON \(.+\); checking as a loop/);
+  const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.match(cli.stdout, /warning: project\.json is not valid JSON/);
+});

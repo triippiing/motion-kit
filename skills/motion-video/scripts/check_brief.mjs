@@ -17,15 +17,21 @@ export async function loadRegistry(dir) {
   return (await import(pathToFileURL(existsSync(own) ? own : lib).href)).registry;
 }
 
-// Whether the project loops: an explicit option wins, else project.json's "loop" (default true).
-export function projectLoops(dir) {
+// Whether the project loops, from project.json's "loop" (default true). A project.json that does not parse
+// comes back with a warning, and the piece is checked as a loop.
+export function projectLoop(dir) {
   const f = path.join(dir, 'project.json');
-  if (!existsSync(f)) return true;
-  try { return JSON.parse(readFileSync(f, 'utf8')).loop !== false; } catch { return true; }
+  if (!existsSync(f)) return { loop: true, warning: null };
+  try { return { loop: JSON.parse(readFileSync(f, 'utf8')).loop !== false, warning: null }; } catch (e) {
+    return { loop: true, warning: `project.json is not valid JSON (${e.message}); checking as a loop` };
+  }
 }
 
-export async function checkBrief(dir, { loop = projectLoops(dir) } = {}) {
+// loop: an explicit option wins (--no-loop), else project.json's.
+export async function checkBrief(dir, opts = {}) {
   const errors = [], warnings = [];
+  const proj = projectLoop(dir), loop = opts.loop ?? proj.loop;
+  if (proj.warning) warnings.push(proj.warning);
   const md = readFileSync(path.join(dir, 'MOTION-BRIEF.md'), 'utf8');
   const heading = (s) => new RegExp(`^${s}[ \\t]*\\r?$`, 'm');
   for (const s of SECTIONS) if (!heading(s).test(md)) errors.push(`missing section "${s}"`);
@@ -43,7 +49,7 @@ export async function checkBrief(dir, { loop = projectLoops(dir) } = {}) {
     return { errors: [...errors, `beat table code ${why}`], warnings };
   }
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, loop, strict: true });
-  return { errors: [...errors, ...r.errors], warnings: r.warnings };
+  return { errors: [...errors, ...r.errors], warnings: [...warnings, ...r.warnings] };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
@@ -53,7 +59,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   if (!dir || !existsSync(path.join(dir, 'MOTION-BRIEF.md')) || !existsSync(path.join(dir, 'song.json'))) {
     console.error('usage: check_brief.mjs PROJECT [--no-loop] (needs PROJECT/MOTION-BRIEF.md and song.json)'); process.exit(2);
   }
-  const loop = opts.includes('--no-loop') ? false : projectLoops(dir);
+  const loop = opts.includes('--no-loop') ? false : projectLoop(dir).loop;
   const r = await checkBrief(dir, { loop });
   for (const w of r.warnings) console.log(`warning: ${w}`);
   for (const e of r.errors) console.error(`error: ${e}`);

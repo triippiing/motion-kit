@@ -178,7 +178,7 @@ const cursor = () => [
   { at: 1,   target: 'field', press: true },
   { at: 3,   x: 260, y: 200 },
   { at: 4,   x: 240, y: 220 },
-  { at: 5,   x: 220, y: 240, sound: 'key' },
+  { at: 5,   x: 220, y: 240, sound: 'key' },   // Enter: sends the question
   { at: 7,   x: 200, y: 230 },
   { at: 8,   x: 220, y: 200 },
   { at: 10,  x: 240, y: 180 },

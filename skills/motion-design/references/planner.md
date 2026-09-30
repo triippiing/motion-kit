@@ -26,7 +26,7 @@ Write the understanding back (goal, size, length, product, song, moments) for co
 - Length → bars (4/4): `bars = round(seconds * bpm / 240)`. Say it: "15 s at 109 BPM = 7 bars = 15.4 s" (bars * 240 / bpm). Choose `--start-bar` from song.json `sections` (a section boundary inside a strong section). Then re-run `python3 $S/analyze_song.py SONG --out DIR --bars N --start-bar B --states K` so song.json matches the real length before planning.
 - song.json: `rules.min_hold_beats`, `rules.max_states`, loop window and sections, per-beat `accent` (biggest changes on the strongest beats).
 - Theme coverage: which roles came from the product, which defaulted; fix a wrong role with `--map accent=--other-var`.
-- Moments fit the state budget (`max_states`); text legible at the output size (nothing under 22 design px at 1440).
+- Moments fit the state budget (`max_states`); text legible at the output size (anything the viewer must read at 22 design px or more at 1440; components use 18 px only for captions).
 
 ## MOTION-BRIEF.md (write into the project)
 Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song window, one-line reasons), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`). Format and a worked example: `references/state-plan.md`.

@@ -153,3 +153,11 @@ test('design scale: a bigger stage zooms by K = min(W, H) / 1440; the cursor kee
   assert.equal(at({ width: 5120, height: 2880 }, { designScale: 1 }).zoom, 2.4, 'designScale: 1 turns the scaling off');
   assert.ok(Math.abs(at({ width: 1440, height: 1440 }, { designScale: 1.25 }).zoom - 3) < 1e-9, 'designScale 1.25 at 1440');
 });
+
+test('designScale must be a positive number: anything else is a readable motion-kit error', () => {
+  const rows = [[{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]];
+  for (const bad of [0, -1, '2', null, NaN, Infinity]) {
+    assert.throws(() => make(...rows, { designScale: bad }), /motion-kit: designScale in project\.json must be a positive number/, String(bad));
+  }
+  assert.doesNotThrow(() => make(...rows, { designScale: 1.5 }));
+});

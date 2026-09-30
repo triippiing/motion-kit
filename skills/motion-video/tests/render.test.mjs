@@ -299,3 +299,18 @@ test('project.json "loop": false lets a piece end on a different state; "designS
   assert.deepEqual(scaled.errors, []);
   assert.ok(Math.abs(scaled.zoom - 1.5 * plain.zoom) < 1e-6, `designScale 1.5 zooms 1.5x (${plain.zoom} -> ${scaled.zoom})`);
 });
+
+test('"loop": false clamps subframe times to the piece, so frame 0 carries no ghost of the end card', async () => {
+  // Black until the last tenth of the second, then white (an end card). Frame 0's early subframes sit at
+  // negative t: a loop wraps them to the end (a white ghost), a one-off clamps them to 0 (pure black).
+  const seek = 'document.body.style.background = t > 0.9 ? "#fff" : "#000";';
+  const make = (loop) => { const d = fixture({ seek }); if (!loop) writeFileSync(path.join(d, 'project.json'), JSON.stringify({ loop: false })); return d; };
+  const oneOff = make(false);
+  const single = grayFrame(await render(oneOff, { sub: 1, workers: 2, out: path.join(oneOff, 'out', 'single.mp4') }), 0);
+  const blended = grayFrame(await render(oneOff, { workers: 2 }), 0);
+  assert.ok(Math.abs(blended - single) < 2, `one-off frame 0: blended ${blended} vs single-subframe ${single}`);
+  const looped = grayFrame(await render(make(true), { workers: 2 }), 0);
+  assert.ok(looped > single + 20, `a loop still blends across the seam (${looped} vs ${single})`);
+  const section = grayFrame(await render(oneOff, { workers: 2, from: 0, to: 0.5, out: path.join(oneOff, 'out', 'part.mp4') }), 0);
+  assert.ok(Math.abs(section - single) < 2, `--from 0 section frame 0 is clamped too (${section})`);
+});
