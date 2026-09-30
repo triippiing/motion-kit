@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawnSync, spawn } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { render, openProject, shoot } from '../scripts/render.mjs';
@@ -206,4 +206,61 @@ test('a project with no theme.json falls back to the house roles', async () => {
     assert.match(bg, /^rgb\(\d+, \d+, \d+\)$/);
     assert.deepEqual(p.errors, []);
   } finally { await p.close(); }
+});
+
+const RENDER = path.join(SKILL, 'scripts', 'render.mjs');
+
+test('the CLI exits promptly after a preview render (no dangling ready timeout)', () => {
+  const dir = fixture();
+  const t0 = Date.now();
+  const r = spawnSync('node', [RENDER, dir, '--preview', '--workers', '1'], { encoding: 'utf8', timeout: 25000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(Date.now() - t0 < 15000, `took ${Date.now() - t0}ms`);
+});
+
+test('render.mjs rejects bad flags with a clear error and exit 2', () => {
+  const dir = fixture();
+  const bad = [[['--workers', '0'], /--workers/], [['--sub', '1.5'], /--sub/], [['--workers'], /--workers/],
+    [['--from', 'abc'], /--from/], [['--from', '0.5', '--to', '0.2'], /--from.*--to/], [['--to', '99'], /--to/],
+    [['--from', '-1'], /--from/], [['--bogus'], /unknown flag --bogus/]];
+  for (const [args, re] of bad) {
+    const r = spawnSync('node', [RENDER, dir, '--preview', ...args], { encoding: 'utf8' });
+    assert.equal(r.status, 2, `${args}: status ${r.status} ${r.stderr}`);
+    assert.match(r.stderr, /^error: /m); assert.match(r.stderr, re); assert.doesNotMatch(r.stderr, /\n\s+at /);
+  }
+});
+
+test('a failed render leaves a previous good video untouched and no .part behind', async () => {
+  const dir = fixture({ seek: 'if (t > 0.98) { const e = Date.now() + 1500; while (Date.now() < e); throw new Error("boom"); }' });
+  const out = path.join(dir, 'prev.mp4');
+  writeFileSync(out, 'previous good video');
+  await assert.rejects(render(dir, { preview: true, out, workers: 1 }), /boom/);
+  assert.equal(readFileSync(out, 'utf8'), 'previous good video');
+  assert.ok(!existsSync(out.replace(/\.mp4$/, '.part.mp4')), '.part.mp4 left behind');
+});
+
+test('a successful render replaces the previous video and leaves no .part', async () => {
+  const dir = fixture();
+  const out = path.join(dir, 'prev.mp4');
+  writeFileSync(out, 'old');
+  assert.equal(await render(dir, { preview: true, out }), out);
+  assert.equal(probe(out).streams.find((s) => s.codec_type === 'video').nb_read_frames, '60');
+  assert.ok(!existsSync(path.join(dir, 'prev.part.mp4')));
+});
+
+test('a missing SFX file is a clear error, not an unhandled rejection', async () => {
+  const dir = fixture({ sfx: [{ beat: 1, file: 'sfx/nope.wav' }] });
+  await assert.rejects(render(dir, { preview: true }), /SFX file not found: sfx\/nope\.wav/);
+});
+
+test('the CLI entry guard works from a path with spaces', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'sp-'));
+  const home = path.join(root, 'a b');
+  mkdirSync(home);
+  cpSync(path.join(SKILL, 'scripts'), path.join(home, 'scripts'), { recursive: true });
+  symlinkSync(path.join(SKILL, 'node_modules'), path.join(home, 'node_modules'));
+  for (const f of ['render.mjs', 'beat_stills.mjs']) {
+    const r = spawnSync('node', [path.join(home, 'scripts', f)], { encoding: 'utf8' });   // no DIR => usage
+    assert.equal(r.status, 2, `${f}: ${r.status} ${r.stderr}`); assert.match(r.stderr, /usage/);
+  }
 });

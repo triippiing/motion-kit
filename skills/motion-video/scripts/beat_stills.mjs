@@ -5,6 +5,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openProject, shoot, FFMPEG } from './render.mjs';
 
@@ -63,7 +64,7 @@ export async function beatStills(dir, { outDir } = {}) {
   } finally { await proj.close(); }
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const dir = process.argv[2];
   if (!dir) { console.error('usage: beat_stills.mjs DIR'); process.exit(2); }
   beatStills(dir).then((r) => {

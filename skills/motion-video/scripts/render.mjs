@@ -11,10 +11,13 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, mkdir, rename, rm } from 'node:fs/promises';
 import { existsSync, realpathSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+
+// A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
+export class UsageError extends Error {}
 
 export const FFMPEG = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((p) => existsSync(p)) || 'ffmpeg';
 
@@ -45,10 +48,13 @@ async function openPage(browser, url, viewport, errors) {
   await page.goto(url);
   const ok = await page.evaluate(() => typeof window.seek === 'function' && !!window.ready);
   if (!ok) throw new Error('index.html must define window.seek(t), window.ready and window.STAGE -- see motion-video/template/index.html');
-  await Promise.race([
-    page.evaluate(() => window.ready),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('window.ready did not resolve within 30s (fonts or song.json?)')), 30000)),
-  ]);
+  let timer;
+  try {
+    await Promise.race([
+      page.evaluate(() => window.ready),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('window.ready did not resolve within 30s (fonts or song.json?)')), 30000); }),
+    ]);
+  } finally { clearTimeout(timer); }
   // STAGE may be set inside ready (the template reads project.json there).
   const stage = await page.evaluate(() => window.STAGE);
   if (!stage || !(stage.width > 0) || !(stage.height > 0)) throw new Error('index.html must define window.STAGE = {width, height} by the time window.ready resolves');
@@ -99,6 +105,9 @@ export async function render(dir, opts = {}) {
     const { song, pages, errors } = proj;
     const fps = song.fps, D = song.loop.duration_sec, frames = song.loop.frames;
     const dt = song.loop.frame_dt ?? D / frames;
+    const from = opts.from ?? 0, to = opts.to ?? D;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || from >= to || to > D + 1e-9)
+      throw new UsageError(`--from/--to must satisfy 0 <= from < to <= ${D} (the loop duration in seconds); got from ${from}, to ${to}`);
     const sub = preview ? 1 : (opts.sub ?? 4);
     const f0 = opts.from != null ? Math.max(0, Math.floor(opts.from / dt)) : 0;
     const f1 = opts.to != null ? Math.min(frames, Math.ceil(opts.to / dt)) : frames;
@@ -110,9 +119,14 @@ export async function render(dir, opts = {}) {
     };
     const out = path.resolve(opts.out ?? path.join(root, 'out', preview ? 'preview.mp4' : 'video.mp4'));
     await mkdir(path.dirname(out), { recursive: true });
+    // Encode beside the target under the same extension (ffmpeg picks the muxer from it)
+    // and rename on success, so a failed render never destroys the previous video.
+    const { dir: outDir, name: outName, ext: outExt } = path.parse(out);
+    const part = path.join(outDir, `${outName}.part${outExt}`);
 
     const offset = f0 * dt, duration = (f1 - f0) * dt;
     const sfx = await pages[0].evaluate(() => window.SFX || []);
+    for (const c of sfx) if (!existsSync(path.join(root, c.file))) throw new Error(`SFX file not found: ${c.file} (listed in window.SFX)`);
     const clip = path.join(root, 'clip.wav');
     const s = sfxInputs(root, song, sfx, offset, duration);
     const vf = [sub > 1 ? `tmix=frames=${sub},select='eq(mod(n\\,${sub})\\,${sub - 1})',setpts=N/${fps}/TB` : null,
@@ -129,7 +143,7 @@ export async function render(dir, opts = {}) {
       args.push('-filter_complex', graph, '-map', '[v]');
     }
     args.push('-r', String(fps), '-c:v', 'libx264', '-preset', preview ? 'veryfast' : 'slow', '-crf', preview ? '23' : '16',
-      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', duration.toFixed(6), out);
+      '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-t', duration.toFixed(6), part);
 
     const ff = spawn(FFMPEG, args, { stdio: ['pipe', 'ignore', 'pipe'] });
     let stderr = '';
@@ -138,6 +152,7 @@ export async function render(dir, opts = {}) {
       code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr.trim().slice(-800)}`))));
 
     const B = pages.length;
+    done.catch(() => {});   // failures are surfaced by the awaits below, never as an unhandled rejection
     try {
     for (let b = 0; b < total; b += B) {
       const n = Math.min(B, total - b);
@@ -147,33 +162,57 @@ export async function render(dir, opts = {}) {
       if (process.stderr.isTTY) process.stderr.write(`\r${Math.round(((b + n) / total) * 100)}%`);
     }
     ff.stdin.end();
-    } catch (e) { done.catch(() => {}); ff.kill('SIGKILL'); throw e; }
     await done;
+    await rename(part, out);
+    } catch (e) { ff.kill('SIGKILL'); await rm(part, { force: true }); throw e; }
     if (process.stderr.isTTY) process.stderr.write('\n');
     return out;
   } finally { await proj.close(); }
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port']);
+const USAGE = 'usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--serve [--port N]]';
+
+function parseArgs(argv) {
+  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port']), BOOL = new Set(['preview', 'serve']);
   const o = {}; let dir;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) { const k = a.slice(2); o[k] = VALUE.has(k) ? argv[++i] : true; }
-    else dir ??= a;
+    if (!a.startsWith('--')) { dir ??= a; continue; }
+    const k = a.slice(2);
+    if (BOOL.has(k)) o[k] = true;
+    else if (VALUE.has(k)) {
+      if (argv[i + 1] == null || argv[i + 1].startsWith('--')) throw new UsageError(`--${k} needs a value`);
+      o[k] = argv[++i];
+    } else throw new UsageError(`unknown flag ${a}`);
   }
-  if (!dir) { console.error('usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--serve [--port N]]'); process.exit(2); }
+  const posInt = (k) => {
+    if (o[k] == null) return undefined;
+    if (!/^[0-9]+$/.test(o[k]) || Number(o[k]) < 1) throw new UsageError(`--${k} must be a positive integer, got "${o[k]}"`);
+    return Number(o[k]);
+  };
+  const secs = (k) => {
+    if (o[k] == null) return undefined;
+    if (o[k].trim() === '' || !Number.isFinite(Number(o[k]))) throw new UsageError(`--${k} must be a number of seconds, got "${o[k]}"`);
+    return Number(o[k]);
+  };
+  return { dir, o, sub: posInt('sub'), workers: posInt('workers'), port: posInt('port'), from: secs('from'), to: secs('to') };
+}
+
+async function main() {
+  const { dir, o, sub, workers, port, from, to } = parseArgs(process.argv.slice(2));
+  if (!dir) throw new UsageError(USAGE);
   if (o.serve) {
-    const { url } = await serve(dir, Number(o.port ?? 8123));
+    const { url } = await serve(dir, port ?? 8123);
     console.log(`${url}?play   (click the page to start audio)`);
     return;
   }
-  const num = (k) => (o[k] != null ? Number(o[k]) : undefined);
-  const out = await render(dir, { preview: !!o.preview, out: o.out, sub: num('sub'), workers: num('workers'), from: num('from'), to: num('to') });
-  console.log(out);
+  console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to }));
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(new URL(import.meta.url).pathname)) {
-  main().catch((e) => { console.error(`error: ${e.message}`); process.exit(1); });
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  main().catch((e) => {
+    console.error(`error: ${e.message}`);
+    if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);
+    process.exit(e instanceof UsageError ? 2 : 1);
+  });
 }
