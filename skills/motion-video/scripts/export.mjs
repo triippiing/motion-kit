@@ -14,7 +14,9 @@
 // under the size's quality floor; when no size works the export stops with an error. `web` also writes <preset>.webm
 // (VP9/Opus) and <preset>.jpg (a poster at beat 1.5); `gif` writes <preset>.gif, narrowing until it fits gif.maxMB.
 // Everything is written into a staging dir and moved into out/exports only when the whole export succeeds, then
-// out/exports/manifest.json records every file with what was measured. Over maxSeconds is a warning, not an error.
+// out/exports/manifest.json records every file with what was measured, merged with the manifest already there (this
+// call's presets replace their entries; other presets' entries stay while their files exist). Over maxSeconds is a
+// warning, not an error.
 // Commercial music (project.json "music": "commercial", or a MOTION-BRIEF.md Decisions **Song:**/**Music:** line that
 // calls the track commercial) warns on every public preset that carries audio.
 //
@@ -211,8 +213,16 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   // Keep the order the presets were asked for (a preset's own files stay in mp4, webm, jpg order).
   const ordered = files.map((f, i) => [f, i]).sort((a, b) => chosen.indexOf(a[0].preset) - chosen.indexOf(b[0].preset) || a[1] - b[1])
     .map(([{ staged, final, ...f }]) => f);
-  const manifest = { project: path.basename(root), created: new Date().toISOString(), renders, files: ordered };
-  await writeFile(path.join(exportsDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  // Merge into the manifest already there: this call's presets (and render sizes) replace their old entries, the
+  // other entries are kept (in their old order, before this call's) while their files still exist.
+  const manifestFile = path.join(exportsDir, 'manifest.json');
+  let old = {};
+  try { old = JSON.parse(await readFile(manifestFile, 'utf8')); } catch { /* none yet, or unreadable: start fresh */ }
+  const exists = (p) => typeof p === 'string' && existsSync(path.resolve(root, p));
+  const keptFiles = (Array.isArray(old.files) ? old.files : []).filter((f) => !chosen.includes(f?.preset) && exists(f.path));
+  const keptRenders = (Array.isArray(old.renders) ? old.renders : []).filter((r) => !renders.some((n) => n.size === r?.size) && exists(r.path));
+  const manifest = { project: path.basename(root), created: new Date().toISOString(), renders: [...keptRenders, ...renders], files: [...keptFiles, ...ordered] };
+  await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
   for (const f of ordered) log(summary(f));
   return manifest;
 }

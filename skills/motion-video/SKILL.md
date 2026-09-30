@@ -103,7 +103,10 @@ every other preset is public.
 **What it writes.** `DIR/out/exports/<preset>.mp4` (plus `web.webm` and `web.jpg` for `web`, `gif.gif`
 for `gif`) and `DIR/out/exports/manifest.json`, which records every file: size, duration, resolution,
 fps, codecs, measured LUFS and true peak, any step-down, notes, warnings, the preset's `source`/`checked`
-and its `estimated` fields. It prints one line per file, then the manifest path.
+and its `estimated` fields. A later call merges into the manifest: its presets' entries (and its render
+sizes) replace the old ones, and other presets' entries stay while their files still exist, so two calls
+(say `--for reels,x --silent`, then `--for discord`) leave one manifest listing both. It prints one line per
+file (this call's), then the manifest path.
 
 **Renders.** Presets are grouped by size and each size is rendered once (60 fps, 4 subframes) into
 `DIR/out/shapes/<W>x<H>/video.mp4`, with the stage swapped in as the page is served (`project.json` on

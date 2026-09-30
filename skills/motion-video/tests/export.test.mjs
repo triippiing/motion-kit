@@ -4,7 +4,7 @@
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
@@ -252,6 +252,19 @@ test('manifest lists every file with bytes, duration, size, fps, LUFS, warnings 
   assert.deepEqual(file('reels').estimated, ['lufs', 'truePeak']);
   assert.equal(file('web').source, null);
   assert.deepEqual(file('web').estimated, ['crf', 'kbps', 'lufs', 'truePeak']);
+});
+
+test('a second export merges into the manifest: same presets replaced, others kept while their files exist', async () => {
+  const outDir = path.join(TMP, 'merge'), read = () => JSON.parse(readFileSync(path.join(outDir, 'manifest.json'), 'utf8'));
+  await exportProject(DIR, { for: ['x'], silent: true, outDir, log: () => {} });
+  const m = await exportProject(DIR, { for: ['discord'], outDir, log: () => {} });
+  assert.deepEqual(read(), m, 'the returned manifest is the one written');
+  assert.deepEqual(m.files.map((f) => [f.preset, f.acodec]), [['x', null], ['discord', 'aac']]);
+  assert.deepEqual(m.renders.map((r) => r.size), ['256x256'], 'renders are merged by size');
+  // Exporting x again (with audio) replaces its entry; a kept entry whose file is gone is dropped.
+  rmSync(path.join(outDir, 'discord.mp4'));
+  const again = await exportProject(DIR, { for: ['x'], outDir, log: () => {} });
+  assert.deepEqual(again.files.map((f) => [f.preset, f.acodec]), [['x', 'aac']]);
 });
 
 test('commercial music on a public preset warns', () => {
