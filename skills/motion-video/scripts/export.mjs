@@ -15,11 +15,20 @@
 // (VP9/Opus) and <preset>.jpg (a poster at beat 1.5); `gif` writes <preset>.gif, narrowing until it fits gif.maxMB.
 // Everything is written into a staging dir and moved into out/exports only when the whole export succeeds, then
 // out/exports/manifest.json records every file with what was measured. Over maxSeconds is a warning, not an error.
+// Commercial music (project.json "music": "commercial", or a MOTION-BRIEF.md Decisions **Song:**/**Music:** line that
+// calls the track commercial) warns on every public preset that carries audio.
+//
+//   node export.mjs DIR --for reels,tiktok --guides
+//
+// renders one guides preview per chosen preset with safe margins (render.mjs --guides: translucent bands over its
+// zones, out/shapes/<W>x<H>/preview-guides-<preset>.mp4) for checking by eye, and exports nothing.
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime, render, renderStamp, stampPath, UsageError } from './render.mjs';
+import { designStage, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
+import { briefCommercial } from './check_brief.mjs';
 import { capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
 
 // A size cap the numbers show cannot be met before encoding: bad input for this project (exit 2), but not a
@@ -30,32 +39,7 @@ export class CapError extends UsageError {}
 const POSTER_BEAT = 1.5;
 const GIF_TRIES = 4;
 
-const DEFAULT_PRESETS = path.resolve(import.meta.dirname, '..', 'presets.json');
-
-export async function loadPresets(file = process.env.MOTION_PRESETS || DEFAULT_PRESETS) {
-  return JSON.parse(await readFile(file, 'utf8'));
-}
-
-function editDistance(a, b) {
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++)
-    for (let j = 1; j <= b.length; j++)
-      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return d[a.length][b.length];
-}
-
-function resolvePresets(P, names) {
-  if (!names?.length) throw new UsageError('--for needs at least one preset name');
-  const known = Object.keys(P.presets);
-  for (const n of names) {
-    if (P.presets[n]) continue;
-    const best = known.map((k) => [editDistance(n, k), k]).sort((a, b) => a[0] - b[0])[0];
-    const hint = best && best[0] <= Math.max(2, n.length / 3) ? ` (did you mean "${best[1]}"?)` : '';
-    throw new UsageError(`unknown preset "${n}"${hint}; known: ${known.join(', ')}`);
-  }
-  return [...new Set(names)];
-}
+export { loadPresets };
 
 // Newest mtime of the project's own files (everything outside out/ and dotfiles).
 async function newestSource(root) {
@@ -93,10 +77,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
   const P = await loadPresets();
   const chosen = resolvePresets(P, names);
-  let project = {};
-  try { project = JSON.parse(await readFile(path.join(root, 'project.json'), 'utf8')); }
-  catch (e) { if (e.code !== 'ENOENT') throw new UsageError(`project.json is not valid JSON: ${e.message}`); }
-  const design = [project.stage?.width ?? 1440, project.stage?.height ?? 1440];
+  const design = await designStage(root);
   const exportsDir = path.resolve(outDir ?? path.join(root, 'out', 'exports'));
   // Manifest paths are relative to the project when they are inside it, absolute otherwise.
   const rel = (p) => { const r = path.relative(root, p); return r.startsWith('..') || path.isAbsolute(r) ? p : r; };
@@ -105,8 +86,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   const groups = new Map();
   for (const name of chosen) {
     const p = P.presets[name];
-    const stage = p.shape === 'design' ? design : P.shapes[p.shape];
-    if (!stage) throw new UsageError(`preset "${name}" has unknown shape "${p.shape}"`);
+    const stage = presetStage(P, name, design);
     const size = `${stage[0]}x${stage[1]}`;
     if (!groups.has(size)) groups.set(size, { size, stage, shapes: [], presets: [] });
     const g = groups.get(size);
@@ -128,7 +108,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
 
   await mkdir(exportsDir, { recursive: true });
   const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
-  const commercial = project.music === 'commercial';
+  const commercial = await commercialMusic(root);
   const files = [];
   // Encode into a staging dir; nothing reaches exportsDir unless every preset succeeds.
   const staging = await mkdtemp(path.join(exportsDir, '.staging-'));
@@ -237,6 +217,30 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   return manifest;
 }
 
+// Whether the project's music is a commercial track: project.json "music": "commercial", or the brief's Decisions say so.
+export async function commercialMusic(root) {
+  let project = {};
+  try { project = JSON.parse(await readFile(path.join(root, 'project.json'), 'utf8')); } catch { /* designStage reported it */ }
+  if (project.music === 'commercial') return true;
+  try { return briefCommercial(await readFile(path.join(root, 'MOTION-BRIEF.md'), 'utf8')); } catch { return false; }
+}
+
+// --guides: one guides preview per chosen preset with safe margins; returns their paths. Nothing is exported.
+export async function guidePreviews(dir, { for: names, log = console.log } = {}) {
+  const root = path.resolve(dir);
+  if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
+  const P = await loadPresets();
+  const design = await designStage(root);
+  const out = [];
+  for (const name of resolvePresets(P, names)) {
+    if (!scaledMargins(P.presets[name], presetStage(P, name, design))) { log(`${name.padEnd(20)} no safe zones (the whole frame is shown)`); continue; }
+    const file = await render(root, { guides: name, preview: true });
+    log(`${name.padEnd(20)} ${path.relative(root, file)}`);
+    out.push(file);
+  }
+  return out;
+}
+
 const round1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
 // One line per file; the notes and warnings themselves are in the manifest.
@@ -249,14 +253,15 @@ function summary(f) {
     + `${step}${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
 }
 
-const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent]';
+const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent] [--guides]';
 
 function parseArgs(argv) {
-  const o = { silent: false }; let dir;
+  const o = { silent: false, guides: false }; let dir;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith('--')) { if (dir != null) throw new UsageError(`unexpected argument "${a}"`); dir = a; continue; }
     if (a === '--silent') o.silent = true;
+    else if (a === '--guides') o.guides = true;
     else if (a === '--for') {
       if (argv[i + 1] == null || argv[i + 1].startsWith('--')) throw new UsageError('--for needs a comma-separated list of presets');
       o.for = argv[++i].split(',').map((s) => s.trim()).filter(Boolean);
@@ -268,7 +273,8 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const { dir, ...opts } = parseArgs(process.argv.slice(2));
+  const { dir, guides, ...opts } = parseArgs(process.argv.slice(2));
+  if (guides) { await guidePreviews(dir, opts); return; }
   await exportProject(dir, opts);
   console.log(`manifest: ${path.join(path.resolve(dir), 'out', 'exports', 'manifest.json')}`);
 }

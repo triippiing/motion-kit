@@ -5,6 +5,9 @@
 //   node render.mjs DIR --serve        serve DIR and print a URL (open with ?play to watch live)
 //   --stage WxH renders (or serves) at another stage size without touching project.json: the server
 //   answers project.json with the stage swapped in; output defaults to out/shapes/WxH/.
+//   --guides PRESET renders with translucent bands over that preset's safe zones (safezones.mjs), at the preset's
+//   own stage unless --stage says otherwise, to <outdir>/[preview-]guides-PRESET.mp4. A guides render is never
+//   stamped, so export.mjs never reuses it.
 //
 // Full renders take `sub` subframes per output frame, centred on the frame time,
 // and blend them with ffmpeg tmix for motion blur. Times wrap modulo the loop,
@@ -29,21 +32,50 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
-// `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in; nothing is written.
-export function serve(dir, port = 0, { stage } = {}) {
+// The table block of the template's index.html runs from START_MARK to END_MARK.
+const START_MARK = '// ---------------- the three tables you edit ----------------';
+const END_MARK = '// ------------------------------------------------------------';
+
+// index.html with its states()/cursor() replaced by `code` (a brief's ```js block), keeping the page's own extraSfx
+// and content unless the code defines them. null when the page has no table markers.
+export function spliceTables(html, code) {
+  const a = html.indexOf(START_MARK), b = a < 0 ? -1 : html.indexOf(END_MARK, a + START_MARK.length);
+  if (a < 0 || b < 0) return null;
+  const block = html.slice(a + START_MARK.length, b);
+  const defines = (src, name) => new RegExp(`\\b(?:const|let|var|function)\\s+${name}\\b`).test(src);
+  let rest = '';
+  if (!defines(code, 'extraSfx') && !defines(code, 'content')) {
+    const k = block.search(/^\/\/ EXTRA_SFX|^const extraSfx\b/m);
+    rest = k < 0 ? 'const extraSfx = () => [];\nconst content = {};\n' : block.slice(k);
+  } else {
+    if (!defines(code, 'extraSfx')) rest += 'const extraSfx = () => [];\n';
+    if (!defines(code, 'content')) rest += 'const content = {};\n';
+  }
+  return `${html.slice(0, a)}${START_MARK}\n${code}\n${rest}${html.slice(b)}`;
+}
+
+// `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in; `tables` serves index.html
+// with those tables spliced in (spliceTables). Nothing is written. `tablesSpliced` says whether the splice took.
+export function serve(dir, port = 0, { stage, tables } = {}) {
   const root = path.resolve(dir);
+  const state = { tablesSpliced: false };
   return new Promise((resolve) => {
     const server = createServer(async (req, res) => {
       const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
       if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
       try {
-        const body = stage && rel === '/project.json' ? await stagedProject(file, stage) : await readFile(file);
+        let body = stage && rel === '/project.json' ? await stagedProject(file, stage) : await readFile(file);
+        if (tables != null && (rel === '/' || rel === '/index.html')) {
+          const spliced = spliceTables(body.toString('utf8'), tables);
+          if (spliced != null) { body = spliced; state.tablesSpliced = true; }
+        }
         res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
         res.end(body);
       } catch { res.writeHead(404); res.end(); }
     });
-    server.listen(port, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}/` }));
+    server.listen(port, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}/`,
+      get tablesSpliced() { return state.tablesSpliced; } }));
   });
 }
 
@@ -72,10 +104,11 @@ async function openPage(browser, url, viewport, errors) {
   return page;
 }
 
-export async function openProject(dir, { workers = 4, stage: stageOverride } = {}) {
+export async function openProject(dir, { workers = 4, stage: stageOverride, tables } = {}) {
   const root = path.resolve(dir);
   const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
-  const { server, url } = await serve(root, 0, { stage: stageOverride });
+  const served = await serve(root, 0, { stage: stageOverride, tables });
+  const { server, url } = served;
   const browser = await chromium.launch();
   const errors = [];
   try {
@@ -86,7 +119,7 @@ export async function openProject(dir, { workers = 4, stage: stageOverride } = {
       throw new Error(`asked for stage ${stageOverride.join('x')} but the page set ${stage.width}x${stage.height}; index.html must take its stage from project.json`);
     const viewport = { width: stage.width, height: stage.height };
     const pages = await Promise.all(Array.from({ length: workers }, () => openPage(browser, url, viewport, errors)));
-    return { browser, pages, stage, song, errors, url,
+    return { browser, pages, stage, song, errors, url, tablesSpliced: served.tablesSpliced,
       async close() { await browser.close(); server.close(); } };
   } catch (e) { await browser.close(); server.close(); throw e; }
 }
@@ -140,9 +173,12 @@ export const stampPath = (out) => `${out}.render.json`;
 export async function render(dir, opts = {}) {
   const root = path.resolve(dir);
   const preview = !!opts.preview;
-  const proj = await openProject(root, { workers: opts.workers ?? 4, stage: opts.stage });
+  let stageOpt = opts.stage, margins = null;
+  if (opts.guides) ({ stage: stageOpt, margins } = await (await import('./safezones.mjs')).guidesFor(root, opts.guides, opts.stage));
+  const proj = await openProject(root, { workers: opts.workers ?? 4, stage: stageOpt });
   try {
     const { song, pages, errors, stage } = proj;
+    if (margins) { const { drawGuides } = await import('./safezones.mjs'); for (const p of pages) await p.evaluate(drawGuides, margins); }
     const fps = song.fps, D = song.loop.duration_sec, frames = song.loop.frames;
     const dt = song.loop.frame_dt ?? D / frames;
     const from = opts.from ?? 0, to = opts.to ?? D;
@@ -158,8 +194,9 @@ export async function render(dir, opts = {}) {
       const t = (f + (sub === 1 ? 0 : (k - (sub - 1) / 2) / sub)) * dt;
       return loops ? ((t % D) + D) % D : Math.min(D, Math.max(0, t));
     };
-    const outBase = opts.stage ? path.join(root, 'out', 'shapes', opts.stage.join('x')) : path.join(root, 'out');
-    const out = path.resolve(opts.out ?? path.join(outBase, preview ? 'preview.mp4' : 'video.mp4'));
+    const outBase = stageOpt ? path.join(root, 'out', 'shapes', stageOpt.join('x')) : path.join(root, 'out');
+    const name = opts.guides ? `${preview ? 'preview-' : ''}guides-${opts.guides}.mp4` : preview ? 'preview.mp4' : 'video.mp4';
+    const out = path.resolve(opts.out ?? path.join(outBase, name));
     await mkdir(path.dirname(out), { recursive: true });
     // Encode beside the target under the same extension (ffmpeg picks the muxer from it)
     // and rename on success, so a failed render never destroys the previous video.
@@ -207,7 +244,8 @@ export async function render(dir, opts = {}) {
     await done;
     await rm(stampPath(out), { force: true });   // never leave an old stamp describing the new file
     await rename(part, out);
-    await writeFile(stampPath(out), JSON.stringify(await renderStamp(root, { stage: [stage.width, stage.height], sub,
+    // A guides render is never stamped: export.mjs reuses only stamped renders, and guides must never reach an export.
+    if (!opts.guides) await writeFile(stampPath(out), JSON.stringify(await renderStamp(root, { stage: [stage.width, stage.height], sub,
       from: opts.from ?? null, to: opts.to ?? null, preview, song }), null, 2) + '\n');
     } catch (e) { ff.kill('SIGKILL'); await rm(part, { force: true }); throw e; }
     if (process.stderr.isTTY) process.stderr.write('\n');
@@ -215,7 +253,7 @@ export async function render(dir, opts = {}) {
   } finally { await proj.close(); }
 }
 
-const USAGE = 'usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--stage WxH] [--serve [--port N]]';
+const USAGE = 'usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--stage WxH] [--guides PRESET] [--serve [--port N]]';
 
 // "WxH" -> [w, h]: even integers >= 64 (H.264 4:2:0 needs even sizes).
 export function parseStage(s) {
@@ -226,7 +264,7 @@ export function parseStage(s) {
 }
 
 function parseArgs(argv) {
-  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port', 'stage']), BOOL = new Set(['preview', 'serve']);
+  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port', 'stage', 'guides']), BOOL = new Set(['preview', 'serve']);
   const o = {}; let dir;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -255,12 +293,13 @@ function parseArgs(argv) {
 async function main() {
   const { dir, o, sub, workers, port, from, to, stage } = parseArgs(process.argv.slice(2));
   if (!dir) throw new UsageError(USAGE);
+  if (o.serve && o.guides) throw new UsageError('--guides renders a video; it does not apply to --serve');
   if (o.serve) {
     const { url } = await serve(dir, port ?? 8123, { stage });
     console.log(`${url}?play   (click the page to start audio)`);
     return;
   }
-  console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to, stage }));
+  console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to, stage, guides: o.guides }));
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {

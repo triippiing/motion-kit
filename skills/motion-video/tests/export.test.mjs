@@ -10,7 +10,7 @@ import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
 import { beatTime, FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
-import { exportProject, reusableRender } from '../scripts/export.mjs';
+import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
 import { capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -431,4 +431,32 @@ test('over maxSeconds warns (not an error)', async () => {
   const f = m.files[0];
   assert.ok(existsSync(f.path), 'the file is still written');
   assert.ok(f.warnings.includes(`over the 2 s maximum length for brief (${f.duration.toFixed(2)} s): the platform may reject or trim it`), JSON.stringify(f.warnings));
+});
+
+// ---- guides previews and the brief's music decision ----
+
+test('--guides renders a guides preview per preset with safe zones and exports nothing', async () => {
+  const dir = makeProject({ bars: 2, size: '256x256' });
+  await withPresets({ reels: preset({ shape: 'vertical', size: [216, 384], safe: { top: 54, bottom: 134, left: 13, right: 13 } }),
+    web: preset({ shape: 'design' }) }, (f) => {
+    const r = exportCli([dir, '--for', 'reels,web', '--guides'], f);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^reels\s+out\/shapes\/216x384\/preview-guides-reels\.mp4\nweb\s+no safe zones/);
+  });
+  const g = path.join(dir, 'out', 'shapes', '216x384', 'preview-guides-reels.mp4');
+  assert.deepEqual([video(g).width, video(g).height], [108, 192]);
+  assert.ok(!existsSync(path.join(dir, 'out', 'exports')), 'no exports');
+  assert.ok(!existsSync(stampPath(g)) && !existsSync(path.join(dir, 'out', 'shapes', '216x384', 'video.mp4')), 'nothing an export would reuse');
+});
+
+test('commercial music: project.json "music" or a brief Decisions line that calls the track commercial', async () => {
+  const dir = makeProject({ bars: 2 });
+  assert.equal(await commercialMusic(dir), false);
+  const brief = (line) => writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), `# Motion brief\n\n## Decisions\n- ${line}\n\n## Moments\n- commercial break\n`);
+  brief('**Song:** "Tints", my own copy: a commercial track, so social platforms would likely mute it.');
+  assert.equal(await commercialMusic(dir), true);
+  brief('**Song:** a licensed library track (not commercial).');
+  assert.equal(await commercialMusic(dir), false, 'negated, and "commercial" outside Decisions does not count');
+  brief('**Music:** commercial');
+  assert.equal(await commercialMusic(dir), true);
 });
