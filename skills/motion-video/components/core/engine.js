@@ -11,8 +11,10 @@
 //   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press).
-//   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, t0, t1, presses, cursorAt, geo, row,
+//   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, cursorAt, geo, row,
 //           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
+//   loop_sec: the loop's length in seconds when the piece loops, else null. Periodic motion (spinners,
+//   pulses) takes its period from helpers' loopPeriod(ctx, sec) so a whole number of cycles fits the loop.
 // Continuations: a component row directly after a row with the same `use` continues it.
 // Its layer does not crossfade: at t0 the previous row's layer steps out and this one
 // steps in, and ctx.prev holds the previous row's END state (its endState, else its resolved
@@ -42,7 +44,7 @@ export function createScene(o) {
     return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   };
   const CX = stage.width / 2, CY = stage.height / 2;
-  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage };
+  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null };
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {

@@ -1,5 +1,5 @@
 // toast.js -- a short confirmation pill: an icon, a message and an optional action.
-import { el, textW, frame, icon, fade, applyFade, cssRole, pressesOn, pressDepth } from '../core/helpers.js';
+import { el, textW, frame, icon, fade, applyFade, role, pressesOn, pressDepth } from '../core/helpers.js';
 
 export const meta = {
   name: 'toast', group: 'feedback',
@@ -29,7 +29,7 @@ function content(parent, p, cls, w, ctx) {
   if (p.icon !== 'none') {
     const dot = el(f, 'div', { class: 'ts-icon' });
     Object.assign(dot.style, { flex: 'none', width: `${DOT}px`, height: `${DOT}px`, marginRight: `${GAP}px`, borderRadius: '50%',
-      display: 'grid', placeItems: 'center', background: cssRole(ctx, 'pos', 'accent'), color: 'var(--surface)' });
+      display: 'grid', placeItems: 'center', background: disc(ctx), color: 'var(--surface)' });
     icon(dot, p.icon, 28);
   }
   Object.assign(el(f, 'span', { class: 'ts-text' }, p.text).style, { font: '400 28px var(--font)', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis' });
@@ -37,6 +37,12 @@ function content(parent, p, cls, w, ctx) {
     Object.assign(el(f, 'span', { class: 'ts-action' }, p.action).style, { flex: 'none', marginLeft: `${ACT_GAP}px`, font: '500 28px var(--font)',
       textDecoration: 'underline', textUnderlineOffset: '6px', textDecorationThickness: '2px' });
   }
+}
+// The icon disc: pos (else accent), unless it matches the toast's fill (by default ink, and the house accent is ink),
+// where a soft surface tint keeps the disc visible.
+function disc(ctx) {
+  const c = role(ctx, 'pos', 'accent');
+  return String(ctx.hex(c)) === String(ctx.hex(ctx.geo.fill)) ? 'color-mix(in srgb, var(--surface) 16%, transparent)' : `var(--${c})`;
 }
 const changed = (a, b) => a.text !== b.text || a.icon !== b.icon || a.action !== b.action;
 

@@ -1,10 +1,10 @@
 // loader.js -- something is working: a spinning arc or three breathing dots.
-import { el, fade, applyFade } from '../core/helpers.js';
+import { el, fade, applyFade, loopPeriod } from '../core/helpers.js';
 
 export const meta = {
   name: 'loader', group: 'feedback',
   useWhen: 'Something is working: uploading, syncing, thinking, between a press and its result.',
-  motion: 'The spinner turns at a steady 450 degrees a second; the dots brighten in turn on a 0.9 s cycle. Both run off the clock, so the motion carries on unbroken through a following loader row; a change of style there crossfades.',
+  motion: 'The spinner turns steadily at about 450 degrees a second (one turn in about 0.8 s); the dots brighten in turn on a cycle of about 0.9 s. Periods are trimmed so a whole number of cycles fits the loop, and both run off the clock, so the motion carries on unbroken through a following loader row; a change of style there crossfades.',
   props: { style: ['enum:spinner|dots', 'spinner'] },
   hotspots: [],
   sounds: [],
@@ -37,12 +37,13 @@ export function mount(root, p, ctx) {
 }
 
 // Both styles are functions of the absolute clock (row 0 therefore uses t), so a loader that carries on
-// into a following loader row never jumps.
+// into a following loader row never jumps; loopPeriod fits whole cycles into the loop so the seam matches.
 export function render(root, p, ctx, t) {
+  const turn = loopPeriod(ctx, 0.8), cycle = loopPeriod(ctx, 0.9);
   for (const box of root.children) {
     const arc = box.querySelector('.ld-arc');
-    if (arc) arc.style.transform = `rotate(${((t * 450) % 360).toFixed(3)}deg)`;
-    box.querySelectorAll('.ld-dot').forEach((d, k) => { d.style.opacity = (0.35 + 0.65 * Math.max(0, Math.sin(2 * Math.PI * (t / 0.9) - k * 0.6))).toFixed(4); });
+    if (arc) arc.style.transform = `rotate(${(((360 * t) / turn) % 360).toFixed(3)}deg)`;
+    box.querySelectorAll('.ld-dot').forEach((d, k) => { d.style.opacity = (0.35 + 0.65 * Math.max(0, Math.sin(2 * Math.PI * (t / cycle) - k * 0.6))).toFixed(4); });
   }
   if (root.children.length === 2) {
     applyFade(root.children[0], fade(ctx, t, -Infinity, ctx.t0));

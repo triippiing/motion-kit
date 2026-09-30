@@ -37,6 +37,11 @@ export function fade(ctx, t, tIn, tOut = Infinity) {
 }
 export const applyFade = (e, f) => Object.assign(e.style, { opacity: f.o, transform: `translateY(${f.y}px)`, filter: f.blur > 0.05 ? `blur(${f.blur}px)` : 'none' });
 
+// The period to use for periodic motion (spin, pulse, blink) near `sec` seconds: in a loop, the nearest
+// period that fits a whole number of times into ctx.loop_sec, so the motion matches across the seam.
+// ANY periodic motion in a component must take its period from here.
+export const loopPeriod = (ctx, sec) => (ctx.loop_sec ? ctx.loop_sec / Math.max(1, Math.round(ctx.loop_sec / sec)) : sec);
+
 export const drawOn = (ctx, t, t0, beats = 0.8) => Math.max(0, Math.min(1, prog(ctx, t, t0, beats)));
 
 // The sign comes from the rounded value, so -0.4 shows as 0, not -0.

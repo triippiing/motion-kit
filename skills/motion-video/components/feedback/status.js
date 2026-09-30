@@ -1,10 +1,10 @@
 // status.js -- a status pill: a coloured dot and a short text; collapses to just the dot.
-import { el, fade, applyFade, prog, textW, cssRole } from '../core/helpers.js';
+import { el, fade, applyFade, prog, textW, cssRole, loopPeriod } from '../core/helpers.js';
 
 export const meta = {
   name: 'status', group: 'feedback',
   useWhen: 'A live state is shown: connected, syncing, offline, a build passing or failing.',
-  motion: 'Warn and error dots pulse (1 to 1.25 and back every 1.2 s); ok holds still. A following status row morphs: collapsing or expanding folds the text away or brings it in, a new level blends the dot colour and eases the pulse in or out, and new text crossfades.',
+  motion: 'Warn and error dots pulse (1 to 1.25 and back about every 1.2 s, trimmed so whole pulses fit the loop); ok holds still. A following status row morphs: collapsing or expanding folds the text away or brings it in, a new level blends the dot colour and eases the pulse in or out, and new text crossfades.',
   props: { level: ['enum:ok|warn|error', 'ok'], text: ['string', 'Connected'], collapsed: ['boolean', false] },
   hotspots: [],
   sounds: [],
@@ -45,7 +45,7 @@ export function render(root, p, ctx, t) {
   const k = prev && prev.level !== p.level ? prog(ctx, t, ctx.t0, 0.4) : 1;
   const c = colour(ctx, p.level);
   const amp = prev ? pulses(prev.level) + (pulses(p.level) - pulses(prev.level)) * k : pulses(p.level);
-  const pulse = amp * 0.25 * (1 - Math.cos((2 * Math.PI * t) / 1.2)) / 2;
+  const pulse = amp * 0.25 * (1 - Math.cos((2 * Math.PI * t) / loopPeriod(ctx, 1.2))) / 2;
   Object.assign(root.querySelector('.st-dot').style, {
     background: k > 0.999 ? c : `color-mix(in srgb, ${c} ${(k * 100).toFixed(1)}%, ${colour(ctx, prev.level)})`,
     transform: `scale(${(1 + pulse).toFixed(4)})`,

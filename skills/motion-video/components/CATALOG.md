@@ -191,7 +191,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** Something is working: uploading, syncing, thinking, between a press and its result.
 
-**Motion:** The spinner turns at a steady 450 degrees a second; the dots brighten in turn on a 0.9 s cycle. Both run off the clock, so the motion carries on unbroken through a following loader row; a change of style there crossfades.
+**Motion:** The spinner turns steadily at about 450 degrees a second (one turn in about 0.8 s); the dots brighten in turn on a cycle of about 0.9 s. Periods are trimmed so a whole number of cycles fits the loop, and both run off the clock, so the motion carries on unbroken through a following loader row; a change of style there crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -230,7 +230,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** A live state is shown: connected, syncing, offline, a build passing or failing.
 
-**Motion:** Warn and error dots pulse (1 to 1.25 and back every 1.2 s); ok holds still. A following status row morphs: collapsing or expanding folds the text away or brings it in, a new level blends the dot colour and eases the pulse in or out, and new text crossfades.
+**Motion:** Warn and error dots pulse (1 to 1.25 and back about every 1.2 s, trimmed so whole pulses fit the loop); ok holds still. A following status row morphs: collapsing or expanding folds the text away or brings it in, a new level blends the dot colour and eases the pulse in or out, and new text crossfades.
 
 | Prop | Type | Default |
 |---|---|---|

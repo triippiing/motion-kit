@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
-import { edges, fmt, role, cssRole, icon, pressDepth, prog, fade } from '../components/core/helpers.js';
+import { edges, loopPeriod, fmt, role, cssRole, icon, pressDepth, prog, fade } from '../components/core/helpers.js';
 
 const ctx = { Springs, beat_sec: 0.5, theme: { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0c7d74', pos: 'oops' } };
 
@@ -78,4 +78,13 @@ test('prog/fade: a start of -Infinity means already in, never NaN', () => {
   assert.equal(prog(ctx, 0, -Infinity), 1);
   assert.deepEqual(fade(ctx, 0, -Infinity), { o: 1, y: 0, blur: 0 });
   assert.ok(fade(ctx, 1.05, -Infinity, 1).o < 1, 'still exits at tOut');
+});
+
+test('loopPeriod: a whole number of cycles per loop, nominal outside a loop', () => {
+  assert.equal(loopPeriod({ loop_sec: null }, 0.8), 0.8);
+  assert.equal(loopPeriod({}, 1.2), 1.2);
+  assert.equal(loopPeriod({ loop_sec: 4 }, 0.8), 0.8);             // 5 turns already fit
+  const L = 7.5, p = loopPeriod({ loop_sec: L }, 0.8);            // 4 bars at 128 bpm
+  assert.ok(Math.abs(L / p - Math.round(L / p)) < 1e-9 && Math.abs(p - 0.8) < 0.05, `period ${p}`);
+  assert.equal(loopPeriod({ loop_sec: 0.3 }, 1.2), 0.3);          // a loop shorter than one cycle: one cycle
 });

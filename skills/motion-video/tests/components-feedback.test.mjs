@@ -117,3 +117,13 @@ test('status: a warning dot pulses; an ok dot does not', async () => {
     assert.equal(await scale(2, 5 * bs), await scale(2, 5 * bs + 0.6), 'ok holds still');
   });
 });
+
+// Ruling G: periodic motion fits a whole number of cycles into the loop, so a loop that starts and ends on
+// a spinner or pulse matches at the seam even when the loop is not a multiple of the nominal period.
+for (const [what, row] of [['loader (spinner)', "use: 'loader'"], ['loader (dots)', "use: 'loader', style: 'dots'"], ['status (warn)', "use: 'status', level: 'warn'"]]) {
+  test(`${what}: a 4-bar loop at 128 bpm starting and ending on it passes the seam check`, async () => {
+    const dir = makeProject({ bars: 4, bpm: 128, states: `[{ at: 0, ${row} }, { at: 6, use: 'button' }, { at: END - 2, ${row} }]`, cursor: STILL });
+    const r = await beatStills(dir);
+    assert.equal(r.seam.ok, true, r.seam.notes.join('; '));
+  });
+}
