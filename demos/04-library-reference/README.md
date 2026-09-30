@@ -3,8 +3,8 @@
 Demo 1's sequence (button, loader, check, island, player with scrub, volume overstretch, toggle,
 tabs, line chart, command bar, toast, back to the button) rebuilt with library components only.
 It was planned with the `motion-design` planner, which wrote `MOTION-BRIEF.md`; that brief was
-approved as written and built with `motion-video` by pasting its `states()`/`cursor()` block into
-`index.html`. No custom states, layers or `content` functions.
+approved, then adjusted by the drag fixes (move rows at 11 and 13, knob approach at 14), and built
+with `motion-video` by pasting its `states()`/`cursor()` block into `index.html`. No custom states, layers or `content` functions.
 
 - Same song window as demo 1: "Tints" (feat. Kendrick Lamar), 109.00 BPM, bar 21 (47.363 s),
   7 bars = 28 beats = 15.413 s = 925 frames at 60 fps. Square 1440x1440, house theme.
