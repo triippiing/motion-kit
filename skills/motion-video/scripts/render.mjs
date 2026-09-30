@@ -178,6 +178,8 @@ export async function render(dir, opts = {}) {
   const preview = !!opts.preview;
   let stageOpt = opts.stage, margins = null;
   if (opts.guides) ({ stage: stageOpt, margins } = await (await import('./safezones.mjs')).guidesFor(root, opts.guides, opts.stage));
+  if (opts.guides && opts.out && ['video.mp4', 'preview.mp4'].includes(path.basename(opts.out)))
+    throw new UsageError(`--guides output must not be named video.mp4 or preview.mp4 (those are the renders export reuses); got ${opts.out}`);
   const proj = await openProject(root, { workers: opts.workers ?? 4, stage: stageOpt });
   try {
     const { song, pages, errors, stage } = proj;

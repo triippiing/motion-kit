@@ -13,7 +13,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import { validate } from '../components/core/validate.js';
-import { checkSafeZones, issueText, loadPresets, resolvePresets } from './safezones.mjs';
 
 const SECTIONS = ['## Request', '## Decisions', '## Moments', '## Beat table'];
 
@@ -67,11 +66,20 @@ export function briefExports(md) {
   return v.replace(/\([^)]*\)/g, '').replace(/[`.]+/g, ' ').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 }
 
-// Whether the brief says the music is a commercial track: its **Song:** or **Music:** line uses the word
-// "commercial" (not "non-commercial" or "not commercial" / "not a commercial ..."). planner.md has the planner say so
-// on the Song line ("a commercial track, so social platforms would likely mute it"); `**Music:** commercial` also works.
+// Whether the brief says the music is a commercial track: its **Song:** or **Music:** line is `commercial` itself,
+// or says "commercial track" (or song, music, release, recording) without a negation just before it ("not a",
+// "non", "non-", "isn't", "is not", "no"). planner.md has the planner say so on the Song line ("a commercial track,
+// so social platforms would likely mute it"). "Commercial use", "commercial licence", "commercial-free" and
+// "commercial rights" describe a licensed track, so they never count.
+const NEGATED = /(?:\bnon|\bnot|\bisn['\u2019]?t|\bno)[\s-]*(?:(?:a|an)\s+)?$/i;
+function commercialValue(v) {
+  if (/^commercial\s*(?:[.,;:(]|$)/i.test(v)) return true;
+  for (const m of v.matchAll(/\bcommercial[\s-]+(?:track|song|music|release|recording)s?\b/gi))
+    if (!NEGATED.test(v.slice(0, m.index))) return true;
+  return false;
+}
 export function briefCommercial(md) {
-  return ['Song', 'Music'].some((k) => /(?<!\bnon-?|\bnot (?:a )?)\bcommercial\b/i.test(decision(md, k) ?? ''));
+  return ['Song', 'Music'].some((k) => commercialValue(decision(md, k) ?? ''));
 }
 
 // loop: an explicit option wins (--no-loop), else project.json's. safeZones: the safe-zone check (tests stub it).
@@ -82,6 +90,19 @@ export async function checkBrief(dir, opts = {}) {
   const md = readFileSync(path.join(dir, 'MOTION-BRIEF.md'), 'utf8');
   const heading = (s) => new RegExp(`^${s}[ \\t]*\\r?$`, 'm');
   for (const s of SECTIONS) if (!heading(s).test(md)) errors.push(`missing section "${s}"`);
+  // Exports first, so a misspelt preset is reported whatever the tables do. safezones.mjs (and with it render.mjs
+  // and Playwright) is only loaded when the brief has an Exports line.
+  const exp = briefExports(md);
+  let sz = null, P = null, names = null;
+  if (exp != null && !exp.length) errors.push('Exports: names no presets (a comma list, e.g. **Exports:** reels, x, web)');
+  else if (exp != null) {
+    sz = await import('./safezones.mjs');
+    P = await sz.loadPresets();
+    try { names = sz.resolvePresets(P, exp); } catch (e) { errors.push(`Exports: ${e.message}`); }
+    const pub = (names ?? []).filter((n) => P.presets[n].public && P.presets[n].audio?.codec !== null).map((n) => P.presets[n].label ?? n);
+    if (pub.length && briefCommercial(md))
+      warnings.push(`commercial music with public exports (${pub.join(', ')}) risks a mute or takedown: export those with --silent or use a licensed track`);
+  }
   const at = md.search(heading('## Beat table'));
   const table = at < 0 ? '' : md.slice(at);
   const code = [...table.matchAll(/```(?:js|javascript)\r?\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
@@ -99,20 +120,12 @@ export async function checkBrief(dir, opts = {}) {
   }
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   errors.push(...r.errors); warnings.push(...r.warnings);
-  const exp = briefExports(md);
-  if (exp == null) return { errors, warnings };   // no Exports line: nothing more, and no browser
-  if (!exp.length) return { errors: [...errors, 'Exports: names no presets (a comma list, e.g. **Exports:** reels, x, web)'], warnings };
-  const P = await loadPresets();
-  let names;
-  try { names = resolvePresets(P, exp); } catch (e) { return { errors: [...errors, `Exports: ${e.message}`], warnings }; }
-  const pub = names.filter((n) => P.presets[n].public && P.presets[n].audio?.codec !== null).map((n) => P.presets[n].label ?? n);
-  if (pub.length && briefCommercial(md))
-    warnings.push(`commercial music with public exports (${pub.join(', ')}) risks a mute or takedown: export those with --silent or use a licensed track`);
-  // The page runs the same tables, so it would only fail on what the errors already say.
-  if (errors.length) return { errors, warnings };
+  // No Exports line: nothing more, and no browser. With errors, the page (running the same tables) would only fail
+  // on what they already say.
+  if (!names || errors.length) return { errors, warnings };
   try {
-    const { issues, notes = [] } = await (opts.safeZones ?? checkSafeZones)(dir, { presets: names, samples: 'half', tables: code, loop });
-    warnings.push(...notes, ...issues.map((i) => issueText(i, P)));
+    const { issues, notes = [] } = await (opts.safeZones ?? sz.checkSafeZones)(dir, { presets: names, samples: 'half', tables: code, loop });
+    warnings.push(...notes, ...issues.map((i) => sz.issueText(i, P)));
   } catch (e) { warnings.push(`the safe-zone check did not run: ${e.message.split('\n')[0]}`); }
   return { errors, warnings };
 }

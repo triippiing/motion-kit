@@ -4,7 +4,8 @@ import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
-import { checkBrief } from '../scripts/check_brief.mjs';   // async
+import { briefCommercial, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
+import { pathToFileURL } from 'node:url';
 
 const SCRIPT = path.resolve(import.meta.dirname, '../scripts/check_brief.mjs');
 const brief = (tables, sections = true) => `# Motion brief\n\n${sections ? '## Request\nA promo.\n\n## Decisions\n- square\n\n## Moments\n1. Import -> button\n\n' : ''}## Beat table\n\n| # | bar.beat | t | component | what changes | sound |\n|---|---|---|---|---|---|\n\n\`\`\`js\n${tables}\n\`\`\`\n`;
@@ -221,6 +222,45 @@ test('a commercial track with public Exports is a warning; private-only or a lic
   assert.deepEqual(await run('**Song:** a licensed stock track, not a commercial track.', '**Exports:** reels'), []);
   assert.deepEqual(await run('**Music:** non-commercial library track', '**Exports:** reels'), []);
   assert.deepEqual(await run(song), [], 'no Exports line, nothing to warn about');
+});
+
+test('briefCommercial: a commercial track, song or release is commercial; licensed or negated wording is not', () => {
+  const md = (line) => `## Decisions\n- ${line}\n\n## Moments\n`;
+  // demo 04's real Song line (the planner's wording) must match.
+  const demo = readFileSync(path.resolve(import.meta.dirname, '../../../demos/04-library-reference/MOTION-BRIEF.md'), 'utf8');
+  assert.equal(briefCommercial(demo), true, 'demo 04');
+  for (const line of ['**Song:** "Tints", a commercial track', '**Music:** commercial', '**Music:** Commercial.', '**Song:** a commercial song I own',
+    '**Song:** commercial release (Tints)', '**Music:** a commercial recording', '**Song:** my copy of commercial music'])
+    assert.equal(briefCommercial(md(line)), true, line);
+  for (const line of ['**Music:** licensed for commercial use', '**Music:** cleared for commercial use, royalty-free',
+    '**Music:** no commercial restrictions', '**Music:** non commercial library', '**Music:** non-commercial library track',
+    '**Song:** not-commercial', "**Song:** this isn't commercial", '**Song:** isn’t a commercial track', '**Song:** is not a commercial track',
+    '**Song:** not  commercial', '**Song:** not a commercial track', '**Music:** stock track with a commercial licence',
+    '**Music:** commercial-free library', '**Music:** we hold commercial rights', '**Music:** commercial license included'])
+    assert.equal(briefCommercial(md(line)), false, line);
+  assert.equal(briefCommercial('## Request\na commercial track\n\n## Decisions\n- **Song:** licensed\n'), false, 'only Decisions counts');
+});
+
+test('an Exports typo is reported even when the beat table code does not run', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief('const states = () => { throw new Error("boom"); };\nconst cursor = () => [];'), '**Exports:** reelz'));
+  const r = await checkBrief(dir, { safeZones: stub().fn });
+  assert.match(r.errors.join('\n'), /beat table code does not run: boom/);
+  assert.match(r.errors.join('\n'), /Exports: unknown preset "reelz"/);
+});
+
+test('without an Exports line check_brief loads neither render.mjs nor Playwright', () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  const code = `import { registerHooks } from 'node:module';
+const seen = [];
+registerHooks({ resolve(s, c, next) { const r = next(s, c); seen.push(r.url); return r; } });
+const { checkBrief } = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});
+const r = await checkBrief(${JSON.stringify(dir)});
+console.log(JSON.stringify({ errors: r.errors, loaded: seen.filter((u) => /playwright|render\.mjs|safezones\.mjs/.test(u)) }));`;
+  const out = spawnSync('node', ['--input-type=module', '-e', code], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(JSON.parse(out.stdout), { errors: [], loaded: [] });
 });
 
 test('an Exports line runs the safe-zone check on the brief\'s own tables (not index.html\'s)', async () => {

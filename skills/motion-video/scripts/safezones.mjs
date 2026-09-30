@@ -6,7 +6,7 @@
 // Each preset with non-zero `safe` margins (presets.json, or $MOTION_PRESETS) is checked at its own render size:
 // the page is opened at that stage (render.mjs's stage override; project.json is never rewritten), seeked to every
 // beat (and half-beat, the default), and the shape's box (#shape, camera zoom included) and the cursor's tip
-// (window.inspect(t).cursor) are compared, in stage px, with the margins scaled from the preset's size to the stage.
+// (window.inspect(t).cursor) plus the drawn arrow right and down of it (the #cursor path's box) are compared, in stage px, with the margins scaled from the preset's size to the stage.
 // Consecutive samples in the same zone are one issue: "beats 12-13.5: shape extends 40 px into the Instagram Reels
 // bottom zone". Prints each issue; exit 1 when there are any, 0 when none, 2 on bad input.
 // Also the home of the preset helpers export.mjs and check_brief.mjs share, and of the guides overlay (render.mjs --guides).
@@ -67,8 +67,10 @@ function intrusions(box, m, W, H) {
   return EDGES.filter((e) => m[e] > 0 && px[e] >= 1).map((edge) => ({ edge, px: Math.round(px[edge]) }));
 }
 
-// Runs in the page: seek, then the shape's box and the cursor tip in stage px (relative to #stage, which the
-// viewport matches at device scale 1, so CSS px are stage px; getBoundingClientRect includes the camera zoom).
+// Runs in the page: seek, then the shape's box and the cursor's in stage px (relative to #stage, which the
+// viewport matches at device scale 1, so CSS px are stage px; getBoundingClientRect includes the camera zoom and the
+// cursor's own scale). The cursor box runs from its tip (window.inspect) to the far corner of the arrow the engine
+// draws (#cursor path: 23 x 33 px right of and below the tip at scale 1); a page without that path counts the tip.
 function measure(t) {
   window.seek(t);
   const shape = document.querySelector('#shape');
@@ -77,7 +79,11 @@ function measure(t) {
   const b = shape.getBoundingClientRect();
   const box = b.width > 0 && b.height > 0 ? { left: b.left - st.left, top: b.top - st.top, right: b.right - st.left, bottom: b.bottom - st.top } : null;
   const c = typeof window.inspect === 'function' ? window.inspect(t)?.cursor : null;
-  return { shape: box, cursor: c && Number.isFinite(c.x) && Number.isFinite(c.y) ? { left: c.x, right: c.x, top: c.y, bottom: c.y } : null };
+  if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) return { shape: box, cursor: null };
+  const a = document.querySelector('#cursor path')?.getBoundingClientRect();
+  const cursor = { left: c.x, right: c.x, top: c.y, bottom: c.y };
+  if (a && a.width > 0) Object.assign(cursor, { right: Math.max(c.x, a.right - st.left), bottom: Math.max(c.y, a.bottom - st.top) });
+  return { shape: box, cursor };
 }
 
 // { issues: [{ preset, beat, through, t, part, edge, px }], notes } -- `beat` is where a run of samples in the zone
@@ -91,7 +97,10 @@ export async function checkSafeZones(dir, { presets, samples = 'half', tables, l
   const P = await loadPresets();
   const names = resolvePresets(P, presets);
   const design = await designStage(root);
-  const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
+  let song;
+  try { song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8')); }
+  catch (e) { throw new UsageError(`song.json is not valid JSON: ${e.message}`); }
+  if (!Array.isArray(song?.beats)) throw new UsageError('song.json has no beats list (re-run analyze_song.py)');
   const D = song.loop?.duration_sec ?? Infinity;
   const beats = [];
   for (let b = 0; b < song.beats.length; b++) beats.push(...(samples === 'half' ? [b, b + 0.5] : [b]));

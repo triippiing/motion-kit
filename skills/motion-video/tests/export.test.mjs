@@ -460,3 +460,27 @@ test('commercial music: project.json "music" or a brief Decisions line that call
   brief('**Music:** commercial');
   assert.equal(await commercialMusic(dir), true);
 });
+
+test('a licensed track in the brief gets no commercial warning in the manifest; a commercial one does', async () => {
+  const dir = makeProject({ bars: 2, size: '128x128' });
+  const briefFile = path.join(dir, 'MOTION-BRIEF.md');
+  const brief = (line) => {
+    writeFileSync(briefFile, `# Motion brief\n\n## Decisions\n- ${line}\n- **Exports:** pub\n`);
+    const past = new Date(Date.now() - 60000);
+    utimesSync(briefFile, past, past);   // older than the stand-in render, so it stays reusable
+  };
+  brief('**Music:** licensed for commercial use, royalty-free');
+  const f = path.join(dir, 'out', 'video.mp4');
+  standIn(dir, f, loopSec(dir));
+  await standInStamp(dir, f, [128, 128]);
+  await withPresets({ pub: preset({ shape: 'design' }) }, async () => {
+    const commercial = async () => {
+      const m = await exportProject(dir, { for: ['pub'], log: () => {} });
+      assert.equal(m.renders[0].reused, true, 'the stand-in render is reused');
+      return m.files[0].warnings.filter((w) => /commercial/.test(w));
+    };
+    assert.deepEqual(await commercial(), []);
+    brief('**Song:** "Tints", a commercial track, so social platforms would likely mute it.');
+    assert.equal((await commercial()).length, 1);
+  });
+});
