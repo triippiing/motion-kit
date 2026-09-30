@@ -55,14 +55,70 @@ function candidates(rows, at) {
   return next && next.row.at - at <= 1 + 1e-9 ? [rows[k], next] : [rows[k]];
 }
 
-// The row a cursor row aims at: the first candidate whose component has the hotspot.
+// A component row's props with its defaults filled in (what the engine renders).
+export function rowProps(row, comp) {
+  const props = {};
+  for (const [k, [, def]] of Object.entries(comp.meta.props)) props[k] = Object.hasOwn(row, k) ? row[k] : structuredClone(def);
+  return props;
+}
+// A component row's shape: the component's geometry with the row's w/h/r/fill/ink overrides.
+export function rowGeo(row, comp, props, ctx = {}) {
+  const g = comp.geometry(props, ctx);
+  return { w: row.w ?? g.w, h: row.h ?? g.h, r: row.r ?? g.r, fill: row.fill ?? g.fill ?? 'surface', ink: row.ink ?? g.ink ?? 'ink' };
+}
+
+// Where hotspot `name` sits on row r ({ row, comp, props, geo }), or null when the row has no such
+// hotspot with its props (a tab not in items, a row index past the end, an item of a closed dropdown).
+// It is asked without a ctx: rows are chosen before any row has one, so hotspot() must not need ctx
+// to decide whether a hotspot exists. A row flagged `bad` (its props are already reported) is not asked.
+export function resolveHotspot(r, name) {
+  if (!r?.comp || !matchHotspot(r.comp.meta.hotspots, name)) return null;
+  if (r.bad) return { x: 0, y: 0 };
+  try {
+    r.props ??= rowProps(r.row, r.comp);
+    r.geo ??= rowGeo(r.row, r.comp, r.props);
+    const p = r.comp.hotspot(name, r.props, r.geo, {});
+    return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+  } catch { return null; }
+}
+
+// The row a cursor row aims at: the first candidate on which its hotspot resolves.
 export function targetRow(rows, c) {
-  return candidates(rows, c.at).find((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target)) ?? null;
+  return candidates(rows, c.at).find((r) => resolveHotspot(r, c.target)) ?? null;
 }
 
 // The row a cursor row acts on (presses): its target's row, else the active row.
 export function pressRow(rows, c) {
   return (c.target && targetRow(rows, c)) || rows[activeIndex(rows, c.at)];
+}
+
+// Every hotspot name that resolves on row r: its plain hotspots, and each family ('tab:<item>') tried with
+// every string in the row's props and the integers 0..99, so a message can list what is really there.
+function resolvable(r) {
+  const words = new Set();
+  const add = (v) => { if (typeof v === 'string' && v) words.add(v); else if (Array.isArray(v)) v.forEach(add); else if (v && typeof v === 'object') Object.values(v).forEach(add); };
+  Object.values(r.props ?? {}).forEach(add);
+  for (let n = 0; n < 100; n++) words.add(String(n));
+  const out = [];
+  for (const h of r.comp.meta.hotspots) {
+    const i = h.indexOf(':<');
+    if (i < 0) { if (resolveHotspot(r, h)) out.push(h); continue; }
+    for (const w of words) if (resolveHotspot(r, h.slice(0, i + 1) + w)) out.push(h.slice(0, i + 1) + w);
+  }
+  return out;
+}
+// A list of hotspot names for a message: runs of numbered names shortened to "row:0 to row:7", at most 12 entries.
+function listNames(names) {
+  const parts = [];
+  for (let i = 0; i < names.length; i++) {
+    const m = names[i].match(/^(.*:)(\d+)$/);
+    let j = i;
+    if (m) while (j + 1 < names.length && names[j + 1] === `${m[1]}${Number(m[2]) + (j + 1 - i)}`) j++;
+    parts.push(j - i >= 2 ? `${names[i]} to ${names[j]}` : names[i]);
+    if (j - i === 1) parts.push(names[j]);
+    i = j;
+  }
+  return parts.length > 12 ? `${parts.slice(0, 12).join(', ')}, ...` : parts.join(', ');
 }
 
 // Stable JSON: object keys sorted at every level, so key order never matters.
@@ -81,15 +137,48 @@ const withDefaults = (row, registry) => {
 const spot = (c) => canon({ target: c.target ?? null, x: c.x ?? null, y: c.y ?? null, dx: c.dx ?? 0, dy: c.dy ?? 0 });
 const same = (a, b, registry) => canon({ ...withDefaults(a, registry), at: 0 }) === canon({ ...withDefaults(b, registry), at: 0 });
 
-export function validate({ states, cursor, registry, song, loop = true, strict = false }) {
+const HEX = /^#[0-9a-f]{6}$/i;
+const describe = (v) => (v === undefined ? 'nothing' : typeof v === 'number' ? String(v) : JSON.stringify(v));
+
+// Holes, non-object rows and rows without a finite `at` stop the check: nothing else can be read safely.
+function shapeErrors(list, what) {
+  const errors = [];
+  for (let i = 0; i < list.length; i++) {
+    const after = i && Number.isFinite(list[i - 1]?.at) ? ` (after beat ${list[i - 1].at})` : '';
+    if (!(i in list)) errors.push(`${what} row ${i + 1}${after} is empty (a stray comma?)`);
+    else if (!list[i] || typeof list[i] !== 'object' || Array.isArray(list[i])) errors.push(`${what} row ${i + 1}${after} should be an object like { at: 4, ... }, got ${describe(list[i])}`);
+    else if (!Number.isFinite(list[i].at)) errors.push(`${what} row ${i + 1}${after} needs a numeric \`at\` (a beat), got ${describe(list[i].at)}`);
+  }
+  return errors;
+}
+
+// theme: the colour roles ({ role: '#rrggbb', ... }); when given, fill/ink must name one of them or be #rrggbb.
+export function validate({ states, cursor, registry, song, theme, loop = true, strict = false }) {
   const errors = [], warnings = [];
+  const done = () => ({ errors: [...new Set(errors)], warnings: [...new Set(warnings)] });
   const END = song?.beats?.length;
   if (!Array.isArray(states) || !states.length) return { errors: ['states() must return at least one row'], warnings };
+  errors.push(...shapeErrors(states, 'states()'));
+  if (Array.isArray(cursor)) errors.push(...shapeErrors(cursor, 'cursor()'));
+  if (errors.length) return done();
+  const roles = theme ? Object.keys(theme).filter((k) => typeof theme[k] === 'string' && HEX.test(theme[k])) : null;
+  // One entry per row, filled in as the rows are checked: props/geo for hotspots; bad when already reported.
+  const rows = states.map((row) => ({ row, comp: row.use ? lookup(registry, row.use) : null, bad: false }));
   if (states[0].at !== 0) errors.push('first row must be at beat 0');
   states.forEach((row, i) => {
+    const r = rows[i];
     if (i && !(row.at > states[i - 1].at)) errors.push(`rows must be in ascending beat order (beat ${row.at} after ${states[i - 1].at})`);
+    for (const k of ['w', 'h', 'r']) if (Object.hasOwn(row, k) && !(Number.isFinite(row[k]) && row[k] >= 0)) { errors.push(`${k} at beat ${row.at} should be a number >= 0, got ${describe(row[k])}`); r.bad = true; }
+    for (const k of ['fill', 'ink']) {
+      if (!Object.hasOwn(row, k)) continue;
+      const v = row[k];
+      if (typeof v !== 'string' || !(HEX.test(v) || (roles ? roles.includes(v) : true))) {
+        errors.push(`${k} at beat ${row.at} should be a theme role${roles ? ` (${roles.join(', ')})` : ''} or #rrggbb, got ${describe(v)}`);
+        r.bad = true;
+      }
+    }
     if (row.use) {
-      const comp = lookup(registry, row.use);
+      const comp = r.comp;
       if (!comp) {
         const s = didYouMean(row.use, Object.keys(registry));
         errors.push(`unknown component "${row.use}" at beat ${row.at}${s ? `: did you mean "${s}"?` : ''} (see components/CATALOG.md)`);
@@ -98,23 +187,35 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
       const props = comp.meta.props;
       for (const [k, v] of Object.entries(row)) {
         if (RESERVED.has(k)) continue;
-        if (!Object.hasOwn(props, k)) { errors.push(`unknown prop "${k}" for ${row.use} (props: ${Object.keys(props).join(', ') || 'none'})`); continue; }
-        if (!typeOk(props[k][0], v)) errors.push(`prop "${k}" of ${row.use} should be ${props[k][0]}, got ${JSON.stringify(v)}`);
+        if (!Object.hasOwn(props, k)) { errors.push(`unknown prop "${k}" for ${row.use} (props: ${Object.keys(props).join(', ') || 'none'})`); r.bad = true; continue; }
+        if (!typeOk(props[k][0], v)) { errors.push(`prop "${k}" of ${row.use} should be ${props[k][0]}, got ${JSON.stringify(v)}`); r.bad = true; }
+      }
+      if (!r.bad) {
+        r.props = rowProps(row, comp);
+        try { r.geo = rowGeo(row, comp, r.props); } catch (e) { errors.push(`${row.use} at beat ${row.at} cannot be sized: ${e.message}`); r.bad = true; }
+      }
+      // A selection prop naming a value its list does not have (meta.choices: { active: 'items' }).
+      if (strict && !r.bad) for (const [k, listKey] of Object.entries(comp.meta.choices ?? {})) {
+        const list = r.props[listKey], v = r.props[k];
+        if (!Array.isArray(list)) continue;
+        for (const x of [v].flat()) if (typeof x === 'string' && x && !list.includes(x)) {
+          const s = didYouMean(x, list);
+          warnings.push(`${k} "${x}" of ${row.use} at beat ${row.at} is not one of its ${listKey} (${list.join(', ')})${s ? `: did you mean "${s}"?` : ''}`);
+        }
       }
     } else if (row.name) {
-      if (![row.w, row.h, row.r].every((x) => typeof x === 'number')) errors.push(`custom row at beat ${row.at} needs numeric w, h and r`);
+      if (!['w', 'h', 'r'].every((k) => Object.hasOwn(row, k))) errors.push(`custom row at beat ${row.at} needs numeric w, h and r`);
     } else {
       errors.push(`row at beat ${row.at} needs \`use\` (a component) or \`name\` (a custom state)`);
     }
     if ('shake' in row && typeof row.shake !== 'boolean') errors.push(`shake at beat ${row.at} should be true or false`);
-    if ('badge' in row && !(typeof row.badge === 'number' && row.badge >= 0)) errors.push(`badge at beat ${row.at} should be a number >= 0`);
+    if ('badge' in row && !(typeof row.badge === 'number' && Number.isFinite(row.badge) && row.badge >= 0)) errors.push(`badge at beat ${row.at} should be a number >= 0 (0 hides it)`);
   });
   if (loop && END != null && states.length > 1) {
     const last = states.at(-1);
     if (last.at > END - 2) errors.push(`the last row (beat ${last.at}) must sit at least 2 beats before the end (beat ${END}) so the loop settles`);
     if (!same(last, states[0], registry)) errors.push('the last row must repeat the first (same component and props) so the loop is seamless');
   }
-  const rows = states.map((row) => ({ row, comp: row.use ? lookup(registry, row.use) : null }));
   const unknown = (r) => r.row.use && !r.comp;
   if (!Array.isArray(cursor) || !cursor.length) errors.push('cursor() must return at least one row');
   else {
@@ -125,7 +226,9 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
     cursor.forEach((c, i) => {
       if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${c.at})`);
       for (const k of Object.keys(c)) if (!CURSOR_KEYS.has(k)) errors.push(`unknown cursor key "${k}" at beat ${c.at} (keys: ${[...CURSOR_KEYS].join(', ')})`);
-      if (!c.target && !(typeof c.x === 'number' && typeof c.y === 'number')) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
+      if (!c.target && !(Number.isFinite(c.x) && Number.isFinite(c.y))) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
+      if (c.target !== undefined && typeof c.target !== 'string') errors.push(`cursor target at beat ${c.at} should be a hotspot name (a string), got ${describe(c.target)}`);
+      for (const k of ['dx', 'dy']) if (c[k] !== undefined && !Number.isFinite(c[k])) errors.push(`${k} at beat ${c.at} should be a number, got ${describe(c[k])}`);
       if (c.press !== undefined && ![true, 'down', 'up'].includes(c.press)) errors.push(`press at beat ${c.at} should be true, 'down' or 'up'`);
       if (c.sound !== undefined && c.sound !== 'key') errors.push(`sound at beat ${c.at} should be 'key'`);
       if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(c); }
@@ -147,15 +250,22 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
         open = null;
       }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
-      const cands = c.target ? candidates(rows, c.at) : [];
+      if (typeof c.target !== 'string') return;
+      const cands = candidates(rows, c.at);
       // An unknown component is already reported above; a hotspot error on it would only mislead.
-      if (c.target && !cands.some(unknown) && !targetRow(rows, c)) {
-        if (!cands.some((r) => r.comp)) errors.push(`cursor target "${c.target}" at beat ${c.at} points at a custom row, which has no hotspots; use x and y`);
-        else errors.push(`hotspot "${c.target}" is not on ` + cands.map((r, j) => {
-          const where = j ? `starting at beat ${r.row.at}` : `at beat ${c.at}`;
-          return r.comp ? `${r.row.use} ${where} (hotspots: ${r.comp.meta.hotspots.join(', ')})` : `the custom row ${where} (no hotspots)`;
+      if (cands.some(unknown) || targetRow(rows, c)) return;
+      const named = cands.filter((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target));
+      const where = (r) => (r === cands[0] ? `at beat ${c.at}` : `starting at beat ${r.row.at}`);
+      if (named.length) {
+        // The name is right, but these props have no such hotspot: list what the row really has.
+        errors.push(`hotspot "${c.target}" at beat ${c.at} does not resolve on ` + named.map((r) => {
+          const have = resolvable(r), s = didYouMean(c.target, have);
+          return `${r.row.use} ${where(r)} (it has: ${have.length ? listNames(have) : 'nothing to aim at with these props'})${s ? `: did you mean "${s}"?` : ''}`;
         }).join(' or on '));
-      }
+      } else if (!cands.some((r) => r.comp)) errors.push(`cursor target "${c.target}" at beat ${c.at} points at a custom row, which has no hotspots; use x and y`);
+      else errors.push(`hotspot "${c.target}" is not on ` + cands.map((r) => {
+        return r.comp ? `${r.row.use} ${where(r)} (hotspots: ${r.comp.meta.hotspots.join(', ')})` : `the custom row ${where(r)} (no hotspots)`;
+      }).join(' or on '));
     });
     if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
     if (loop && cursor.length > 1 && !same(cursor.at(-1), cursor[0])) errors.push('the last cursor row must repeat the first so the loop is seamless');
@@ -175,5 +285,5 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
       if (quiet.length) warnings.push(`quiet beats (nothing starts on them): ${quiet.join(', ')}; make sure a component animates there`);
     }
   }
-  return { errors, warnings };
+  return done();
 }

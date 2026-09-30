@@ -14,8 +14,9 @@ export function shakeOffset(rows, t, base) {
   return dx;
 }
 
+// A badge of 0 shows no bubble (nothing to count), so a row can clear the previous row's badge.
 export function mountBadges(camera, rows, base) {
-  return rows.filter((r) => r.row.badge != null).map((r) => {
+  return rows.filter((r) => r.row.badge != null && r.row.badge !== 0).map((r) => {
     const b = el(camera, 'div', { class: 'mk-badge' });
     Object.assign(b.style, { position: 'absolute', minWidth: '44px', height: '44px', padding: '0 12px', boxSizing: 'border-box',
       borderRadius: '22px', display: 'grid', placeItems: 'center', font: '600 22px var(--font)', background: 'var(--accent)',
