@@ -7,7 +7,8 @@ description: Use when the user wants a promo, reel, social clip or showcase vide
 
 Code-only motion design: one HTML page, every frame a pure function of time,
 rendered to MP4 by `motion-video`. No After Effects, Remotion or Lottie.
-The look and rules are in `references/direction.md`; read it before planning.
+The look and rules are in `references/direction.md`; read it before planning. They adapt the open
+prompt template by zero (@twoclipping); the transitions.dev catalog is by Jakub Antalik.
 
 ## Process (do these in order; each is a todo)
 

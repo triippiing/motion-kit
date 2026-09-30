@@ -3,7 +3,7 @@
 A code-only motion loop: one black-and-white UI shape, driven by a cursor, morphs
 through 12 states (button, loader, check, island, player with scrub, volume
 overstretch, toggle, tabs, chart, command bar, toast, back to the button),
-cut to the beat of "Tints (feat. Kendrick Lamar)". Every frame is a pure
+cut to the beat of "Tints" by Anderson .Paak featuring Kendrick Lamar. Every frame is a pure
 function of time (`seek(t)` in `index.html`), rendered to MP4 at 60 fps.
 
 - BPM 109.00 (4/4, beat 0.5504 s), square 1440x1440, house theme.

@@ -6,7 +6,7 @@ Remotion or Lottie: every video frame is a pure function of time, so the same pa
 the same loop every time and re-times to any song.
 
 The look and build rules adapt the open prompt template by
-[@twoclipping](https://x.com/twoclipping/status/2103273003555402193): one shape that never cuts,
+zero ([@twoclipping](https://x.com/twoclipping/status/2103273003555402193)): one shape that never cuts,
 a cursor that drives every change, springs everywhere, and a last frame identical to the first.
 
 Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.html>
@@ -87,6 +87,12 @@ npm test   # node:test suites + python unittest
 
 The demos were cut to a commercial track for local viewing; audio files are git-ignored and
 never committed. Bring your own licensed song and re-run `analyze_song.py`: everything re-times.
+
+## Credits
+
+Built on the work of zero (@twoclipping), Jakub Antalik (transitions.dev) and Jesse Vincent
+(Superpowers), with demo music by Anderson .Paak featuring Kendrick Lamar. Full credits, including
+fonts and tools: [CREDITS.md](CREDITS.md).
 
 ## License
 

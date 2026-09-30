@@ -1,6 +1,7 @@
 # Direction
 
-Adapted from @twoclipping's open prompt template (x.com/twoclipping/status/2103273003555402193).
+Adapted from the open prompt template by zero (@twoclipping): https://x.com/twoclipping/status/2103273003555402193.
+The look, build rules and gotchas below are theirs, lightly generalised. Credit them when you share work made this way.
 
 ## Look
 - Dribbble-level UI motion. **One shape, never cut**: every state is the same element

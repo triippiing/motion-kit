@@ -163,7 +163,7 @@ template's Google Fonts request.
 
 ## Demos
 
-- `01-reference`: the @twoclipping sequence in the house style. Self-contained apart from the song.
+- `01-reference`: the sequence from zero (@twoclipping)'s prompt template, in the house style. Self-contained apart from the song.
 - `02-finance-promo`: a promo for a private personal-finance app (made-up figures); theme came from
   that app's CSS, which is not in this repo. Still renders from a clone: `theme.json` is committed.
 - `03-finance-inapp`: capture of `motion-ui` applied to that private app; `capture.mjs` needs the
@@ -177,6 +177,11 @@ S=~/.claude/skills/motion-video/scripts
 python3 $S/analyze_song.py ~/Music/your-song.mp3 --out demos/01-reference --bars 7 --states 12
 node $S/render.mjs demos/01-reference
 ```
+
+## Credits
+
+See `CREDITS.md`. Keep it current: credit any new idea, asset, font or tool you bring in, and never
+copy another project's code or assets into this repo without its licence allowing it.
 
 ## Conventions
 

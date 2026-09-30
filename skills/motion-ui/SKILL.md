@@ -18,7 +18,7 @@ If there is no spec, default to ζ 1 for position, ≤ 0.85 only for playful sca
 ## Step 2 — pick the pattern
 Two sources, chosen by what the motion needs:
 
-- **Standard UI moments → the transitions.dev catalog** (companion skill `transitions-dev`,
+- **Standard UI moments → the transitions.dev catalog by Jakub Antalik** (companion skill `transitions-dev`,
   installed by motion-kit's `install.sh` at `~/.claude/skills/transitions-dev/`). 32 ready-made
   transitions with decision rules: menu dropdown, modal, panel reveal, toast, tooltip, accordion,
   tabs sliding, success check, icon/text swap, skeleton reveal, error shake, number pop-in,

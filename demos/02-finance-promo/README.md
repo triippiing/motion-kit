@@ -4,7 +4,7 @@ A 15.4-second looping promo for Jack's Personal Finance app, made in code alone.
 morphs through eleven of the app's real UI moments, driven by a cursor and cut to a song's
 beat grid. `index.html` is a pure `seek(t)` page; `render.mjs` turns it into an MP4.
 
-- **Song:** "Tints (feat. Kendrick Lamar)" at **109.00 BPM** (confidence 0.39). Loop window is **bar 7**
+- **Song:** "Tints" by Anderson .Paak featuring Kendrick Lamar at **109.00 BPM** (confidence 0.39). Loop window is **bar 7**
   (16.538 s in the track): 7 bars = 28 beats = 925 frames at 60 fps. Demo 1 uses bar 21.
 - **Look:** the app's light theme, pulled from `web/style.css` by `extract_theme.py` (canvas #eef0f3,
   surface, ink, muted, accent #0c7d74, pos #067647, and the -apple-system / SF Pro stack). Soft
