@@ -40,7 +40,7 @@
 <script src="springs.js"></script>
 <script type="module">
 import { createScene, registry } from './components/index.js';
-let STAGE, CX, CY, THEME, song, END, beatT, scene, since;
+let STAGE, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
 // ---------------- the three tables you edit ----------------
@@ -83,7 +83,7 @@ window.ready = (async () => {
   STAGE = projR.ok ? (await projR.json()).stage : { width: 1440, height: 1440 };
   THEME = themeR.ok ? await themeR.json() : Object.fromEntries(['canvas', 'surface', 'ink', 'muted', 'accent']
     .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
-  window.STAGE = STAGE; CX = STAGE.width / 2; CY = STAGE.height / 2;
+  window.STAGE = STAGE;
   END = song.beats.length;
   beatT = (b) => {
     const i = Math.floor(b), beat = song.beats[i];

@@ -56,9 +56,45 @@ test('sfx merges presses, key rows, component sounds and extras', () => {
   assert.deepEqual(files, ['2:sfx/click.wav', '2:sfx/key.wav', '3:sfx/key.wav', '9:sfx/x.wav']);
 });
 
-test('seek renders every component row every frame (purity)', () => {
+test('seek renders every component row every frame at the given t', () => {
   const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]);
   renders.length = 0; s.seek(1.23);
   assert.deepEqual(renders.map((r) => r.name), ['a', 'b', 'a']);
   assert.ok(renders.every((r) => r.t === 1.23));
+});
+
+const fakeDom = () => ({ camera: node(), shape: node(), cursor: node() });
+const snapshot = (dom) => JSON.stringify([dom.camera.style, dom.shape.style, dom.cursor.style, dom.shape.children.map((c) => c.style)]);
+
+test('seek is pure: seek(a), seek(b), seek(a) leaves identical styles', () => {
+  const dom = fakeDom();
+  const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 3, x: 80, y: 40, press: true }, { at: 12, x: 0, y: 0 }], { dom });
+  s.seek(2.1); const first = snapshot(dom);
+  s.seek(5.7); assert.notEqual(snapshot(dom), first);
+  s.seek(2.1); assert.equal(snapshot(dom), first);
+});
+
+test('a press just before a row starts reaches that row via look-ahead', () => {
+  const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 3.5, target: 'item:1', press: true }, { at: 12, x: 0, y: 0 }]);
+  assert.equal(s.rows[1].ctx.presses.length, 1);
+  assert.equal(s.rows[1].ctx.presses[0].hotspot, 'item:1');
+  assert.equal(s.rows[0].ctx.presses.length, 0);
+});
+
+test('consecutive rows with the same component are continuations, not crossfades', () => {
+  const dom = fakeDom();
+  const s = make([{ at: 0, use: 'a', label: 'p' }, { at: 4, use: 'a', label: 'q' }, { at: 8, use: 'b' }, { at: 12, use: 'a', label: 'p' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }], { dom });
+  assert.equal(s.rows[0].ctx.continues, false); assert.equal(s.rows[0].ctx.prev, null);
+  assert.equal(s.rows[1].ctx.continues, true); assert.deepEqual(s.rows[1].ctx.prev, { label: 'p' });
+  assert.equal(s.rows[2].ctx.continues, false); assert.equal(s.rows[2].ctx.prev, null);
+  const op = (i) => dom.shape.children[i].style.opacity;
+  s.seek(0.5 * 4.01); // continuation: row 1 is fully in and row 0 fully out, no delayed entrance
+  assert.ok(op(1) > 0.999, `row 1 opacity ${op(1)}`);
+  assert.ok(op(0) < 0.001, `row 0 opacity ${op(0)}`);
+  s.seek(0.5 * 8.01); // different component: still the delayed crossfade
+  assert.ok(op(2) < 0.01, `row 2 opacity ${op(2)}`);
+  assert.ok(op(1) > 0.5, `row 1 opacity ${op(1)}`);
 });

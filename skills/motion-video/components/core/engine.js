@@ -9,7 +9,15 @@
 //            hotspotExample?: { 'tab:<item>': 'tab:Month' } }  // docs only; validate/engine ignore it
 //   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
 //   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre); optional sfx(props, ctx).
-import { validate, targetRow } from './validate.js';
+//   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, t0, t1, presses, cursorAt, geo, row,
+//           prev, continues }
+// Continuations: a component row directly after a row with the same `use` continues it.
+// Its layer does not crossfade: at t0 the previous row's layer steps out and this one
+// steps in, and ctx.prev holds the previous row's resolved props (ctx.continues true)
+// so render can animate FROM that state and skip its entrance. Otherwise prev is null
+// and continues false. The shape's geometry still morphs between the rows as usual.
+// A drag (press 'down' ... 'up') must not span a row change; validate rejects it.
+import { validate, targetRow, pressRow, lookup } from './validate.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
@@ -35,7 +43,7 @@ export function createScene(o) {
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {
-    const comp = row.use ? registry[row.use] : null;
+    const comp = row.use ? lookup(registry, row.use) : null;
     let props = null;
     if (comp) {
       props = {};
@@ -60,15 +68,13 @@ export function createScene(o) {
   for (const r of rows) r.presses = [];
   for (const c of C) {
     if (c.press === undefined) continue;
-    let r = c.target ? targetRow(rows, c) : null;
-    if (!r) { let k = 0; rows.forEach((q, j) => { if (q.row.at <= c.at + 1e-9) k = j; }); r = rows[k]; }
-    r.presses.push({ t: beatT(c.at), kind: c.press, hotspot: c.target ?? null });
+    pressRow(rows, c).presses.push({ t: beatT(c.at), kind: c.press, hotspot: c.target ?? null });
   }
 
   // ---- tracks (same maths as the pre-library template)
   const down = (c) => ({ t: beatT(c.at) - 0.08 * bs, to: 0.82 });
   const up = (c, d = 0) => ({ t: beatT(c.at) + d * bs, to: 1 });
-  const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at ?? x.row.at), to: get(x) })), ...opts });
+  const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at), to: get(x) })), ...opts });
   const G = rows.map((r) => ({ ...r.geo, at: r.row.at }));
   const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height)) / Math.max(s.w, s.h)));
   const tracks = {
@@ -81,18 +87,22 @@ export function createScene(o) {
       changes: C.filter((c) => c.press).flatMap((c) => (c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)])) },
   };
   const cursorLocal = (t) => ({ x: v(tracks.cx, t), y: v(tracks.cy, t) });
-  for (const r of rows) r.ctx = { ...base, t0: r.i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row };
+  // A component row continues the one before it when both use the same component.
+  const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;
+  for (const r of rows) r.ctx = { ...base, t0: r.i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row,
+    prev: continues(r.i) ? rows[r.i - 1].props : null, continues: continues(r.i) };
 
   // ---- layers: one per component row; custom layers grouped by state name as before
   const enter = fromSettle(0.5 * bs, 1), exit = fromSettle(0.2 * bs, 1);
+  const step = fromSettle(0.001, 1); // continuations swap layers on t0 with no fade
   const layers = [];
   rows.forEach((r, i) => {
     if (!r.comp) return;
     const e = el(dom.shape, 'div', { class: `layer c-${r.row.use}`, 'data-row': String(i) });
     r.comp.mount(e, r.props, r.ctx);
     const changes = [];
-    if (i > 0) changes.push({ t: r.t0 + 0.15 * bs, to: 1, omega: enter });
-    if (rows[i + 1]) changes.push({ t: r.t1, to: 0, omega: exit });
+    if (i > 0) changes.push(continues(i) ? { t: r.t0, to: 1, omega: step } : { t: r.t0 + 0.15 * bs, to: 1, omega: enter });
+    if (rows[i + 1]) changes.push({ t: r.t1, to: 0, omega: continues(i + 1) ? step : exit });
     layers.push({ el: e, r, tr: { from: i === 0 ? 1 : 0, changes, omega: enter, zeta: 1 } });
   });
   for (const e of dom.shape.querySelectorAll('.layer[data-state]')) {

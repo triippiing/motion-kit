@@ -78,3 +78,40 @@ test('helpers', () => {
   assert.ok(typeOk('string[]', ['a']) && !typeOk('string[]', [1]));
   assert.ok(matchHotspot(['tab:<item>'], 'tab:Month') && !matchHotspot(['tab:<item>'], 'tab:') && matchHotspot(['toast'], 'toast'));
 });
+
+test('loop seam ignores key order and explicitly written defaults', () => {
+  const r = run([{ at: 0, use: 'toast', text: 'Saved' }, { at: 4, use: 'button' }, { icon: 'check', use: 'toast', at: 14 }]);
+  assert.deepEqual(r.errors, []);
+  const r2 = run([{ at: 0, use: 'toast' }, { at: 14, use: 'toast', text: 'Other' }]);
+  assert.match(r2.errors.join('\n'), /last row must repeat the first/);
+});
+
+test('an inherited property name is an unknown prop, not a crash', () => {
+  const r = run(loopOk([{ at: 0, use: 'toast', constructor: 'x' }]));
+  assert.match(r.errors.join('\n'), /unknown prop "constructor" for toast/);
+});
+
+test('targets on an unknown component give no second, misleading hotspot error', () => {
+  const r = run(loopOk([{ at: 0, use: 'tost' }]), [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'toast' }, { at: 14, x: 0, y: 0 }]);
+  assert.match(r.errors.join('\n'), /unknown component "tost"/);
+  assert.doesNotMatch(r.errors.join('\n'), /hotspot|cursor target/);
+});
+
+test('a missed target lists both rows when the next row starts within a beat', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'tabs' }]);
+  const r = run(states, [{ at: 0, x: 0, y: 0 }, { at: 3.5, target: 'nope' }, { at: 14, x: 0, y: 0 }]);
+  assert.match(r.errors.join('\n'), /hotspot "nope" is not on button at beat 3\.5 \(hotspots: button\) or on tabs starting at beat 4 \(hotspots: tab:<item>\)/);
+});
+
+test('a drag must stay inside one row', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }]);
+  const bad = run(states, [{ at: 0, x: 0, y: 0 }, { at: 3, x: 0, y: 0, press: 'down' }, { at: 5, x: 9, y: 0, press: 'up' }, { at: 14, x: 0, y: 0 }]);
+  assert.match(bad.errors.join('\n'), /drag from beat 3 to 5 crosses a state change at beat 4; keep drags inside one row/);
+  const ok = run(states, [{ at: 0, x: 0, y: 0 }, { at: 1, x: 0, y: 0, press: 'down' }, { at: 3, x: 9, y: 0, press: 'up' }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(ok.errors, []);
+});
+
+test('an inherited name is an unknown component, not a crash', () => {
+  const r = run(loopOk([{ at: 0, use: 'constructor' }]));
+  assert.match(r.errors.join('\n'), /unknown component "constructor"/);
+});

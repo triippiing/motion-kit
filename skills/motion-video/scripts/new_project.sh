@@ -27,6 +27,7 @@ if ! [[ "$W" =~ ^[0-9]+$ && "$H" =~ ^[0-9]+$ ]] || [ "$W" -lt 64 ] || [ "$H" -lt
   echo "error: --size must be square, vertical, landscape or WxH with even numbers >= 64" >&2; exit 2
 fi
 if [ -e "$DIR/index.html" ]; then echo "error: $DIR/index.html exists; not overwriting" >&2; exit 1; fi
+if [ -e "$DIR/components" ]; then echo "error: $DIR/components exists; not overwriting" >&2; exit 1; fi
 mkdir -p "$DIR/sfx"
 python3 "$SKILL/scripts/analyze_song.py" "$SONG" --out "$DIR" ${ARGS[@]+"${ARGS[@]}"}
 python3 "$SKILL/scripts/extract_theme.py" ${THEME:+"$THEME"} --out "$DIR" ${MAPS[@]+"${MAPS[@]}"}

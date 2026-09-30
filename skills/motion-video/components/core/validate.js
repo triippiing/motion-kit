@@ -38,20 +38,46 @@ export function matchHotspot(patterns, target) {
   });
 }
 
-// The row a cursor row aims at: the row active at its beat if it has the hotspot,
-// otherwise the next row if it starts within one beat and has it (a press landing
-// on the beat a state starts). rows: [{ row, comp }] in order.
-export function targetRow(rows, c) {
+// A registry entry by own key only (`constructor` is not a component).
+export const lookup = (registry, name) => (registry && Object.hasOwn(registry, name) ? registry[name] : undefined);
+
+// Index of the row active at beat `at`. rows: [{ row, comp }] in order.
+export function activeIndex(rows, at) {
   let k = 0;
-  rows.forEach((r, i) => { if (r.row.at <= c.at + 1e-9) k = i; });
-  for (const i of [k, k + 1]) {
-    const r = rows[i];
-    if (r && r.comp && (i === k || r.row.at - c.at <= 1 + 1e-9) && matchHotspot(r.comp.meta.hotspots, c.target)) return r;
-  }
-  return null;
+  rows.forEach((r, i) => { if (r.row.at <= at + 1e-9) k = i; });
+  return k;
 }
 
-const same = (a, b) => JSON.stringify({ ...a, at: 0 }) === JSON.stringify({ ...b, at: 0 });
+// The rows a cursor row at beat `at` may aim at: the active row, plus the next row
+// if it starts within one beat (a press landing on the beat a state starts).
+function candidates(rows, at) {
+  const k = activeIndex(rows, at), next = rows[k + 1];
+  return next && next.row.at - at <= 1 + 1e-9 ? [rows[k], next] : [rows[k]];
+}
+
+// The row a cursor row aims at: the first candidate whose component has the hotspot.
+export function targetRow(rows, c) {
+  return candidates(rows, c.at).find((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target)) ?? null;
+}
+
+// The row a cursor row acts on (presses): its target's row, else the active row.
+export function pressRow(rows, c) {
+  return (c.target && targetRow(rows, c)) || rows[activeIndex(rows, c.at)];
+}
+
+// Stable JSON: object keys sorted at every level, so key order never matters.
+const canon = (x) => Array.isArray(x) ? `[${x.map(canon).join(',')}]`
+  : x && typeof x === 'object' ? `{${Object.keys(x).sort().map((k) => `${JSON.stringify(k)}:${canon(x[k])}`).join(',')}}`
+  : JSON.stringify(x);
+// A row with its component's defaults filled in (an explicitly written default equals an omitted one).
+const withDefaults = (row, registry) => {
+  const props = lookup(registry, row.use)?.meta?.props;
+  if (!props) return row;
+  const full = { ...row };
+  for (const [k, [, def]] of Object.entries(props)) if (!Object.hasOwn(full, k)) full[k] = def;
+  return full;
+};
+const same = (a, b, registry) => canon({ ...withDefaults(a, registry), at: 0 }) === canon({ ...withDefaults(b, registry), at: 0 });
 
 export function validate({ states, cursor, registry, song, loop = true, strict = false }) {
   const errors = [], warnings = [];
@@ -61,7 +87,7 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
   states.forEach((row, i) => {
     if (i && !(row.at > states[i - 1].at)) errors.push(`rows must be in ascending beat order (beat ${row.at} after ${states[i - 1].at})`);
     if (row.use) {
-      const comp = registry[row.use];
+      const comp = lookup(registry, row.use);
       if (!comp) {
         const s = didYouMean(row.use, Object.keys(registry));
         errors.push(`unknown component "${row.use}" at beat ${row.at}${s ? `: did you mean "${s}"?` : ''} (see components/CATALOG.md)`);
@@ -70,7 +96,7 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
       const props = comp.meta.props;
       for (const [k, v] of Object.entries(row)) {
         if (RESERVED.has(k)) continue;
-        if (!(k in props)) { errors.push(`unknown prop "${k}" for ${row.use} (props: ${Object.keys(props).join(', ') || 'none'})`); continue; }
+        if (!Object.hasOwn(props, k)) { errors.push(`unknown prop "${k}" for ${row.use} (props: ${Object.keys(props).join(', ') || 'none'})`); continue; }
         if (!typeOk(props[k][0], v)) errors.push(`prop "${k}" of ${row.use} should be ${props[k][0]}, got ${JSON.stringify(v)}`);
       }
     } else if (row.name) {
@@ -84,30 +110,36 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
   if (loop && END != null && states.length > 1) {
     const last = states.at(-1);
     if (last.at > END - 2) errors.push(`the last row (beat ${last.at}) must sit at least 2 beats before the end (beat ${END}) so the loop settles`);
-    if (!same(last, states[0])) errors.push('the last row must repeat the first (same component and props) so the loop is seamless');
+    if (!same(last, states[0], registry)) errors.push('the last row must repeat the first (same component and props) so the loop is seamless');
   }
-  const rows = states.map((row) => ({ row, comp: row.use ? registry[row.use] : null }));
+  const rows = states.map((row) => ({ row, comp: row.use ? lookup(registry, row.use) : null }));
+  const unknown = (r) => r.row.use && !r.comp;
   if (!Array.isArray(cursor) || !cursor.length) errors.push('cursor() must return at least one row');
   else {
     if (cursor[0].at !== 0) errors.push('the first cursor row must be at beat 0');
-    let open = null;
+    let open = null, openRow = -1;
     cursor.forEach((c, i) => {
       if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${c.at})`);
       for (const k of Object.keys(c)) if (!CURSOR_KEYS.has(k)) errors.push(`unknown cursor key "${k}" at beat ${c.at} (keys: ${[...CURSOR_KEYS].join(', ')})`);
       if (!c.target && !(typeof c.x === 'number' && typeof c.y === 'number')) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
       if (c.press !== undefined && ![true, 'down', 'up'].includes(c.press)) errors.push(`press at beat ${c.at} should be true, 'down' or 'up'`);
       if (c.sound !== undefined && c.sound !== 'key') errors.push(`sound at beat ${c.at} should be 'key'`);
-      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; }
-      if (c.press === 'up') { if (open === null) errors.push(`press 'up' at beat ${c.at} has no 'down' before it`); open = null; }
+      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openRow = rows.indexOf(pressRow(rows, c)); }
+      if (c.press === 'up') {
+        if (open === null) errors.push(`press 'up' at beat ${c.at} has no 'down' before it`);
+        else if (openRow !== rows.indexOf(pressRow(rows, c)))
+          errors.push(`drag from beat ${open} to ${c.at} crosses a state change at beat ${rows[openRow + 1].row.at}; keep drags inside one row`);
+        open = null;
+      }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
-      if (c.target) {
-        if (!targetRow(rows, c)) {
-          let k = 0; rows.forEach((r, j) => { if (r.row.at <= c.at + 1e-9) k = j; });
-          const r = rows[k];
-          errors.push(r.comp
-            ? `hotspot "${c.target}" is not on ${r.row.use} at beat ${c.at} (hotspots: ${r.comp.meta.hotspots.join(', ')})`
-            : `cursor target "${c.target}" at beat ${c.at} points at a custom row, which has no hotspots; use x and y`);
-        }
+      const cands = c.target ? candidates(rows, c.at) : [];
+      // An unknown component is already reported above; a hotspot error on it would only mislead.
+      if (c.target && !cands.some(unknown) && !targetRow(rows, c)) {
+        if (!cands.some((r) => r.comp)) errors.push(`cursor target "${c.target}" at beat ${c.at} points at a custom row, which has no hotspots; use x and y`);
+        else errors.push(`hotspot "${c.target}" is not on ` + cands.map((r, j) => {
+          const where = j ? `starting at beat ${r.row.at}` : `at beat ${c.at}`;
+          return r.comp ? `${r.row.use} ${where} (hotspots: ${r.comp.meta.hotspots.join(', ')})` : `the custom row ${where} (no hotspots)`;
+        }).join(' or on '));
       }
     });
     if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
