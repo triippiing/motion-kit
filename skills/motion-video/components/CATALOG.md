@@ -161,3 +161,107 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 ```js
 { at: 0, use: 'toggle', on: true, label: 'Notifications' }
 ```
+
+## Feedback
+
+[check](#check) · [loader](#loader) · [progress](#progress) · [status](#status) · [toast](#toast)
+
+### check
+
+![check](docs-images/check.png)
+
+**Use when:** Something succeeded: paid, saved, sent, done.
+
+**Motion:** The tick draws on over 0.8 beat from 0.15 beat after the row starts, then the label rises in beside it. The tick sits at the left end of the shape, so it stays put while the shape morphs to fit a label. A following check row keeps the tick drawn and crossfades a changed label.
+
+| Prop | Type | Default |
+|---|---|---|
+| `label` | `string` | `""` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'check', label: 'Payment sent' }
+```
+
+### loader
+
+![loader](docs-images/loader.png)
+
+**Use when:** Something is working: uploading, syncing, thinking, between a press and its result.
+
+**Motion:** The spinner turns at a steady 450 degrees a second; the dots brighten in turn on a 0.9 s cycle. Both run off the clock, so the motion carries on unbroken through a following loader row; a change of style there crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `style` | `enum:spinner\|dots` | `"spinner"` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'loader' }
+```
+
+### progress
+
+![progress](docs-images/progress.png)
+
+**Use when:** Something advances towards done: an upload, an import, a goal.
+
+**Motion:** The fill grows from empty to the value over about a beat (no overshoot) and the percentage counts with it. A following progress row carries on from the previous value, so a chain of rows reads as one bar filling in steps; a changed label crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `value` | `number` | `0.62` |
+| `label` | `string` | `"Uploading"` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'progress', value: 0.62, label: 'Uploading' }
+```
+
+### status
+
+![status](docs-images/status.png)
+
+**Use when:** A live state is shown: connected, syncing, offline, a build passing or failing.
+
+**Motion:** Warn and error dots pulse (1 to 1.25 and back every 1.2 s); ok holds still. A following status row morphs: collapsing or expanding folds the text away or brings it in, a new level blends the dot colour and eases the pulse in or out, and new text crossfades.
+
+| Prop | Type | Default |
+|---|---|---|
+| `level` | `enum:ok\|warn\|error` | `"ok"` |
+| `text` | `string` | `"Connected"` |
+| `collapsed` | `boolean` | `false` |
+
+**Hotspots:** none  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'status', level: 'ok', text: 'Connected' }
+```
+
+### toast
+
+![toast](docs-images/toast.png)
+
+**Use when:** The app confirms something briefly: saved, copied, moved to archive (with Undo).
+
+**Motion:** The content rises 12px and unblurs as it fades in after the shape arrives. A press on the action dips it. A following toast row crossfades changed content the same way.
+
+| Prop | Type | Default |
+|---|---|---|
+| `text` | `string` | `"Saved"` |
+| `icon` | `enum:check\|info\|none` | `"check"` |
+| `action` | `string` | `""` |
+
+**Hotspots:** `toast`, `action`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'toast', text: 'Moved to archive', action: 'Undo' }
+```

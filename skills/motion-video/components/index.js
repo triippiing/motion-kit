@@ -7,6 +7,11 @@ import * as input from './controls/input.js';
 import * as slider from './controls/slider.js';
 import * as tabs from './controls/tabs.js';
 import * as toggle from './controls/toggle.js';
+import * as check from './feedback/check.js';
+import * as loader from './feedback/loader.js';
+import * as progress from './feedback/progress.js';
+import * as status from './feedback/status.js';
+import * as toast from './feedback/toast.js';
 export const registry = {
   'button': button,
   'checkbox': checkbox,
@@ -15,4 +20,9 @@ export const registry = {
   'slider': slider,
   'tabs': tabs,
   'toggle': toggle,
+  'check': check,
+  'loader': loader,
+  'progress': progress,
+  'status': status,
+  'toast': toast,
 };
