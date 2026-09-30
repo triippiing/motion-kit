@@ -13,9 +13,9 @@
   #stage { position:relative; overflow:hidden; background:var(--canvas);
            font-family:var(--font); color:var(--ink);
            -webkit-font-smoothing:antialiased; }
-  /* The camera scales about the stage centre. No will-change here or inside:
+  /* The camera scales about the stage centre (its transform is translate-scale-translate, so the origin must be 0 0). No will-change here or inside:
      text under a scaled will-change layer renders blurry. */
-  #camera { position:absolute; inset:0; }
+  #camera { position:absolute; inset:0; transform-origin:0 0; }
   #shape { position:absolute; box-sizing:border-box; overflow:hidden; }
   .layer { position:absolute; inset:0; display:grid; place-items:center; white-space:nowrap; opacity:0; }
   .label { font-size:34px; font-weight:500; letter-spacing:-0.01em; }
@@ -62,7 +62,10 @@ const states = () => [
   { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
 ];
 // CURSOR: where the pointer is from beat `at`, in px from the stage centre.
-// press: true clicks on that beat (and plays sfx/click.wav at the beat's cue).
+// press: true clicks on that beat (dip and release, plays sfx/click.wav at the beat's cue).
+// press: 'down' presses and holds (click sound); press: 'up' releases. Use the pair
+// for drags, moving x/y in between. sound: 'key' plays sfx/key.wav on that row's beat
+// (typing, or any non-click cue); a row may carry both press and sound.
 // First and last rows must match, the last at least 2 beats before END.
 const cursor = () => [
   { at: 0,       x: 240, y: 280 },
@@ -71,10 +74,16 @@ const cursor = () => [
   { at: 3,       x: 200, y: 230 },
   { at: END - 2, x: 240, y: 280 },
 ];
-// Per-state content animation, given seconds since that state began.
+// EXTRA_SFX: any other sound cues, [{ beat, file, gain }], merged into window.SFX.
+// Fractional beats are fine. (Simple key sounds can use `sound: 'key'` in CURSOR.)
+const extraSfx = () => [];
+// Per-state content animation. Each function takes ABSOLUTE t (seconds) and runs
+// on EVERY frame, so a layer that is fading out is still a pure function of t.
+// since(name, t) = seconds since the latest row of state `name` began at or before
+// t (0 before its first start); use it for anything that animates from a state's start.
 const content = {
-  loader: (s) => { $('#spin').style.transform = `rotate(${s * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px'; },
-  check:  (s) => { $('#tick').style.strokeDashoffset = String(1 - Math.min(1, s / (0.8 * song.beat_sec))); },
+  loader: (t) => { $('#spin').style.transform = `rotate(${since('loader', t) * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px'; },
+  check:  (t) => { $('#tick').style.strokeDashoffset = String(1 - Math.min(1, since('check', t) / (0.8 * song.beat_sec))); },
 };
 // ------------------------------------------------------------
 
@@ -87,8 +96,10 @@ function build() {
   SHAPE = { omega: fromSettle(sp.settle_sec, sp.zeta), zeta: sp.zeta };
   const CAM = { omega: fromSettle(song.beat_sec, 1), zeta: 1 };
   const PTR = { omega: fromSettle(0.8 * song.beat_sec, 1), zeta: 1 };
+  const down = (c) => ({ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 });
+  const up = (c, d = 0) => ({ t: beatT(c.at) + d * song.beat_sec, to: 1 });
   const mk = (rows, get, o) => ({ from: get(rows[0]), changes: rows.slice(1).map((r) => ({ t: beatT(r.at), to: get(r) })), ...o });
-  const zoom = (s) => Math.min(2.4, Math.max(1, Math.sqrt((0.5 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h))));
+  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h)));
   tracks = {
     w: mk(S, (s) => s.w, SHAPE), h: mk(S, (s) => s.h, SHAPE), r: mk(S, (s) => s.r, SHAPE),
     fill: [0, 1, 2].map((k) => mk(S, (s) => hex(s.fill)[k], SHAPE)),
@@ -96,7 +107,7 @@ function build() {
     zoom: mk(S, zoom, CAM),
     cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
     press: { from: 1, omega: fromSettle(0.15 * song.beat_sec, 1), zeta: 1,
-             changes: C.filter((c) => c.press).flatMap((c) => [{ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 }, { t: beatT(c.at) + 0.1 * song.beat_sec, to: 1 }]) },
+             changes: C.filter((c) => c.press).flatMap((c) => c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)]) },
   };
   // Content swaps: each layer enters a beat-fraction after its state starts (so
   // the container leads) and exits fast when the next state starts.
@@ -112,7 +123,11 @@ function build() {
     });
     return { el, name, tr: { from: S[0].name === name ? 1 : 0, changes, omega: enter, zeta: 1 } };
   });
-  window.SFX = C.filter((c) => c.press).map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 }));
+  window.SFX = [
+    ...C.filter((c) => c.press === true || c.press === 'down').map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 })),
+    ...C.filter((c) => c.sound === 'key').map((c) => ({ beat: c.at, file: 'sfx/key.wav', gain: 0.6 })),
+    ...extraSfx(),
+  ];
 }
 
 const v = (tr, t) => track(t, tr).value;
@@ -122,10 +137,11 @@ function cursorAt(t) {
   return { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z };
 }
 
-function stateAt(t) {
-  let i = 0;
-  while (S[i + 1] && beatT(S[i + 1].at) <= t) i++;
-  return { s: S[i], since: t - beatT(S[i].at) };
+// Seconds since the latest STATES row named `name` began at or before t.
+function since(name, t) {
+  let start = null;
+  for (const s of S) if (s.name === name && beatT(s.at) <= t) start = beatT(s.at);
+  return start === null ? 0 : t - start;
 }
 
 function seek(t) {
@@ -138,8 +154,7 @@ function seek(t) {
     const o = Math.max(0, Math.min(1, v(L.tr, t)));
     Object.assign(L.el.style, { opacity: o, filter: o > 0.999 ? 'none' : `blur(${(1 - o) * 10}px)`, transform: `scale(${0.96 + 0.04 * o})` });
   }
-  const { s, since } = stateAt(t);
-  content[s.name]?.(since);
+  for (const name in content) content[name](t);
   const p = v(tracks.press, t);
   const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
   $('#cursor').style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
@@ -158,7 +173,8 @@ window.ready = (async () => {
     return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
   };
   Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
-  await document.fonts.load(`500 34px ${getComputedStyle(document.documentElement).getPropertyValue('--font')}`).catch(() => {});
+  const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
+  await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
   build();
   seek(0);

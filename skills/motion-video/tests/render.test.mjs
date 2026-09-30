@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { render } from '../scripts/render.mjs';
+import { render, openProject, shoot } from '../scripts/render.mjs';
 import { fixture, probe, grayFrame, audioSamples } from './fixtures.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -102,4 +102,82 @@ click_track(${JSON.stringify(song)}, 120)`]);
 test('new_project.sh rejects a bad size', () => {
   const r = spawnSync(path.join(SKILL, 'scripts', 'new_project.sh'), [path.join(tmpdir(), 'x'), 'song.wav', '--size', '1081x1920'], { encoding: 'utf8' });
   assert.equal(r.status, 2); assert.match(r.stderr, /--size/);
+});
+
+test('SFX at a fractional beat land at cue_t(floor) + frac * beat_sec', async () => {
+  const beats = [0, 1, 2, 3].map((i) => ({ i, t: i * 0.25, cue_t: i * 0.25 + (i === 1 ? 0.02 : 0) }));
+  const dir = fixture({ sfx: [{ beat: 1.5, file: 'sfx/click.wav', gain: 1 }], beats });
+  const s = audioSamples(await render(dir, { preview: true }));
+  const first = s.findIndex((x) => Math.abs(x) > 1000);
+  assert.ok(Math.abs(first / 48000 - 0.395) < 0.01, `first sound at ${first / 48000}s`);
+});
+
+// Scaffold a real project from the template (2 bars at 120 bpm).
+function scaffold() {
+  const root = mkdtempSync(path.join(tmpdir(), 'tp-'));
+  const song = path.join(root, 's.wav');
+  execFileSync('python3', ['-c', `
+import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
+from test_analyze_song import click_track
+click_track(${JSON.stringify(song)}, 120)`]);
+  const proj = path.join(root, 'p');
+  execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--bars', '4'], { stdio: 'pipe' });
+  return proj;
+}
+
+test('template camera zoom keeps the shape centred on the stage', async () => {
+  const proj = scaffold();
+  const p = await openProject(proj, { workers: 1 });
+  try {
+    const page = p.pages[0];
+    const t = p.song.beat_sec * 1.9; // button state, camera settled well above 1
+    const r = await page.evaluate((t) => {
+      window.seek(t);
+      const b = document.querySelector('#shape').getBoundingClientRect();
+      return { cx: b.x + b.width / 2, cy: b.y + b.height / 2, w: b.width, W: window.STAGE.width, H: window.STAGE.height };
+    }, t);
+    assert.ok(r.w > 380 * 1.2, `shape not zoomed (${r.w}px wide)`);
+    assert.ok(Math.abs(r.cx - r.W / 2) < 2 && Math.abs(r.cy - r.H / 2) < 2, `centre ${r.cx},${r.cy}`);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.close(); }
+});
+
+test('template seek is pure: a frame inside an exit fade ignores prior seeks', async () => {
+  const proj = scaffold();
+  const p = await openProject(proj, { workers: 1 });
+  try {
+    const page = p.pages[0];
+    const b = p.song.beat_sec;
+    const t = 4 * b + 0.02 * b; // loader layer is fading out, still visible
+    await shoot(page, 3 * b);
+    const a = await shoot(page, t);
+    await shoot(page, 2.5 * b);
+    const c = await shoot(page, t);
+    assert.ok(a.equals(c), 'pixels differ depending on the previous seek');
+  } finally { await p.close(); }
+});
+
+test('template CURSOR supports press down/up and sound rows; EXTRA_SFX merges into SFX', async () => {
+  const proj = scaffold();
+  const html = readFileSync(path.join(proj, 'index.html'), 'utf8')
+    .replace("{ at: 3,       x: 200, y: 230 },", "{ at: 3, x: 200, y: 230, press: 'down' },\n  { at: 3.5, x: 200, y: 230, press: 'up', sound: 'key' },")
+    .replace('const extraSfx = () => [];', "const extraSfx = () => [{ beat: 5, file: 'sfx/key.wav', gain: 0.5 }];");
+  writeFileSync(path.join(proj, 'index.html'), html);
+  const p = await openProject(proj, { workers: 1 });
+  try {
+    const page = p.pages[0];
+    const sfx = await page.evaluate(() => window.SFX);
+    const key = (b) => sfx.find((s) => s.beat === b);
+    assert.equal(key(2).file, 'sfx/click.wav');
+    assert.equal(key(3).file, 'sfx/click.wav');       // 'down' clicks
+    assert.equal(sfx.find((s) => s.beat === 3.5).file, 'sfx/key.wav');
+    assert.equal(key(5).gain, 0.5);
+    const b = p.song.beat_sec;
+    const scale = async (t) => { await page.evaluate((t) => window.seek(t), t);
+      return page.evaluate(() => document.querySelector('#cursor').style.transform); };
+    // held between down (3) and up (3.5): scaled cursor differs from released
+    const held = await scale(3.3 * b), free = await scale(3.05 * b - 0.5 * b);
+    assert.notEqual(held, free);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.close(); }
 });

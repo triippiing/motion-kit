@@ -22,8 +22,10 @@ Everything lives in `~/.claude/skills/motion-video/`. Scripts put Homebrew on PA
 ## Build loop
 
 1. Start from the approved state plan (motion-design). If there is none, go back and make one.
-2. In `DIR/index.html` edit only the three tables — `states()`, `cursor()`, `content` —
-   plus a `.layer` per state name. Colours in STATES are theme roles (`canvas surface ink muted accent`)
+2. In `DIR/index.html` edit only the tables — `states()`, `cursor()`, `content`, `extraSfx()` —
+   plus a `.layer` per state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
+   (hold, for drags) and `sound: 'key'` (plays sfx/key.wav); `extraSfx()` returns `[{beat, file, gain}]`
+   for any other cue. Each `content` function takes absolute `t` and runs every frame (use `since(stateName, t)`). Colours in STATES are theme roles (`canvas surface ink muted accent`)
    so the piece re-themes with the project (theme.json may also carry optional `pos`/`neg` roles when the CSS defines success/danger colours; use `var(--pos)` / `var(--neg)` in layers, and only when present); use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
    pure `window.seek(t)` that does not wrap `t`, `window.inspect(t)`, `window.SFX`.
 3. Rules inside `seek(t)`: every style computed from `t`; no CSS transitions, animations,

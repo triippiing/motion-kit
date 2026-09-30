@@ -80,8 +80,9 @@ export async function shoot(page, t) {
 function sfxInputs(dir, song, sfx, offset, duration) {
   const inputs = [], filters = [];
   sfx.forEach((c, n) => {
-    const b = song.beats?.[c.beat];
-    const t = Number.isInteger(c.beat) && b ? (b.cue_t ?? b.t) : c.beat * song.beat_sec;
+    // Same mapping as the page's beatT: cue_t of the floor beat plus the fraction.
+    const i = Math.floor(c.beat), fb = song.beats?.[i];
+    const t = (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (c.beat - i) * song.beat_sec;
     const ms = Math.round((t - offset) * 1000);
     if (ms < 0 || ms > duration * 1000) return;
     inputs.push('-i', path.join(dir, c.file));
