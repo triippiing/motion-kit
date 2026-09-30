@@ -4,7 +4,7 @@ import { el, textW, frame, pressesOn, edges } from '../core/helpers.js';
 export const meta = {
   name: 'toggle', group: 'controls',
   useWhen: 'A setting switches on or off: notifications, dark mode, auto-save.',
-  motion: 'Each press on the knob flips it: the leading edge moves first, so the knob stretches across and settles; the track fades from muted to accent. A continuation from the opposite state flips on arrival.',
+  motion: 'Each press on the knob flips it: the leading edge moves first, so the knob stretches across and settles; the track fades from muted to accent. A following toggle row continues from where the presses left it (write the pressed result as its `on`), and flips on arrival if its `on` differs. The knob hotspot aims at the row\'s written side.',
   props: { on: ['boolean', false], label: ['string', ''] },
   hotspots: ['knob'],
   sounds: [],
@@ -41,13 +41,17 @@ export function mount(root, p, ctx) {
 function plan(p, ctx) {
   let on = ctx.continues ? ctx.prev.on : p.on;
   const from = on ? 1 : 0, changes = [];
-  if (on !== p.on) { on = p.on; changes.push({ t: ctx.t0, index: on ? 1 : 0 }); }
-  for (const pr of pressesOn(ctx, 'knob').filter((x) => x.kind !== 'up').sort((a, b) => a.t - b.t)) {
-    on = !on;
-    changes.push({ t: pr.t, index: on ? 1 : 0 });
+  const events = pressesOn(ctx, 'knob').filter((x) => x.kind !== 'up').map((x) => ({ t: x.t }));
+  if (on !== p.on) events.push({ t: ctx.t0, set: p.on });
+  for (const ev of events.sort((a, b) => a.t - b.t)) {
+    on = 'set' in ev ? ev.set : !on;
+    changes.push({ t: ev.t, index: on ? 1 : 0 });
   }
-  return { from, changes };
+  return { from, changes, on };
 }
+
+// The row as it stands after its presses: a following toggle row continues from here.
+export const endState = (p, ctx) => ({ ...p, on: plan(p, ctx).on });
 
 export function render(root, p, ctx, t) {
   const s = sw(p), travel = s.tw - 2 * s.pad - s.k;

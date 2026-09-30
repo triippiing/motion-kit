@@ -4,7 +4,7 @@ import { el, frame, icon, pressDepth } from '../core/helpers.js';
 export const meta = {
   name: 'slider', group: 'controls',
   useWhen: 'A value is dragged: volume, brightness, an amount.',
-  motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A continuation with a new value glides to it.",
+  motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value.",
   props: { value: ['number', 0.4], min: ['number', 0], max: ['number', 1], overstretch: ['boolean', true], icon: ['enum:volume|none', 'volume'] },
   hotspots: ['thumb', 'track'],
   sounds: [],
@@ -41,8 +41,9 @@ function drags(ctx) {
   return all.flatMap((d, i) => (d.kind === 'down' && d.hotspot === 'thumb' ? [{ down: d, up: all.slice(i + 1).find((u) => u.kind === 'up') ?? null }] : []));
 }
 
-// The thumb's position in px along the track (outside 0..TRACK while overstretched), at t.
-function position(p, ctx, t) {
+// The thumb's position in px along the track (outside 0..TRACK while overstretched), at t; with
+// end, where it comes to rest after the row's last drag.
+function position(p, ctx, t, end = false) {
   const { Springs } = ctx, omega = Springs.fromSettle(0.6 * ctx.beat_sec, 1);
   let cur = ctx.continues ? { from: px(ctx.prev, ctx.prev.value), to: px(p, p.value), t0: ctx.t0 } : { from: px(p, p.value), to: px(p, p.value), t0: -Infinity };
   const at = (c, tt) => (tt < c.t0 ? c.from : c.from === c.to ? c.to : Springs.spring(tt, { from: c.from, to: c.to, t0: c.t0, omega, zeta: 1 }).value);
@@ -50,12 +51,16 @@ function position(p, ctx, t) {
     if (t < down.t) break;
     const grab = at(cur, down.t), x0 = ctx.cursorAt(down.t).x;
     const raw = (tt) => grab + ctx.cursorAt(tt).x - x0;
-    if (!up || t < up.t) return rubber(p, raw(t));
+    if (!up) return end ? Math.max(0, Math.min(TRACK, grab)) : rubber(p, raw(t));
+    if (t < up.t) return rubber(p, raw(t));
     const r = raw(up.t);
     cur = { from: rubber(p, r), to: Math.max(0, Math.min(TRACK, r)), t0: up.t };
   }
-  return at(cur, t);
+  return end ? cur.to : at(cur, t);
 }
+
+// The row as it stands after its drags: a following slider row continues from the released value.
+export const endState = (p, ctx) => ({ ...p, value: p.min + (position(p, ctx, Infinity, true) / TRACK) * (p.max - p.min) });
 
 export function render(root, p, ctx, t) {
   const f = root.firstChild, x0 = trackLeft(p, ctx.geo.w), s = position(p, ctx, t);

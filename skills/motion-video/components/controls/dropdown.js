@@ -4,7 +4,7 @@ import { el, frame, icon, prog, fade, applyFade, pressesOn } from '../core/helpe
 export const meta = {
   name: 'dropdown', group: 'controls',
   useWhen: 'A menu opens and an option is chosen: sort order, a filter, an account.',
-  motion: 'Write the closed and open states as consecutive rows: the shape grows to open, the chevron turns, and the items stagger in. A press on an item highlights it and moves the check there. A closed row after an open one fades the items out as the shape closes and shows the choice in the trigger.',
+  motion: 'Write the closed and open states as consecutive rows: the shape grows to open, the chevron turns, and the items stagger in. A press on an item highlights it and moves the check there, and a following dropdown row continues from that choice (write it as its `selected`). A closed row after an open one fades the items out as the shape closes and shows the choice in the trigger.',
   props: { label: ['string', 'Sort by'], items: ['string[]', ['Newest', 'Oldest', 'Popular']], open: ['boolean', false], selected: ['string', ''] },
   hotspots: ['trigger', 'item:<item>'],
   hotspotExample: { 'item:<item>': 'item:Oldest' },
@@ -59,12 +59,17 @@ export function mount(root, p, ctx) {
   else if (closing(p, ctx)) items(f, ctx.prev.items, w, 'dd-item dd-leaving');
 }
 
-// The current choice over time: the row's `selected`, then each press on an item.
+// The current choice over time: where the previous row left it (continuing) or the row's `selected`,
+// the row's `selected` on arrival, then each press on an item.
 function choices(p, ctx) {
-  const list = [{ t: -Infinity, name: p.selected }];
-  for (const pr of pressesOn(ctx, 'item').filter((x) => x.kind !== 'up').sort((a, b) => a.t - b.t)) list.push({ t: pr.t, name: pr.hotspot.slice(5) });
-  return list;
+  const list = [{ t: -Infinity, name: ctx.continues ? ctx.prev.selected : p.selected }];
+  const later = pressesOn(ctx, 'item').filter((x) => x.kind !== 'up').map((x) => ({ t: x.t, name: x.hotspot.slice(5) }));
+  if (list[0].name !== p.selected) later.push({ t: ctx.t0, name: p.selected });
+  return [...list, ...later.sort((a, b) => a.t - b.t)];
 }
+
+// The row as it stands after its presses: a following dropdown row continues from here.
+export const endState = (p, ctx) => ({ ...p, selected: choices(p, ctx).at(-1).name });
 
 export function render(root, p, ctx, t) {
   const f = root.firstChild, bs = ctx.beat_sec;

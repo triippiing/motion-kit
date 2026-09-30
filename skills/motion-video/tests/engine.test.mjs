@@ -17,7 +17,11 @@ const box = (name, hotspots = ['box'], extra = {}) => ({
   mount() {}, render(el, props, ctx, t) { renders.push({ name, t, presses: ctx.presses.length }); },
   hotspot: (h) => (h === 'box' || h.startsWith('item:') ? { x: 10, y: -5 } : null), ...extra,
 });
-const registry = { a: box('a'), b: box('b', ['item:<i>'], { sfx: () => [{ beat: 3, file: 'sfx/key.wav', gain: 0.5 }] }) };
+const seen = [];
+const registry = { a: box('a'), b: box('b', ['item:<i>'], { sfx: () => [{ beat: 3, file: 'sfx/key.wav', gain: 0.5 }] }),
+  // e: its end state counts its presses; its hotspot records the ctx it was given.
+  e: box('e', ['box'], { endState: (p, ctx) => ({ ...p, label: `${p.label}+${ctx.presses.length}` }),
+    hotspot: (h, p, geo, ctx) => { seen.push({ label: p.label, prev: ctx.prev, settled: ctx.settled }); return { x: 0, y: 0 }; } }) };
 const song = { beat_sec: 0.5, beats: Array.from({ length: 16 }, (_, i) => ({ i, t: i * 0.5 })), rules: { spring: { zeta: 0.85, settle_sec: 0.3 } } };
 const theme = { canvas: '#eeeeee', surface: '#ffffff', ink: '#111111', muted: '#888888', accent: '#0c7d74' };
 const make = (states, cursor, extra = {}) => createScene({ states, cursor, song, stage: { width: 1440, height: 1440 }, theme,
@@ -97,4 +101,18 @@ test('consecutive rows with the same component are continuations, not crossfades
   s.seek(0.5 * 8.01); // different component: still the delayed crossfade
   assert.ok(op(2) < 0.01, `row 2 opacity ${op(2)}`);
   assert.ok(op(1) > 0.5, `row 1 opacity ${op(1)}`);
+});
+
+test('a continuation starts from the previous row\'s endState; hotspots get the row\'s own ctx; row 0 is settled', () => {
+  seen.length = 0;
+  const s = make([{ at: 0, use: 'a' }, { at: 2, use: 'e', label: 'p' }, { at: 6, use: 'e', label: 'q' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 3, target: 'box', press: true }, { at: 4, target: 'box', press: true }, { at: 7, target: 'box' }, { at: 12, x: 0, y: 0 }]);
+  assert.deepEqual(s.rows[2].ctx.prev, { label: 'p+2' }, 'prev is endState of row 1 after its two presses');
+  assert.deepEqual(s.rows[1].ctx.prev, null);
+  assert.deepEqual(seen.at(-1), { label: 'q', prev: { label: 'p+2' }, settled: false }, 'hotspot on row 2 sees its ctx');
+  assert.deepEqual(s.rows.map((r) => r.ctx.settled), [true, false, false, false]);
+  // Without endState, prev stays the previous row's props.
+  const t = make([{ at: 0, use: 'a', label: 'p' }, { at: 4, use: 'a', label: 'q' }, { at: 12, use: 'a', label: 'p' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'box', press: true }, { at: 12, x: 0, y: 0 }]);
+  assert.deepEqual(t.rows[1].ctx.prev, { label: 'p' });
 });

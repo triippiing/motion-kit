@@ -8,14 +8,17 @@
 //            hotspots: [..], sounds: [..], edgeCases: [rowObjects],
 //            hotspotExample?: { 'tab:<item>': 'tab:Month' } }  // docs only; validate/engine ignore it
 //   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
-//   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre); optional sfx(props, ctx).
+//   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
+//   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
+//   once that row's presses have happened, e.g. a toggle flipped by a press).
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, t0, t1, presses, cursorAt, geo, row,
-//           prev, continues }
+//           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
 // Continuations: a component row directly after a row with the same `use` continues it.
 // Its layer does not crossfade: at t0 the previous row's layer steps out and this one
-// steps in, and ctx.prev holds the previous row's resolved props (ctx.continues true)
-// so render can animate FROM that state and skip its entrance. Otherwise prev is null
-// and continues false. The shape's geometry still morphs between the rows as usual.
+// steps in, and ctx.prev holds the previous row's END state (its endState, else its resolved
+// props; ctx.continues true) so render can animate FROM where that row left off and skip its
+// entrance. Otherwise prev is null and continues false. The shape's geometry still morphs
+// between the rows as usual.
 // A drag (press 'down' ... 'up') must not span a row change; validate rejects it.
 import { validate, targetRow, pressRow, lookup } from './validate.js';
 import { el } from './helpers.js';
@@ -57,24 +60,48 @@ export function createScene(o) {
     r.geo = { w: r.row.w ?? g.w, h: r.row.h ?? g.h, r: r.row.r ?? g.r, fill: r.row.fill ?? g.fill ?? 'surface', ink: r.row.ink ?? g.ink ?? 'ink' };
   }
 
-  // ---- cursor: resolve targets to shape-centre design px, once
-  const C = cursor.map((c) => {
-    if (!c.target) return c;
-    const r = targetRow(rows, c);
-    const p = r.comp.hotspot(c.target, r.props, r.geo, base);
-    if (!p) throw new Error(`motion-kit: hotspot "${c.target}" did not resolve on ${r.row.use} at beat ${r.row.at}`);
-    return { ...c, x: p.x + (c.dx ?? 0), y: p.y + (c.dy ?? 0) };
-  });
+  // ---- presses: routed by target name alone, so every row knows its presses before any hotspot resolves
   for (const r of rows) r.presses = [];
-  for (const c of C) {
+  for (const c of cursor) {
     if (c.press === undefined) continue;
     pressRow(rows, c).presses.push({ t: beatT(c.at), kind: c.press, hotspot: c.target ?? null });
+  }
+
+  // ---- row contexts, built in order on first use: a continuation's prev is the previous row's end state,
+  // which may depend on the cursor (a slider's release point), so the pointer is read from the cursor
+  // rows resolved so far until all of them are.
+  const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at), to: get(x) })), ...opts });
+  const C = [];
+  let ptr = null;
+  const cursorLocal = (t) => {
+    const src = ptr ?? (C.length ? { cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR) } : null);
+    return src ? { x: v(src.cx, t), y: v(src.cy, t) } : { x: 0, y: 0 };
+  };
+  // A component row continues the one before it when both use the same component.
+  const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;
+  const endOf = (j) => { const r = rows[j]; return r.comp.endState ? r.comp.endState(r.props, ctxOf(j)) : r.props; };
+  function ctxOf(i) {
+    const r = rows[i];
+    if (!r.ctx) {
+      r.ctx = { ...base, t0: i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row,
+        prev: null, continues: continues(i), settled: i === 0 };
+      if (r.ctx.continues) r.ctx.prev = endOf(i - 1);
+    }
+    return r.ctx;
+  }
+
+  // ---- cursor: resolve targets to shape-centre design px, once, in order
+  for (const c of cursor) {
+    if (!c.target) { C.push(c); continue; }
+    const r = targetRow(rows, c);
+    const p = r.comp.hotspot(c.target, r.props, r.geo, ctxOf(r.i));
+    if (!p) throw new Error(`motion-kit: hotspot "${c.target}" did not resolve on ${r.row.use} at beat ${r.row.at}`);
+    C.push({ ...c, x: p.x + (c.dx ?? 0), y: p.y + (c.dy ?? 0) });
   }
 
   // ---- tracks (same maths as the pre-library template)
   const down = (c) => ({ t: beatT(c.at) - 0.08 * bs, to: 0.82 });
   const up = (c, d = 0) => ({ t: beatT(c.at) + d * bs, to: 1 });
-  const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at), to: get(x) })), ...opts });
   const G = rows.map((r) => ({ ...r.geo, at: r.row.at }));
   const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height)) / Math.max(s.w, s.h)));
   const tracks = {
@@ -86,11 +113,8 @@ export function createScene(o) {
     press: { from: 1, omega: fromSettle(0.15 * bs, 1), zeta: 1,
       changes: C.filter((c) => c.press).flatMap((c) => (c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)])) },
   };
-  const cursorLocal = (t) => ({ x: v(tracks.cx, t), y: v(tracks.cy, t) });
-  // A component row continues the one before it when both use the same component.
-  const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;
-  for (const r of rows) r.ctx = { ...base, t0: r.i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row,
-    prev: continues(r.i) ? rows[r.i - 1].props : null, continues: continues(r.i) };
+  ptr = { cx: tracks.cx, cy: tracks.cy };
+  for (const r of rows) ctxOf(r.i);
 
   // ---- layers: one per component row; custom layers grouped by state name as before
   const enter = fromSettle(0.5 * bs, 1), exit = fromSettle(0.2 * bs, 1);

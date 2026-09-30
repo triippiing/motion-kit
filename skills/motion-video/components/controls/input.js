@@ -4,7 +4,7 @@ import { el, textW, frame, icon, prog, fade, applyFade, pressesOn } from '../cor
 export const meta = {
   name: 'input', group: 'controls',
   useWhen: 'Something is typed: a search, an amount, a name.',
-  motion: "Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a 1 Hz blink after. The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A continuation whose text extends the previous row's keeps typing on; other text changes dissolve the old text.",
+  motion: "Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a 1 Hz blink after. The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.",
   props: { placeholder: ['string', 'Search'], text: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], icon: ['enum:search|none', 'search'] },
   hotspots: ['field', 'clear'],
   sounds: ['key'],
@@ -42,17 +42,26 @@ export function mount(root, p, ctx) {
 
 // Characters carried over from the previous row (its text is a prefix of this one).
 const kept = (p, ctx) => (ctx.continues && p.text.startsWith(ctx.prev.text) ? ctx.prev.text.length : 0);
-// Row 0 is shown settled: its clock started long before its beat, so its typing is long done.
-const settled = (ctx) => ctx.t0 !== ctx.beatT(ctx.row.at);
 // The beat each newly typed character lands on (none when the text is shown at once).
 const keyBeats = (p, ctx) => (p.typeAt < 0 ? [] : [...p.text.slice(kept(p, ctx))].map((_, j) => ctx.row.at + p.typeAt + j * p.perChar));
 
-export function render(root, p, ctx, t) {
-  const f = root.firstChild, bs = ctx.beat_sec, keep = kept(p, ctx);
+// When each character shows (seconds), and when a press on clear dissolves them (Infinity: never).
+function timeline(p, ctx) {
+  const keep = kept(p, ctx);
   const times = [...Array(keep).fill(-Infinity), ...keyBeats(p, ctx).map((b) => ctx.t0 + ctx.beatT(b) - ctx.beatT(ctx.row.at))];
   if (p.typeAt < 0) times.push(...Array(p.text.length - keep).fill(-Infinity));
-  const n = times.filter((x) => x <= t).length, first = times[0] ?? Infinity, end = times.at(-1) ?? Infinity;
-  const tClear = n ? pressesOn(ctx, 'clear').filter((x) => x.kind !== 'up' && x.t >= first).map((x) => x.t).sort((a, b) => a - b)[0] ?? Infinity : Infinity;
+  const first = times[0] ?? Infinity;
+  const tClear = pressesOn(ctx, 'clear').filter((x) => x.kind !== 'up' && x.t >= first).map((x) => x.t).sort((a, b) => a - b)[0] ?? Infinity;
+  return { keep, times, first, tClear };
+}
+
+// The row as it stands after its presses: cleared text is gone for a following input row.
+export const endState = (p, ctx) => (timeline(p, ctx).tClear < Infinity ? { ...p, text: '' } : p);
+
+export function render(root, p, ctx, t) {
+  const f = root.firstChild, bs = ctx.beat_sec;
+  const { keep, times, first, tClear } = timeline(p, ctx);
+  const n = times.filter((x) => x <= t).length, end = times.at(-1) ?? Infinity;
   const cleared = t >= tClear;
   f.querySelector('.in-text').textContent = p.text.slice(0, n);
   f.querySelector('.in-typed').style.opacity = String(cleared ? 1 - prog(ctx, t, tClear, 0.3) : 1);
@@ -71,9 +80,10 @@ export function render(root, p, ctx, t) {
   Object.assign(f.querySelector('.in-clear').style, { opacity: String(c), transform: `scale(${0.7 + 0.3 * c})` });
 }
 
+// Row 0 is shown settled (typed long ago), and no key sounds once the next row has taken over.
 export function sfx(p, ctx) {
-  if (settled(ctx)) return [];
-  return keyBeats(p, ctx).map((beat) => ({ beat, file: 'sfx/key.wav', gain: 0.5 }));
+  if (ctx.settled) return [];
+  return keyBeats(p, ctx).filter((b) => ctx.beatT(b) < ctx.t1).map((beat) => ({ beat, file: 'sfx/key.wav', gain: 0.5 }));
 }
 
 export function hotspot(name, p, geo) {

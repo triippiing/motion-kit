@@ -4,7 +4,7 @@ import { el, textW, frame, pressesOn, edges } from '../core/helpers.js';
 export const meta = {
   name: 'tabs', group: 'controls',
   useWhen: 'A view switches between a few peers: day/week/month, list/grid, plans.',
-  motion: 'A press on a tab sends the indicator there: the leading edge moves first, so it stretches and settles, and quick reversals stay inside the bar. The active label is shown in the indicator. A continuation with a new active tab travels on arrival.',
+  motion: 'A press on a tab sends the indicator there: the leading edge moves first, so it stretches and settles, and quick reversals stay inside the bar. The active label is shown in the indicator. A following tabs row continues from the last pressed tab (write it as its `active`) and travels on arrival if `active` differs.',
   props: { items: ['string[]', ['Day', 'Week', 'Month']], active: ['string', 'Day'] },
   hotspots: ['tab:<item>'],
   hotspotExample: { 'tab:<item>': 'tab:Month' },
@@ -50,7 +50,13 @@ function plan(p, ctx) {
     const i = p.items.indexOf(pr.hotspot.slice(4));
     if (i >= 0 && pr.kind !== 'up') changes.push({ t: pr.t, index: i });
   }
-  return { from, changes };
+  changes.sort((a, b) => a.t - b.t);
+  return { from, changes, to: changes.length ? changes.at(-1).index : from };
+}
+
+// The row as it stands after its presses: a following tabs row continues from here.
+export function endState(p, ctx) {
+  return p.items.length ? { ...p, active: p.items[plan(p, ctx).to] } : p;
 }
 
 export function render(root, p, ctx, t) {

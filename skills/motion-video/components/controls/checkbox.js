@@ -4,7 +4,7 @@ import { el, textW, frame, icon, prog, drawOn, pressesOn, pressDepth } from '../
 export const meta = {
   name: 'checkbox', group: 'controls',
   useWhen: 'An option is ticked: remember me, agree to terms, a to-do done.',
-  motion: 'Checking fills the box with the accent and draws the tick on; a press on the box dips it and checks it at the press. A checked row draws its tick as it arrives; a continuation to unchecked empties the box.',
+  motion: 'Checking fills the box with the accent and draws the tick on; a press on the box dips it and checks it at the press. A checked row draws its tick as it arrives. A following checkbox row continues from where the presses left it (write the pressed result as its `checked`); a continuation to unchecked empties the box.',
   props: { checked: ['boolean', false], label: ['string', 'Remember me'] },
   hotspots: ['box'],
   sounds: [],
@@ -43,8 +43,11 @@ function plan(p, ctx) {
   for (const pr of pressesOn(ctx, 'box').filter((x) => x.kind !== 'up').sort((a, b) => a.t - b.t)) {
     if (!on) { on = true; ev.push({ t: pr.t, on }); }
   }
-  return { start, ev };
+  return { start, ev, on };
 }
+
+// The row as it stands after its presses: a following checkbox row continues from here.
+export const endState = (p, ctx) => ({ ...p, checked: plan(p, ctx).on });
 
 export function render(root, p, ctx, t) {
   const { Springs, beat_sec: bs } = ctx;

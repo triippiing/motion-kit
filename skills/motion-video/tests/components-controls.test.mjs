@@ -19,7 +19,8 @@ test('toggle: a press on the knob moves it to the right half and paints the trac
     states: "[{ at: 0, use: 'toggle' }, { at: END - 2, use: 'toggle' }]",
     cursor: "[{ at: 0, x: 0, y: 120 }, { at: 1.5, target: 'knob' }, { at: 2, target: 'knob', press: true }, { at: 4, target: 'knob', dx: 76, press: true }, { at: END - 2, x: 0, y: 120 }]" }, async (s, at) => {
     const accent = await s.page.evaluate(() => { const p = document.createElement('div'); p.style.background = 'var(--accent)'; document.body.appendChild(p); const c = getComputedStyle(p).backgroundColor; p.remove(); return c; });
-    const half = async () => { const k = await rect(s, '.c-toggle[data-row="0"] .tg-knob'), tr = await rect(s, '.c-toggle[data-row="0"] .tg-track'); return k.l >= tr.cx - 0.5 ? 'right' : k.r <= tr.cx + 0.5 ? 'left' : 'middle'; };
+    // Knob centre against track centre: the knob sits a quarter of its travel either side at rest.
+    const half = async () => { const k = await rect(s, '.c-toggle[data-row="0"] .tg-knob'), tr = await rect(s, '.c-toggle[data-row="0"] .tg-track'); return k.cx > tr.cx + 10 ? 'right' : k.cx < tr.cx - 10 ? 'left' : 'middle'; };
     await at(1.8);
     assert.equal(await half(), 'left', 'off before the press');
     await at(3);
@@ -106,4 +107,53 @@ test('dropdown: an open row staggers its items in order; a press highlights the 
     assert.ok(after[1].hl, 'Oldest highlighted after the press');
     assert.notEqual(after[1].bg, 'rgba(0, 0, 0, 0)');
   });
+});
+
+test('input: key sounds stop when the next row starts', async () => {
+  await scene({ bars: 2,
+    states: "[{ at: 0, use: 'input' }, { at: 1, use: 'input', text: 'abcdef', typeAt: 0, perChar: 0.5 }, { at: 3, use: 'input', text: 'abcdef' }, { at: END - 2, use: 'input' }]",
+    cursor: '[{ at: 0, x: 0, y: 120 }, { at: END - 2, x: 0, y: 120 }]' }, async (s) => {
+    const keys = await s.page.evaluate(() => window.SFX.filter((x) => x.file === 'sfx/key.wav').map((x) => x.beat));
+    assert.deepEqual(keys, [1, 1.5, 2, 2.5]);
+  });
+});
+
+// Ruling F: a press in row A, then a continuation row B that states the pressed result, must not flash
+// back to A's written state: at B.t0 + 0.05 beat (and later) B shows what A settled on.
+async function noFlash({ use, a, b, press, read }) {
+  await scene({ bars: 2,
+    states: `[{ at: 0, use: '${use}', ${a} }, { at: 2, use: '${use}', ${b} }, { at: END - 2, use: '${use}', ${a} }]`,
+    cursor: `[{ at: 0, x: 0, y: 120 }, { at: 0.5, target: '${press}' }, { at: 0.8, target: '${press}', press: true }, { at: END - 2, x: 0, y: 120 }]` }, async (s, at) => {
+    await at(1.95);
+    const end = await s.page.evaluate(read, 0);
+    for (const beat of [2.05, 2.3, 3]) {
+      await at(beat);
+      assert.deepEqual(await s.page.evaluate(read, 1), end, `${use} row B at beat ${beat} matches the end of row A`);
+    }
+  });
+}
+test('toggle: a continuation after a press starts from the flipped knob', async () => {
+  await noFlash({ use: 'toggle', a: 'on: false', b: 'on: true', press: 'knob', read: (row) => {
+    const k = document.querySelector(`.c-toggle[data-row="${row}"] .tg-knob`), tr = k.parentNode;
+    return [Math.round(parseFloat(k.style.left)), Math.round(parseFloat(k.style.width)), tr.style.background];
+  } });
+});
+
+test('checkbox: a continuation after a press keeps the tick drawn', async () => {
+  await noFlash({ use: 'checkbox', a: 'checked: false', b: 'checked: true', press: 'box', read: (row) => {
+    const b = document.querySelector(`.c-checkbox[data-row="${row}"] .cb-box`), tick = b.querySelector('.cb-tick');
+    return [parseFloat(tick.style.strokeDashoffset) < 0.03, b.style.background, tick.style.opacity];
+  } });
+});
+
+test('tabs: a continuation after a press keeps the indicator on the pressed tab', async () => {
+  await noFlash({ use: 'tabs', a: "active: 'Day'", b: "active: 'Month'", press: 'tab:Month', read: (row) => {
+    const i = document.querySelector(`.c-tabs[data-row="${row}"] .tb-ind`);
+    return [Math.round(parseFloat(i.style.left)), Math.round(parseFloat(i.style.width))];
+  } });
+});
+
+test('dropdown: a continuation after a press keeps the pressed item highlighted', async () => {
+  await noFlash({ use: 'dropdown', a: "open: true, selected: 'Newest'", b: "open: true, selected: 'Oldest'", press: 'item:Oldest', read: (row) =>
+    [...document.querySelectorAll(`.c-dropdown[data-row="${row}"] .dd-item`)].map((e) => [e.classList.contains('dd-hl'), e.style.background, e.style.opacity]) });
 });
