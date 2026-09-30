@@ -4,7 +4,7 @@
 // (2 beats each), then back to rest. Starting from rest gives every example a real entrance.
 // --stills writes components/docs-images/<name>.png (480 px) from a settled frame of each example.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect } from './build_catalog.mjs';
@@ -30,7 +30,7 @@ export async function gallery({ only = null } = {}) {
   return { dir, list, plays };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const out = process.argv[2];
   const oi = process.argv.indexOf('--only');
   const only = oi > 0 ? (process.argv[oi + 1] ?? '').split(',').filter(Boolean) : null;

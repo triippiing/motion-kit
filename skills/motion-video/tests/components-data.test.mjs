@@ -51,7 +51,7 @@ test('line-chart: the path draws on and targeting point:7 shows its value', asyn
     assert.ok(await num(s, '.c-line-chart .lc-line', 'strokeDashoffset') > 0.97, 'undrawn at the start');
     await at(4.2);
     assert.ok(await num(s, '.c-line-chart .lc-line', 'strokeDashoffset') < 0.02, 'drawn');
-    assert.equal(await text(s, '.c-line-chart .lc-tip'), '£13');
+    assert.equal(await text(s, '.c-line-chart .lc-tip'), '13', 'the default format is neutral: no currency');
     assert.ok(await num(s, '.c-line-chart .lc-tip', 'opacity') > 0.95, 'tip shown');
   });
 });
@@ -66,8 +66,8 @@ test('line-chart: travelling to point:7 never shows another point; leaving hides
       for (let beat = a; beat <= b + 1e-9; beat += 0.005) { window.seek(beat * bs); out.add(document.querySelector('.c-line-chart .lc-tip').textContent); }
       return [...out];
     }, [2, 4, bs]);
-    assert.ok(!seen.includes('£9'), `tooltip texts seen: ${seen}`);
-    assert.deepEqual(seen.filter(Boolean), ['£13']);
+    assert.ok(!seen.includes('9'), `tooltip texts seen: ${seen}`);
+    assert.deepEqual(seen.filter(Boolean), ['13']);
     await at(2.99);
     assert.equal(await num(s, '.c-line-chart .lc-tip', 'opacity'), 0, 'hidden before the cursor row');
     await at(4.9);
@@ -76,7 +76,7 @@ test('line-chart: travelling to point:7 never shows another point; leaving hides
 });
 
 test('line-chart: the hover prop pops at +1.6 beats; an out-of-range index shows nothing', async () => {
-  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 3 }, { at: 5, use: 'button' }, { at: 6, use: 'line-chart', hover: 20 }${BACK}]`, cursor: STILL }, async (s, at) => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 3, format: { prefix: '£' } }, { at: 5, use: 'button' }, { at: 6, use: 'line-chart', hover: 20 }${BACK}]`, cursor: STILL }, async (s, at) => {
     await at(3.55);
     assert.equal(await num(s, '.c-line-chart[data-row="1"] .lc-tip', 'opacity'), 0, 'not before +1.6 beats');
     await at(4.4);
@@ -203,7 +203,7 @@ test('line-chart: a point hovered before a continuation keeps its tooltip across
       }
       return out;
     }, [3.9, 4.4, bs]);
-    for (const [beat, o, txt] of ops) assert.ok(o > 0.95 && txt === '£13', `tooltip kept at beat ${beat}: ${o} ${txt}`);
+    for (const [beat, o, txt] of ops) assert.ok(o > 0.95 && txt === '13', `tooltip kept at beat ${beat}: ${o} ${txt}`);
   });
 });
 

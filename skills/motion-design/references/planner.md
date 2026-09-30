@@ -14,7 +14,7 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
 ## Questions (one per message, multiple choice where possible; skip any already answered)
 1. Goal and audience.
 2. Where it will be posted → size (square 1440, vertical 1080x1920, landscape 1920x1080) and length in seconds. Bars are decided after the song is measured (Assessments).
-3. Which product → read its stylesheet (extract_theme.py, show the printed roles) and look at its real UI.
+3. Which product → read its stylesheet (extract_theme.py, show the printed roles) and look at its real UI. No product (a concept piece, or the user wants a neutral look) → use the house theme: leave `--theme` off when scaffolding and write "theme: house (no product)" in Decisions.
 4. The song → a file the user has the rights to use (never download music). If it is a commercial track, say once that social platforms will likely mute it.
 5. The 3 to 6 moments to show → propose one component per moment from `~/.claude/skills/motion-video/components/CATALOG.md` by its "Use when" line, props filled from the product's real screens and copy (`components/RECIPES.md` has five complete sequences to start from); name a transitions.dev idea when relevant (ideas and timings only, rebuilt with springs). A moment that is one thing changing (tabs Day then Month, a balance growing) is two consecutive rows of the same component: the second animates the change. The user approves or swaps each one.
 
@@ -22,14 +22,14 @@ Write the understanding back (goal, size, length, product, song, moments) for co
 
 ## Assessments (before writing the brief)
 - `bash $S/doctor.sh` passes; stop and show the fixes if anything is MISSING.
-- Scaffold and measure with a provisional length: `bash $S/new_project.sh DIR SONG --bars 8 --states K --size SIZE --theme PRODUCT.css`. Read the BPM from song.json and say it with its confidence and warnings.
-- Length → bars (4/4): `bars = round(seconds * bpm / 240)`. Say it: "15 s at 109 BPM = 7 bars = 15.4 s" (bars * 240 / bpm). Choose `--start-bar` from song.json `sections` (a section boundary inside a strong section). Then re-run `python3 $S/analyze_song.py SONG --out DIR --bars N --start-bar B --states K` so song.json matches the real length before planning.
+- Scaffold and measure with a provisional length: `bash $S/new_project.sh DIR SONG --bars 8 --size SIZE --theme PRODUCT.css` (no `--theme` for the house theme; no `--states` yet: the rows are not counted until the moments are approved). Read the BPM from song.json and say it with its confidence and warnings.
+- Length → bars (4/4): `bars = round(seconds * bpm / 240)`. Say it: "15 s at 109 BPM = 7 bars = 15.4 s" (bars * 240 / bpm). Choose `--start-bar` from song.json `sections` (a section boundary inside a strong section). Count the states: K = the `states()` rows the approved moments need (a moment that is one thing changing is two rows; a loop's closing row repeats the first). Then re-run `python3 $S/analyze_song.py SONG --out DIR --bars N --start-bar B --states K` so song.json matches the real length and warns if K rows do not fit, before planning.
 - song.json: `rules.min_hold_beats`, `rules.max_states`, loop window and sections, per-beat `accent` (biggest changes on the strongest beats).
-- Theme coverage: which roles came from the product, which defaulted; fix a wrong role with `--map accent=--other-var`.
+- Theme coverage: which roles came from the product, which defaulted; fix a wrong role with `--map accent=--other-var` (house theme: nothing to check).
 - Moments fit the state budget (`max_states`); text legible at the output size (anything the viewer must read at 22 design px or more at 1440; components use 18 px only for captions).
 
 ## MOTION-BRIEF.md (write into the project)
-Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song window, one-line reasons), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`). Format and a worked example: `references/state-plan.md`.
+Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song window, one-line reasons), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`; any row can also take the row-level keys `fill`, `ink` (a theme role or `#rrggbb`), `w`/`h`/`r`, `shake: true` and `badge: <n>`, listed at the top of `components/CATALOG.md`). Format and a worked example: `references/state-plan.md`.
 Then run `node $S/check_brief.mjs DIR` (a launch video is checked as a one-off when project.json has `"loop": false`; `--no-loop` does the same without it): fix every error, and read every warning and resolve it, or justify it in the brief. Do both before showing it.
 
 ## Gate

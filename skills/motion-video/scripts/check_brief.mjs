@@ -3,7 +3,7 @@
 // states()/cursor() code with the engine's validator in strict mode (holds, budget, quiet beats).
 // A piece is checked as a loop (last rows repeat the first) unless --no-loop is given or the project's
 // project.json says "loop": false (a launch video that ends on its own end card).
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -52,7 +52,7 @@ export async function checkBrief(dir, opts = {}) {
   return { errors: [...errors, ...r.errors], warnings: [...warnings, ...r.warnings] };
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   const [dir, ...opts] = process.argv.slice(2);
   const bad = opts.find((o) => o !== '--no-loop');
   if (bad) { console.error(`error: unknown option "${bad}" (usage: check_brief.mjs PROJECT [--no-loop])`); process.exit(2); }
