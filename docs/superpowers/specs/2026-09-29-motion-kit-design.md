@@ -9,7 +9,7 @@ Turn the "code-only motion design" approach (source: @twoclipping prompt templat
 x.com/twoclipping/status/2103273003555402193) into reusable Claude Code skills Jack
 can call in future projects, for two uses:
 
-1. **Promo videos** for his projects — a single morphing UI shape, cursor-driven,
+1. **Promo videos** for their projects — a single morphing UI shape, cursor-driven,
    cut to a song's beat grid, rendered from HTML to MP4 with no After Effects.
 2. **In-product motion** — the same spring maths used live in real web UIs
    (personal-finance vanilla JS UI, Arcade HTML games, rendered HTML pages).
@@ -148,7 +148,7 @@ two-edge indicators, content swap timing, and `prefers-reduced-motion`.
 
 ## Tooling
 
-- Homebrew: Jack installs it himself (sudo password), then `brew install ffmpeg`.
+- Homebrew: Jack installs it themselves (sudo password), then `brew install ffmpeg`.
 - Playwright Chromium: installed 2026-09-29 (`~/Library/Caches/ms-playwright`).
 - numpy 2.5.2 present on python.org 3.13. No other Python deps.
 - `doctor.sh` verifies all of the above and that ffmpeg has the `tmix` filter; every

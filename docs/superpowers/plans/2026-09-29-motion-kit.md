@@ -2687,4 +2687,4 @@ Then ask Jack to read the page (served locally) and, if happy, stamp it with `py
 - [ ] **Step 1:** `cd ~/motion-kit && npm test` — all PASS. `skills/motion-video/scripts/doctor.sh` — all ok.
 - [ ] **Step 2:** `ls -l ~/.claude/skills/` shows the three symlinks.
 - [ ] **Step 3:** Update memory `motion-kit.md`: status built, demo paths, Tints BPM, and that the finance change sits on `motion-demo` unmerged.
-- [ ] **Step 4:** Report to Jack: skill names and one-line "how to call", the three video paths, the wiki page (local URL, committed, not pushed unless he said so), anything that did not work.
+- [ ] **Step 4:** Report to Jack: skill names and one-line "how to call", the three video paths, the wiki page (local URL, committed, not pushed unless Jack said so), anything that did not work.
