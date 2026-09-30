@@ -80,7 +80,7 @@ node scripts/export.mjs DIR --for reels,x,discord,web [--silent]
 live in `presets.json` at the root of this skill. Each platform limit there was researched from the
 platform's own docs and carries a `source` URL and a `checked` date (`web` and `gif` are house defaults,
 with no source); values that could not be sourced
-(every loudness target, and the TikTok and Shorts safe zones; Reels' zones come from Meta's ads guidance) are listed in the preset's `estimated` field, which the
+(every loudness target and several safe zones, including TikTok's and Shorts'; the zero margins of the feed and chat presets are marked too; Reels' zones come from Meta's ads guidance) are listed in the preset's `estimated` field, which the
 manifest copies for every file.
 
 | Group | Preset | Size | fps | Max length | Size cap | Audio |
