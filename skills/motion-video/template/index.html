@@ -80,10 +80,11 @@ const extraSfx = () => [];
 // Per-state content animation. Each function takes ABSOLUTE t (seconds) and runs
 // on EVERY frame, so a layer that is fading out is still a pure function of t.
 // since(name, t) = seconds since the latest row of state `name` began at or before
-// t (0 before its first start); use it for anything that animates from a state's start.
+// t (0 before its first start); guard element lookups with ?. so a removed layer
+// doesn't throw every frame; use it for anything that animates from a state's start.
 const content = {
-  loader: (t) => { $('#spin').style.transform = `rotate(${since('loader', t) * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px'; },
-  check:  (t) => { $('#tick').style.strokeDashoffset = String(1 - Math.min(1, since('check', t) / (0.8 * song.beat_sec))); },
+  loader: (t) => { const e = $('#spin'); if (!e) return; e.style.transform = `rotate(${since('loader', t) * 450}deg)`; e.style.transformOrigin = '22px 22px'; },
+  check:  (t) => { $('#tick')?.style.setProperty('stroke-dashoffset', String(1 - Math.min(1, since('check', t) / (0.8 * song.beat_sec)))); },
 };
 // ------------------------------------------------------------
 

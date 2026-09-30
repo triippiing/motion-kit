@@ -175,9 +175,15 @@ test('template CURSOR supports press down/up and sound rows; EXTRA_SFX merges in
     const b = p.song.beat_sec;
     const scale = async (t) => { await page.evaluate((t) => window.seek(t), t);
       return page.evaluate(() => document.querySelector('#cursor').style.transform); };
-    // held between down (3) and up (3.5): scaled cursor differs from released
-    const held = await scale(3.3 * b), free = await scale(3.05 * b - 0.5 * b);
-    assert.notEqual(held, free);
+    // Effective press scale = cursor scale(p/z) * camera zoom z. Held between 'down' (3) and 'up' (3.5).
+    const pressAt = async (t) => page.evaluate((t) => {
+      window.seek(t);
+      const sc = (id) => Number(/scale\(([^)]+)\)/.exec(document.querySelector(id).style.transform)[1]);
+      return sc('#cursor') * sc('#camera');
+    }, t);
+    const held = await pressAt(3.3 * b), released = await pressAt(3.8 * b);
+    assert.ok(Math.abs(held - 0.82) < 0.01, `held press ${held}`);
+    assert.ok(Math.abs(released - 1) < 0.01, `released press ${released}`);
     assert.deepEqual(p.errors, []);
   } finally { await p.close(); }
 });
