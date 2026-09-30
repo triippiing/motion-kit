@@ -53,7 +53,7 @@ check, toast rise and unblur, command filtering.
 | 11 | 3.4 | 6.055 | player (cont.) | drags the thumb right (11), releases there (11.5), playback resumes | |
 | 12 | 4.1 | 6.605 | slider | becomes a volume slider; cursor on the thumb, grabs (12.5) | click |
 | 13 | 4.2 | 7.156 | slider | drags past max (13), track stretches, releases (13.5), springs back | |
-| 14 | 4.3 | 7.706 | toggle | collapses into a toggle; cursor to the knob (14.5) | |
+| 14 | 4.3 | 7.706 | toggle | collapses into a toggle; cursor comes back onto the knob | |
 | 15 | 4.4 | 8.257 | toggle | presses, knob flips with a two-edge stretch (strong .88) | click |
 | 16 | 5.1 | 8.807 | tabs | Day / Week / Month, Day active (strong .68); cursor to Month (16.5) | |
 | 17 | 5.2 | 9.358 | tabs | presses Month, indicator stretches across | click |
@@ -99,9 +99,9 @@ const cursor = () => [
   { at: 11.5, target: 'thumb', dx: 200, press: 'up' },
   { at: 12,   target: 'thumb' },
   { at: 12.5, target: 'thumb', press: 'down' },
-  { at: 13,   target: 'thumb', dx: 560 },
-  { at: 13.5, target: 'thumb', dx: 560, press: 'up' },
-  { at: 14.5, target: 'knob' },
+  { at: 13,   target: 'thumb', dx: 500 },
+  { at: 13.5, target: 'thumb', dx: 500, press: 'up' },
+  { at: 14,   target: 'knob' },
   { at: 15,   target: 'knob', press: true },
   { at: 16.5, target: 'tab:Month' },
   { at: 17,   target: 'tab:Month', press: true },
