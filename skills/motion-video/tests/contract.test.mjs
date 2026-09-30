@@ -53,6 +53,12 @@ test('the selection components declare meta.choices', () => {
     { tabs: { active: 'items' }, dropdown: { selected: 'items' }, dock: { active: 'items' }, 'chip-row': { selected: 'chips' } });
 });
 
+test('the catalog row keys name the optional pos/neg roles and a badge of 0', async () => {
+  const keys = catalogMd(await collect()).split('## Row keys')[1].split('\n## ')[0];
+  assert.match(keys, /\| `fill` \|.*`pos`, `neg` \(when the theme defines them\)/);
+  assert.match(keys, /\| `badge` \|.*0 shows none/);
+});
+
 test('the registry has at least the reference component', () => {
   assert.ok(registry.button, 'button is registered');
 });

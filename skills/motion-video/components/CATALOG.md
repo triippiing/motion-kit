@@ -17,11 +17,11 @@ Every row accepts these keys whatever its component (they are never component pr
 |---|---|
 | `at` | the beat the row starts on (required) |
 | `use` | the component, by the name of its heading below |
-| `fill` | the shape's background: a theme role (`canvas`, `surface`, `ink`, `muted`, `accent`) or `#rrggbb`; overrides the component's own |
+| `fill` | the shape's background: a theme role (`canvas`, `surface`, `ink`, `muted`, `accent`; `pos`, `neg` (when the theme defines them)) or `#rrggbb`; overrides the component's own |
 | `ink` | the shape's text colour: a theme role or `#rrggbb`; overrides the component's own |
-| `w`, `h`, `r` | the shape's width, height and corner radius in design px (1440 stage); override the component's size |
+| `w`, `h`, `r` | the shape's width, height and corner radius in design px (1440 stage), numbers >= 0; override the component's size |
 | `shake` | `true`: an error shake when the row arrives |
-| `badge` | a number: a count bubble on the shape's top-right corner for the row |
+| `badge` | a number: a count bubble on the shape's top-right corner for the row; 0 shows none |
 
 ## Controls
 

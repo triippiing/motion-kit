@@ -49,8 +49,12 @@ export const meta = {
   example: "{ at: 0, use: 'tag', label: 'Design' }",   // ONE line, used in the catalog and tests
   edgeCases: [{ label: '' }],                          // rows (without at/use) that push the limits
   hotspotExample: { 'item:<label>': 'item:Plan' },     // only if a hotspot is a family: one real name
-  drag: ['thumb'],          // only if a hotspot is dragged (you read ctx.cursorAt): which ones; validate then
-                            // warns when a drag on it never moves the cursor between the 'down' and the 'up'
+  drag: ['thumb'],          // only if a hotspot is dragged (you read ctx.cursorAt): which ones, written exactly
+                            // as in hotspots (a family as 'handle:<i>'); validate then warns when a drag on
+                            // it never moves the cursor between the 'down' and the 'up'
+  choices: { active: 'items' },  // only if a prop selects from a list prop: { selectionProp: listProp }; strict
+                                 // validation warns when the selection (a string, or each of a string[]) is
+                                 // not in the list (an empty string means none)
 };
 export function geometry(props, ctx) { return { w, h, r, fill: 'surface', ink: 'ink' }; }
 export function mount(layer, props, ctx) { /* build DOM once */ }
@@ -168,7 +172,12 @@ What each part is doing:
 - **`render`** computes everything from `t`: the fill blend on a spring track, the press dip with
   `pressDepth`, the old label fading out at `ctx.t0` and the new one fading in just after.
 - **`hotspot`** is where the cursor tip lands, as an offset from the shape centre; aim at the thing
-  being pressed, a little off-centre so the pointer does not cover the text.
+  being pressed, a little off-centre so the pointer does not cover the text. Return `null` when the
+  props have no such thing (a tab not in `items`, a row index past the end, an item of a closed menu):
+  validation reports it with the names that do resolve. `hotspot` is also called with `ctx = {}`
+  (validation, and choosing which row a cursor row aims at, happen before any row has a ctx), so
+  whether it returns `null` must depend on the props alone, and any read of `ctx` must be guarded
+  (`ctx?.continues`, as `player` does).
 
 ## The rules
 
@@ -285,7 +294,10 @@ Springs only, through `ctx.Springs` and the helpers; position and size springs h
 as what a viewer sees, including what presses and continuations do. `example` must be a single-line
 `{ at: 0, use: '<name>', ... }` literal (the catalog and tests evaluate it). `edgeCases` should cover
 empty text, very long text and the most items you allow. A family hotspot (`'item:<label>'`) needs a
-`hotspotExample` naming a real one, so the contract test can resolve it.
+`hotspotExample` naming a real one, so the contract test can resolve it. A dragged family goes into
+`drag` exactly as written in `hotspots` (`drag: ['handle:<i>']`). A prop that picks from a list prop
+(tabs' `active` from `items`, chip-row's `selected` from `chips`) is declared in `choices`, and the
+contract test checks both names are real props.
 
 ## Helpers (`components/core/helpers.js`)
 
