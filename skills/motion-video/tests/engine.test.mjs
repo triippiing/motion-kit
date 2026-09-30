@@ -173,6 +173,12 @@ test('a cursor row aims at the next row when its hotspot resolves only there', (
   assert.equal(s.rows[0].ctx.presses.length, 0);
 });
 
+test('a badge of 0 shows no bubble', () => {
+  const dom = fakeDom();
+  make([{ at: 0, use: 'a', badge: 3 }, { at: 4, use: 'b', badge: 0 }, { at: 12, use: 'a', badge: 3 }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }], { dom });
+  assert.deepEqual(dom.camera.children.map((b) => b.text), ['3', '3']);
+});
+
 test('fill and ink overrides are checked against the theme before anything renders', () => {
   assert.throws(() => make([{ at: 0, use: 'a', fill: 'pos' }, { at: 12, use: 'a', fill: 'pos' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]),
     /motion-kit: .*fill at beat 0 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/s);
