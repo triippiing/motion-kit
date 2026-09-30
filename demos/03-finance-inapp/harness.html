@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dock pill: transition vs springs</title>
+<!-- Served by capture.mjs. style.css, icons.js and springs.js are the
+     personal-finance branch's own files (git show motion-demo:web/...), and
+     dock-code.js is the dock pill's functions cut out of that branch's
+     web/app.js by name, plus main's old dockPillStyle(index) renamed to
+     oldDockPillStyle. Nothing about the motion is re-typed here. -->
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; width: 960px; height: 200px; overflow: hidden;
+         background: var(--bg); font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; }
+  .stage { position: relative; height: 100px; }
+  .stage + .stage { border-top: 1px solid var(--line); }
+  .stage .dock { bottom: 12px; }
+  .tag { position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+         color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .tag b { display: block; color: var(--ink); font-size: 13px; }
+  #speed, #caption { position: absolute; right: 22px; color: var(--muted); font-size: 12px; }
+  #speed { top: 16px; font-weight: 600; color: var(--accent); }
+  #caption { top: 36px; }
+  /* main's pill moved on a CSS transition; this is that declaration,
+     spliced in by capture.mjs from main's web/style.css. */
+  #dock-old i[data-dock-pill] { /*OLD_TRANSITION*/ }
+  #cursor { position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px;
+            border-radius: 50%; background: rgba(20, 20, 20, .55); border: 2px solid #fff;
+            box-shadow: 0 1px 4px rgba(0,0,0,.3); pointer-events: none; z-index: 99;
+            transition: transform 90ms ease-out; opacity: 0; }
+  #cursor.down { transform: scale(.7); }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="tag"><b>main</b>CSS transition, translateX</div>
+    <div id="dock-old" class="dock"></div>
+  </div>
+  <div class="stage">
+    <div class="tag"><b>motion-demo</b>two springs, &zeta; 1</div>
+    <div id="dock" class="dock"></div>
+  </div>
+  <div id="speed"></div>
+  <div id="caption"></div>
+  <div id="cursor"></div>
+
+  <script src="/icons.js"></script>
+  <script src="/springs.js"></script>
+  <script>
+    // ?slow=N plays everything N times slower: the springs read time from
+    // performance.now, so that is scaled, and the old pill's transition
+    // reads --t-travel, so that is scaled too. The same motion, just
+    // stretched out far enough to see.
+    const SLOW = Number(new URLSearchParams(location.search).get("slow")) || 1;
+    if (SLOW !== 1) {
+      const realNow = performance.now.bind(performance);
+      Object.defineProperty(performance, "now", { value: () => realNow() / SLOW });
+      const root = document.documentElement, css = getComputedStyle(root);
+      for (const token of ["--t-travel", "--t-state"]) {
+        const ms = parseFloat(css.getPropertyValue(token));
+        root.style.setProperty(token, ms * SLOW + "ms");
+      }
+    }
+    // What app.js provides around the extracted functions.
+    const $ = (id) => document.getElementById(id);
+    let commitmentActiveView = "today";
+  </script>
+  <script src="/dock-code.js"></script>
+  <script>
+    function itemsMarkup() {
+      return PAGES.map((page) =>
+        "<button type='button' class='dock-item' data-page='" + page.name +
+        "' aria-current='" + (page.name === commitmentActiveView ? "page" : "false") + "'>" +
+        icon(page.glyph) + "<span class='dock-label'>" + page.label + "</span></button>"
+      ).join("");
+    }
+
+    $("dock-old").innerHTML = "<i data-dock-pill style='" + oldDockPillStyle(0) + "'></i>" + itemsMarkup();
+    $("dock").innerHTML = "<i data-dock-pill></i>" + itemsMarkup();
+    moveDockPill($("dock").querySelector("i[data-dock-pill]"), 0); // first call: jumps
+
+    // One navigation drives both docks, exactly as renderDock would.
+    function navigate(index) {
+      commitmentActiveView = PAGES[index].name;
+      for (const dock of [$("dock-old"), $("dock")]) {
+        for (const item of dock.querySelectorAll("button")) {
+          item.setAttribute("aria-current", item.dataset.page === commitmentActiveView ? "page" : "false");
+        }
+      }
+      $("dock-old").querySelector("i[data-dock-pill]").setAttribute("style", oldDockPillStyle(index));
+      moveDockPill($("dock").querySelector("i[data-dock-pill]"), index);
+    }
+    for (const dock of [$("dock-old"), $("dock")]) {
+      dock.addEventListener("click", (e) => {
+        const name = e.target.getAttribute("data-page");
+        if (name !== null) navigate(pageIndex(name));
+      });
+    }
+
+    $("speed").textContent = SLOW === 1 ? "real time" : SLOW + "× slower";
+    window.setCaption = (text) => { $("caption").textContent = text; };
+    const cursor = $("cursor");
+    addEventListener("mousemove", (e) => {
+      cursor.style.left = e.clientX + "px"; cursor.style.top = e.clientY + "px"; cursor.style.opacity = 1;
+    });
+    addEventListener("mousedown", () => cursor.classList.add("down"));
+    addEventListener("mouseup", () => cursor.classList.remove("down"));
+    window.ready = true;
+  </script>
+</body>
+</html>
