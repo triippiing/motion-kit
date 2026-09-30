@@ -32,42 +32,34 @@
 <div id="stage">
   <div id="camera">
     <div id="shape">
-      <!-- One .layer per state NAME in STATES. Only content lives in layers; the
-           shape's size, radius and colours come from STATES. -->
-      <div class="layer" data-state="button"><span class="label">Get started</span></div>
-      <div class="layer" data-state="loader">
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none"><circle id="spin" cx="22" cy="22" r="17" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="70 200"/></svg>
-      </div>
-      <div class="layer" data-state="check">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path id="tick" d="M12 25 L21 34 L37 15" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1"/></svg>
-      </div>
+      <!-- Component rows (use:) get their layers from the engine. For a custom row (name:), add <div class="layer" data-state="NAME">...</div> here and animate it in content. -->
     </div>
     <svg id="cursor" viewBox="0 0 44 44"><path d="M7 4 L7 33 L14.5 25.5 L20 37 L25 34.8 L19.6 23.6 L30 23.6 Z" fill="#0B0B0B" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>
   </div>
 </div>
 <script src="springs.js"></script>
 <script type="module">
-const { track, fromSettle } = window.Springs;
-let STAGE, CX, CY, THEME;
+import { createScene, registry } from './components/index.js';
+let STAGE, CX, CY, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
-let song, END, SHAPE, beatT;
-
 // ---------------- the three tables you edit ----------------
-// STATES: what the one shape is from beat `at`; fill/ink: a theme role (canvas,
-// surface, ink, muted, accent) or #rrggbb. The last row must repeat the
-// first and sit at least 2 beats before END so everything settles by the seam.
+// STATES: what the one shape is from beat `at`. `use` names a component from
+// components/CATALOG.md (its other keys are that component's props); a row with
+// `name` + w/h/r is a custom state (add a matching .layer in #shape and animate it
+// in `content`). fill/ink override colours with a theme role (canvas, surface, ink,
+// muted, accent, pos, neg) or #rrggbb. The last row must repeat the first and sit at
+// least 2 beats before END so everything settles by the seam.
 const states = () => [
-  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'accent', ink: 'surface' },
-  { at: 2,       name: 'loader', w: 112, h: 112, r: 56, fill: 'ink', ink: 'surface' },
-  { at: 4,       name: 'check',  w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
-  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'accent', ink: 'surface' },
+  { at: 0,       use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
+  { at: 2,       use: 'loader', fill: 'ink', ink: 'surface' },
+  { at: 4,       use: 'check' },
+  { at: END - 2, use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
 ];
-// CURSOR: where the pointer is from beat `at`, in px from the stage centre.
-// press: true clicks on that beat (dip and release, plays sfx/click.wav at the beat's cue).
-// press: 'down' presses and holds (click sound); press: 'up' releases. Use the pair
-// for drags, moving x/y in between. sound: 'key' plays sfx/key.wav on that row's beat
-// (typing, or any non-click cue); a row may carry both press and sound.
+// CURSOR: where the pointer is from beat `at`. Either x/y in px from the stage
+// centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
+// optionally with dx/dy. press: true clicks (click sound); 'down' presses and holds,
+// 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.
 // First and last rows must match, the last at least 2 beats before END.
 const cursor = () => [
   { at: 0,       x: 240, y: 280 },
@@ -77,107 +69,22 @@ const cursor = () => [
   { at: END - 2, x: 240, y: 280 },
 ];
 // EXTRA_SFX: any other sound cues, [{ beat, file, gain }], merged into window.SFX.
-// Fractional beats are fine. (Simple key sounds can use `sound: 'key'` in CURSOR.)
 const extraSfx = () => [];
-// Per-state content animation. Each function takes ABSOLUTE t (seconds) and runs
-// on EVERY frame, so a layer that is fading out is still a pure function of t.
-// since(name, t) = seconds since the latest row of state `name` began at or before
-// t (0 before its first start); guard element lookups with ?. so a removed layer
-// doesn't throw every frame; use it for anything that animates from a state's start.
-const content = {
-  loader: (t) => { const e = $('#spin'); if (!e) return; e.style.transform = `rotate(${since('loader', t) * 450}deg)`; e.style.transformOrigin = '22px 22px'; },
-  check:  (t) => { $('#tick')?.style.setProperty('stroke-dashoffset', String(1 - Math.min(1, since('check', t) / (0.8 * song.beat_sec)))); },
-};
+// Custom-state animation: functions of ABSOLUTE t, run every frame. since(name, t)
+// gives seconds since the latest custom row `name` began. Components need nothing here.
+const content = {};
 // ------------------------------------------------------------
 
-// A colour that does not resolve must fail loudly: NaN would leave the browser on the previous frame's colour.
-const hex = (c) => {
-  const h = THEME[c] ?? c;
-  if (!/^#[0-9a-f]{6}$/i.test(h)) throw new Error(`unknown colour "${c}" (theme roles: ${Object.keys(THEME).filter((k) => /^#[0-9a-f]{6}$/i.test(THEME[k])).join(', ')}; or #rrggbb)`);
-  return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-};
-let S, C, tracks, layers;
-
-function build() {
-  S = states(); C = cursor();
-  const sp = song.rules?.spring ?? { zeta: 0.85, settle_sec: 0.6 * song.beat_sec };
-  SHAPE = { omega: fromSettle(sp.settle_sec, sp.zeta), zeta: sp.zeta };
-  const CAM = { omega: fromSettle(song.beat_sec, 1), zeta: 1 };
-  const PTR = { omega: fromSettle(0.8 * song.beat_sec, 1), zeta: 1 };
-  const down = (c) => ({ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 });
-  const up = (c, d = 0) => ({ t: beatT(c.at) + d * song.beat_sec, to: 1 });
-  const mk = (rows, get, o) => ({ from: get(rows[0]), changes: rows.slice(1).map((r) => ({ t: beatT(r.at), to: get(r) })), ...o });
-  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h)));
-  tracks = {
-    w: mk(S, (s) => s.w, SHAPE), h: mk(S, (s) => s.h, SHAPE), r: mk(S, (s) => s.r, SHAPE),
-    fill: [0, 1, 2].map((k) => mk(S, (s) => hex(s.fill)[k], SHAPE)),
-    ink: [0, 1, 2].map((k) => mk(S, (s) => hex(s.ink)[k], SHAPE)),
-    zoom: mk(S, zoom, CAM),
-    cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
-    press: { from: 1, omega: fromSettle(0.15 * song.beat_sec, 1), zeta: 1,
-             changes: C.filter((c) => c.press).flatMap((c) => c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)]) },
-  };
-  // Content swaps: each layer enters a beat-fraction after its state starts (so
-  // the container leads) and exits fast when the next state starts.
-  const enter = fromSettle(0.5 * song.beat_sec, 1), exit = fromSettle(0.2 * song.beat_sec, 1);
-  layers = [...document.querySelectorAll('.layer')].map((el) => {
-    const name = el.dataset.state, changes = [];
-    S.forEach((s, i) => {
-      if (s.name !== name || i === 0) return;
-      changes.push({ t: beatT(s.at) + 0.15 * song.beat_sec, to: 1, omega: enter });
-    });
-    S.forEach((s, i) => {
-      if (s.name === name && S[i + 1] && S[i + 1].name !== name) changes.push({ t: beatT(S[i + 1].at), to: 0, omega: exit });
-    });
-    return { el, name, tr: { from: S[0].name === name ? 1 : 0, changes, omega: enter, zeta: 1 } };
-  });
-  window.SFX = [
-    ...C.filter((c) => c.press === true || c.press === 'down').map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 })),
-    ...C.filter((c) => c.sound === 'key').map((c) => ({ beat: c.at, file: 'sfx/key.wav', gain: 0.6 })),
-    ...extraSfx(),
-  ];
-}
-
-const v = (tr, t) => track(t, tr).value;
-
-function cursorAt(t) {
-  const z = v(tracks.zoom, t);
-  return { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z };
-}
-
-// Seconds since the latest STATES row named `name` began at or before t.
-function since(name, t) {
-  let start = null;
-  for (const s of S) if (s.name === name && beatT(s.at) <= t) start = beatT(s.at);
-  return start === null ? 0 : t - start;
-}
-
-function seek(t) {
-  const w = v(tracks.w, t), h = v(tracks.h, t), r = v(tracks.r, t), z = v(tracks.zoom, t);
-  const rgb = (arr) => `rgb(${arr.map((tr) => Math.round(v(tr, t))).join(',')})`;
-  $('#camera').style.transform = `translate(${CX}px,${CY}px) scale(${z}) translate(${-CX}px,${-CY}px)`;
-  Object.assign($('#shape').style, { left: `${CX - w / 2}px`, top: `${CY - h / 2}px`, width: `${w}px`, height: `${h}px`,
-    borderRadius: `${Math.min(r, w / 2, h / 2)}px`, background: rgb(tracks.fill), color: rgb(tracks.ink) });
-  for (const L of layers) {
-    const o = Math.max(0, Math.min(1, v(L.tr, t)));
-    Object.assign(L.el.style, { opacity: o, filter: o > 0.999 ? 'none' : `blur(${(1 - o) * 10}px)`, transform: `scale(${0.96 + 0.04 * o})` });
-  }
-  for (const name in content) content[name](t);
-  const p = v(tracks.press, t);
-  const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
-  $('#cursor').style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
-}
+function seek(t) { scene.seek(t); }
 
 window.ready = (async () => {
   const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));
   song = await songR.json();
   STAGE = projR.ok ? (await projR.json()).stage : { width: 1440, height: 1440 };
-  // No theme.json: the house roles, read from the page's own CSS variables.
   THEME = themeR.ok ? await themeR.json() : Object.fromEntries(['canvas', 'surface', 'ink', 'muted', 'accent']
     .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
   window.STAGE = STAGE; CX = STAGE.width / 2; CY = STAGE.height / 2;
   END = song.beats.length;
-  // Integer beats snap to the measured cue so picture and sound hit together.
   beatT = (b) => {
     const i = Math.floor(b), beat = song.beats[i];
     return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
@@ -186,11 +93,14 @@ window.ready = (async () => {
   const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
   await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
-  build();
+  scene = createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
+    beatT, Springs: window.Springs, registry, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+  since = scene.since;
+  window.SFX = scene.sfx;
   seek(0);
 })();
 window.seek = seek;
-window.inspect = (t) => ({ cursor: cursorAt(t) });
+window.inspect = (t) => scene.inspect(t);
 
 // ?play: watch it live in a browser with the audio (click to start).
 if (location.search.includes('play')) {

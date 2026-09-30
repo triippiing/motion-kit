@@ -33,6 +33,8 @@ python3 "$SKILL/scripts/extract_theme.py" ${THEME:+"$THEME"} --out "$DIR" ${MAPS
 printf '{"stage": {"width": %d, "height": %d}}\n' "$W" "$H" > "$DIR/project.json"
 cp "$SKILL/template/index.html" "$DIR/index.html"
 cp -L "$SKILL/assets/springs.js" "$DIR/springs.js"
+cp -RL "$SKILL/components" "$DIR/components"
+rm -rf "$DIR/components/docs-images"   # docs only; projects do not need the thumbnails
 # A short filtered-noise tick: ours, so no licensing question.
 ffmpeg -v error -y -f lavfi -i "anoisesrc=d=0.03:c=pink:a=0.8:seed=7" \
   -af "highpass=f=1800,lowpass=f=9000,afade=t=out:st=0.002:d=0.028" -ar 48000 "$DIR/sfx/click.wav"

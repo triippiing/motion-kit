@@ -1,0 +1,141 @@
+// engine.js -- turns the states/cursor tables into a scene whose seek(t) is pure.
+// Rows with `use` are library components; rows with `name` are custom states whose
+// content lives in `.layer[data-state=name]` and the page's `content` functions,
+// exactly as before the library existed.
+//
+// Component module contract:
+//   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
+//            hotspots: [..], sounds: [..], edgeCases: [rowObjects],
+//            hotspotExample?: { 'tab:<item>': 'tab:Month' } }  // docs only; validate/engine ignore it
+//   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
+//   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre); optional sfx(props, ctx).
+import { validate, targetRow } from './validate.js';
+import { el } from './helpers.js';
+import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
+
+export function createScene(o) {
+  const { states, cursor, extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true } = o;
+  const { errors } = validate({ states, cursor, registry, song, loop });
+  if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
+  const { track, fromSettle } = Springs;
+  const bs = song.beat_sec;
+  const sp = song.rules?.spring ?? { zeta: 0.85, settle_sec: 0.6 * bs };
+  const SHAPE = { omega: fromSettle(sp.settle_sec, sp.zeta), zeta: sp.zeta };
+  const CAM = { omega: fromSettle(bs, 1), zeta: 1 };
+  const PTR = { omega: fromSettle(0.8 * bs, 1), zeta: 1 };
+  const v = (tr, t) => track(t, tr).value;
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const hex = (c) => {
+    const h = theme[c] ?? c;
+    if (!HEX.test(h)) throw new Error(`unknown colour "${c}" (theme roles: ${Object.keys(theme).filter((k) => HEX.test(theme[k])).join(', ')}; or #rrggbb)`);
+    return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  };
+  const CX = stage.width / 2, CY = stage.height / 2;
+  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage };
+
+  // ---- rows: props with defaults, geometry, time window
+  const rows = states.map((row, i) => {
+    const comp = row.use ? registry[row.use] : null;
+    let props = null;
+    if (comp) {
+      props = {};
+      for (const [k, [, def]] of Object.entries(comp.meta.props)) props[k] = k in row ? row[k] : structuredClone(def);
+    }
+    return { i, row, comp, props, t0: beatT(row.at) };
+  });
+  rows.forEach((r, i) => { r.t1 = rows[i + 1] ? rows[i + 1].t0 : Infinity; });
+  for (const r of rows) {
+    const g = r.comp ? r.comp.geometry(r.props, base) : {};
+    r.geo = { w: r.row.w ?? g.w, h: r.row.h ?? g.h, r: r.row.r ?? g.r, fill: r.row.fill ?? g.fill ?? 'surface', ink: r.row.ink ?? g.ink ?? 'ink' };
+  }
+
+  // ---- cursor: resolve targets to shape-centre design px, once
+  const C = cursor.map((c) => {
+    if (!c.target) return c;
+    const r = targetRow(rows, c);
+    const p = r.comp.hotspot(c.target, r.props, r.geo, base);
+    if (!p) throw new Error(`motion-kit: hotspot "${c.target}" did not resolve on ${r.row.use} at beat ${r.row.at}`);
+    return { ...c, x: p.x + (c.dx ?? 0), y: p.y + (c.dy ?? 0) };
+  });
+  for (const r of rows) r.presses = [];
+  for (const c of C) {
+    if (c.press === undefined) continue;
+    let r = c.target ? targetRow(rows, c) : null;
+    if (!r) { let k = 0; rows.forEach((q, j) => { if (q.row.at <= c.at + 1e-9) k = j; }); r = rows[k]; }
+    r.presses.push({ t: beatT(c.at), kind: c.press, hotspot: c.target ?? null });
+  }
+
+  // ---- tracks (same maths as the pre-library template)
+  const down = (c) => ({ t: beatT(c.at) - 0.08 * bs, to: 0.82 });
+  const up = (c, d = 0) => ({ t: beatT(c.at) + d * bs, to: 1 });
+  const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at ?? x.row.at), to: get(x) })), ...opts });
+  const G = rows.map((r) => ({ ...r.geo, at: r.row.at }));
+  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(stage.width, stage.height)) / Math.max(s.w, s.h)));
+  const tracks = {
+    w: mk(G, (s) => s.w, SHAPE), h: mk(G, (s) => s.h, SHAPE), r: mk(G, (s) => s.r, SHAPE),
+    fill: [0, 1, 2].map((k) => mk(G, (s) => hex(s.fill)[k], SHAPE)),
+    ink: [0, 1, 2].map((k) => mk(G, (s) => hex(s.ink)[k], SHAPE)),
+    zoom: mk(G, zoom, CAM),
+    cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
+    press: { from: 1, omega: fromSettle(0.15 * bs, 1), zeta: 1,
+      changes: C.filter((c) => c.press).flatMap((c) => (c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)])) },
+  };
+  const cursorLocal = (t) => ({ x: v(tracks.cx, t), y: v(tracks.cy, t) });
+  for (const r of rows) r.ctx = { ...base, t0: r.i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row };
+
+  // ---- layers: one per component row; custom layers grouped by state name as before
+  const enter = fromSettle(0.5 * bs, 1), exit = fromSettle(0.2 * bs, 1);
+  const layers = [];
+  rows.forEach((r, i) => {
+    if (!r.comp) return;
+    const e = el(dom.shape, 'div', { class: `layer c-${r.row.use}`, 'data-row': String(i) });
+    r.comp.mount(e, r.props, r.ctx);
+    const changes = [];
+    if (i > 0) changes.push({ t: r.t0 + 0.15 * bs, to: 1, omega: enter });
+    if (rows[i + 1]) changes.push({ t: r.t1, to: 0, omega: exit });
+    layers.push({ el: e, r, tr: { from: i === 0 ? 1 : 0, changes, omega: enter, zeta: 1 } });
+  });
+  for (const e of dom.shape.querySelectorAll('.layer[data-state]')) {
+    const name = e.dataset.state, changes = [];
+    rows.forEach((r, i) => { if (r.row.name === name && i > 0) changes.push({ t: r.t0 + 0.15 * bs, to: 1, omega: enter }); });
+    rows.forEach((r, i) => { if (r.row.name === name && rows[i + 1] && rows[i + 1].row.name !== name) changes.push({ t: rows[i + 1].t0, to: 0, omega: exit }); });
+    layers.push({ el: e, r: null, tr: { from: rows[0].row.name === name ? 1 : 0, changes, omega: enter, zeta: 1 } });
+  }
+  const badges = mountBadges(dom.camera, rows, base);
+
+  // ---- sounds
+  const sfx = [
+    ...C.filter((c) => c.press === true || c.press === 'down').map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 })),
+    ...C.filter((c) => c.sound === 'key').map((c) => ({ beat: c.at, file: 'sfx/key.wav', gain: 0.6 })),
+    ...rows.flatMap((r) => (r.comp?.sfx ? r.comp.sfx(r.props, r.ctx) : [])),
+    ...extraSfx,
+  ];
+
+  function since(name, t) {
+    let start = null;
+    for (const r of rows) if (r.row.name === name && r.t0 <= t) start = r.t0;
+    return start === null ? 0 : t - start;
+  }
+
+  function seek(t) {
+    const w = v(tracks.w, t), h = v(tracks.h, t), rr = v(tracks.r, t), z = v(tracks.zoom, t);
+    const dx = shakeOffset(rows, t, base);
+    const rgb = (arr) => `rgb(${arr.map((tr) => Math.round(v(tr, t))).join(',')})`;
+    dom.camera.style.transform = `translate(${CX}px,${CY}px) scale(${z}) translate(${-CX}px,${-CY}px)`;
+    Object.assign(dom.shape.style, { left: `${CX - w / 2 + dx}px`, top: `${CY - h / 2}px`, width: `${w}px`, height: `${h}px`,
+      borderRadius: `${Math.min(rr, w / 2, h / 2)}px`, background: rgb(tracks.fill), color: rgb(tracks.ink) });
+    for (const L of layers) {
+      const op = Math.max(0, Math.min(1, v(L.tr, t)));
+      Object.assign(L.el.style, { opacity: op, filter: op > 0.999 ? 'none' : `blur(${(1 - op) * 10}px)`, transform: `scale(${0.96 + 0.04 * op})` });
+      if (L.r) L.r.comp.render(L.el, L.r.props, L.r.ctx, t);
+    }
+    for (const name in content) content[name](t);
+    renderBadges(badges, t, { w, h, dx, CX, CY, base });
+    const p = v(tracks.press, t);
+    const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
+    dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
+  }
+
+  const inspect = (t) => { const z = v(tracks.zoom, t); return { cursor: { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z } }; };
+  return { seek, inspect, since, sfx, rows, cursorRows: C };
+}
