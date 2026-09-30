@@ -158,7 +158,9 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
     if (song.rules.max_states && states.length - 1 > song.rules.max_states) warnings.push(`${states.length - 1} states exceeds the song's max_states (${song.rules.max_states})`);
     if (END != null) {
       const busy = new Set([...states, ...(cursor ?? [])].map((r) => Math.floor(r.at)));
-      const quiet = []; for (let b = 0; b < END; b++) if (!busy.has(b)) quiet.push(b);
+      // In a loop, beats after the last row starts settle into the seam, so they are quiet by design.
+      const last = loop ? Math.min(END - 1, Math.floor(states.at(-1).at)) : END - 1;
+      const quiet = []; for (let b = 0; b <= last; b++) if (!busy.has(b)) quiet.push(b);
       if (quiet.length) warnings.push(`quiet beats (nothing starts on them): ${quiet.join(', ')}; make sure a component animates there`);
     }
   }

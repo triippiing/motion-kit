@@ -18,16 +18,21 @@ export async function loadRegistry(dir) {
 export async function checkBrief(dir) {
   const errors = [], warnings = [];
   const md = readFileSync(path.join(dir, 'MOTION-BRIEF.md'), 'utf8');
-  for (const s of SECTIONS) if (!md.includes(s)) errors.push(`missing section "${s}"`);
-  const table = md.slice(md.indexOf('## Beat table'));
-  const code = [...table.matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
+  const heading = (s) => new RegExp(`^${s}[ \\t]*\\r?$`, 'm');
+  for (const s of SECTIONS) if (!heading(s).test(md)) errors.push(`missing section "${s}"`);
+  const at = md.search(heading('## Beat table'));
+  const table = at < 0 ? '' : md.slice(at);
+  const code = [...table.matchAll(/```(?:js|javascript)\r?\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
   if (!code.trim()) return { errors: [...errors, 'no ```js block with states() and cursor() under "## Beat table"'], warnings };
   const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
   let states, cursor;
   try {
     const ctx = vm.createContext({ END: song.beats.length });
-    ({ states, cursor } = vm.runInContext(`${code}\n;({ states: states(), cursor: cursor() })`, ctx));
-  } catch (e) { return { errors: [...errors, `beat table code does not run: ${e.message}`], warnings }; }
+    ({ states, cursor } = vm.runInContext(`${code}\n;({ states: states(), cursor: cursor() })`, ctx, { timeout: 1000 }));
+  } catch (e) {
+    const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
+    return { errors: [...errors, `beat table code ${why}`], warnings };
+  }
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, strict: true });
   return { errors: [...errors, ...r.errors], warnings: r.warnings };
 }

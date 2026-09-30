@@ -30,7 +30,7 @@ Write the understanding back (goal, size, length, product, song, moments) for co
 
 ## MOTION-BRIEF.md (write into the project)
 Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song window, one-line reasons), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`). Format and a worked example: `references/state-plan.md`.
-Then run `node $S/check_brief.mjs DIR` and fix every error before showing it.
+Then run `node $S/check_brief.mjs DIR`: fix every error, and read every warning and resolve it, or justify it in the brief. Do both before showing it.
 
 ## Gate
 Show the brief. Build nothing until the user approves or asks for changes. On approval hand to motion-video.

@@ -21,7 +21,7 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 
 ## Build loop
 
-1. Start from the approved state plan (motion-design). If there is none, go back and make one.
+1. Start from the approved `DIR/MOTION-BRIEF.md` (motion-design): copy the `states()`/`cursor()` block under its `## Beat table` into the tables in `index.html`. If there is no approved brief, go back and make one.
 2. In `DIR/index.html` edit only the tables — `states()`, `cursor()`, `content`, `extraSfx()` —
    plus a `.layer` per state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
    (hold, for drags) and `sound: 'key'` (plays sfx/key.wav); `extraSfx()` returns `[{beat, file, gain}]`

@@ -13,8 +13,29 @@ const good = `const states = () => [\n  { at: 0, use: 'button', label: 'Go' },\n
 test('a good brief passes', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  const r = await checkBrief(dir);
+  assert.deepEqual(r.errors, []);
+  // Intentionally sparse: its mid-piece quiet beats are reported, the settling tail (14, 15) is not.
+  assert.match(r.warnings.join('\n'), /quiet beats \(nothing starts on them\): 3, 5, 6, 7, 8, 9, 10, 11, 12, 13;/);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 0);
+});
+
+test('```javascript fences and CRLF line endings are read', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good).replace('```js', '```javascript').replace(/\n/g, '\r\n'));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+});
+
+test('section headings must be headings on their own line', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good).replace('## Request\n', 'See ## Request above\n'));
+  assert.match((await checkBrief(dir)).errors.join('\n'), /missing section "## Request"/);
+});
+
+test('beat table code that never returns times out with a readable error', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(`const states = () => { for (;;) {} };\nconst cursor = () => [];`));
+  assert.match((await checkBrief(dir)).errors.join('\n'), /beat table code took longer than 1 s to run/);
 });
 
 test('bad component and missing sections are errors', async () => {
@@ -47,6 +68,7 @@ test('the state-plan.md worked example passes strict validation on a 7-bar 120 B
   assert.equal(song.rules.min_hold_beats, 2);
   const r = await checkBrief(dir);
   assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.warnings, [], 'the example has something starting on every beat and fits the state budget');
   const uses = new Set([...blocks[0].matchAll(/use: '([a-z-]+)'/g)].map((m) => m[1]));
   assert.ok(uses.size >= 12, `the example uses 12 library components (got ${uses.size}: ${[...uses].join(', ')})`);
 });

@@ -24,7 +24,7 @@ its "Use when" line. Consecutive rows of the same component animate a change (ta
 | "I'll pick the states myself and start" | The brief is the approval gate. Build nothing before a yes. |
 | "I'll pick components myself without asking" | Propose one per moment from the catalog; the user decides. |
 | "Skip the questions, the request is clear" | Skip only the answered ones, and write the understanding back for correction. |
-| "The brief looks fine" | Run check_brief.mjs and fix every error before showing it. |
+| "The brief looks fine" | Run check_brief.mjs; fix every error, resolve or justify every warning, before showing it. |
 | "15 seconds is about 8 bars" | Measure first: bars = round(seconds * bpm / 240), then re-run analyze_song.py. |
 | "I'll grab the track from YouTube" | Never. Ask for a file. |
 | "Just use a CSS animation / GSAP" | Every frame must be computed in `seek(t)`. |

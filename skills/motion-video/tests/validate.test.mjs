@@ -71,6 +71,15 @@ test('strict mode: holds and budget', () => {
   assert.ok(r.warnings.some((w) => /quiet beats/.test(w)));
 });
 
+test('strict mode: the tail after the last row is never a quiet beat', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }]);
+  const dense = [...Array.from({ length: 14 }, (_, b) => ({ at: b, x: b % 2, y: 0 })), { at: 14, x: 0, y: 0 }];
+  dense[0] = { at: 0, x: 0, y: 0 };
+  assert.deepEqual(run(states, dense, { strict: true }).warnings, []);
+  const sparse = run(states, undefined, { strict: true }).warnings.find((w) => /quiet beats/.test(w));
+  assert.match(sparse, /quiet beats \(nothing starts on them\): 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13;/);
+});
+
 test('helpers', () => {
   assert.equal(didYouMean('tost', ['toast', 'tabs']), 'toast');
   assert.equal(didYouMean('zzzzzz', ['toast']), null);
