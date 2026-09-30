@@ -46,7 +46,10 @@
       "public": true,
       "source": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "lufs",
+        "truePeak"
+      ],
       "notes": "15 min / 300 MB / H.264 / 23-60 fps / 25 Mbps VBR max / AAC 128 kbps from the Graph API Reels spec (the tighter figure; help.instagram.com/2720958398006062 says 20 min in app). Reels over 3 min are not recommended to new audiences. Safe zone is Meta's Reels ads guidance (14% top, 35% bottom, 6% sides) at https://www.facebook.com/business/help/980593475366490/ . Estimated: lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "tiktok": {
@@ -81,7 +84,11 @@
       "public": true,
       "source": "https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "10 min / 4 GB / H.264 recommended / 23-60 fps from TikTok's Content Posting API guide; most creators default to 3 min in app. Estimated: safe (TikTok publishes only downloadable overlay PNGs, margins from common creator guidance: caption + action rail); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "shorts": {
@@ -116,7 +123,11 @@
       "public": true,
       "source": "https://support.google.com/youtube/answer/15424877?hl=en",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "Shorts are square or vertical and up to 3 min. No practical file cap (general YouTube upload limit is far above any Short). Encoding per https://support.google.com/youtube/answer/1722171 (H.264 High, 12 Mbps at 1080p 48-60 fps, AAC-LC 48 kHz). Estimated: safe (Google publishes template PNGs only; margins from creator guidance for title/channel and action rail); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "x": {
@@ -151,7 +162,11 @@
       "public": true,
       "source": "https://help.x.com/en/using-x/x-videos",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "140 s / 512 MB for non-Premium accounts (Premium is longer and larger: https://help.x.com/en/using-x/premium-longer-videos). Direct fetch returned 403; figures taken from search results quoting the official page. Estimated: safe (feed shows the full frame without overlays); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "x-landscape": {
@@ -186,7 +201,11 @@
       "public": true,
       "source": "https://help.x.com/en/using-x/x-videos",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "Same limits as x: 140 s / 512 MB non-Premium; direct fetch returned 403, figures from search results quoting the official page. Estimated: safe (no overlays in feed); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "linkedin": {
@@ -221,7 +240,11 @@
       "public": true,
       "source": "https://www.linkedin.com/help/linkedin/answer/a1311816",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "LinkedIn Pages spec: 3 s to 10 min, 75 KB to 5 GB, 10-60 fps, 192 kbps to 30 Mbps, MP4/H.264 (MOV no longer supported). Third-party guides cite 15 min for member desktop uploads; 10 min is the official conservative figure. Estimated: safe (feed shows the full frame); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "linkedin-landscape": {
@@ -256,7 +279,11 @@
       "public": true,
       "source": "https://www.linkedin.com/help/linkedin/answer/a1311816",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "Same limits as linkedin: 10 min / 5 GB per the LinkedIn Pages video spec. Estimated: safe (feed shows the full frame); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "discord": {
@@ -286,7 +313,11 @@
       "public": false,
       "source": "https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "Free upload limit is 20 MB as of August 2026 (up from 10 MB), checked before compression on all platforms; Nitro Basic 50 MB. Direct fetch returned 403; figures from search results quoting the official page. The plan assumed 10 MB. Estimated: safe (inline player, no overlays); lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "discord-nitro": {
@@ -316,7 +347,11 @@
       "public": false,
       "source": "https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ",
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "Nitro upload limit is 1 GB per the official File Attachments FAQ (the 500 MB to 1 GB change Jack mentioned has landed); stored as 1000 MB so it is under the cap however GB is counted. Direct fetch returned 403; figures from search results quoting the official page. Estimated: safe; lufs/truePeak are the common social default (-14 LUFS, -1 dBTP); the platform publishes no loudness target."
     },
     "web": {
@@ -351,7 +386,12 @@
       ],
       "source": null,
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "crf",
+        "kbps",
+        "lufs",
+        "truePeak"
+      ],
       "notes": "No platform limits: small faststart MP4 (H.264/AAC) plus WebM (VP9/Opus) plus poster JPG for self-hosted pages. Public because wiki/GitHub pages are public-facing. Quality and loudness are house defaults."
     },
     "gif": {
@@ -360,7 +400,6 @@
       "shape": "design",
       "fps": 60,
       "maxSeconds": null,
-      "maxMB": 10,
       "video": {
         "codec": "h264",
         "crf": 20
@@ -385,7 +424,9 @@
       },
       "source": null,
       "checked": "2026-09-30",
-      "estimate": true,
+      "estimated": [
+        "gif"
+      ],
       "notes": "Palette GIF for READMEs. 10 MB cap follows the commonly cited GitHub image upload limit (not officially confirmed here); width 720 and 15 fps are house defaults. video block describes the intermediate render only; the GIF has no audio."
     }
   }

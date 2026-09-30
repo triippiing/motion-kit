@@ -3,6 +3,8 @@
 //
 //   node render.mjs DIR [--preview] [--out FILE] [--sub 4] [--workers 4] [--from S --to S]
 //   node render.mjs DIR --serve        serve DIR and print a URL (open with ?play to watch live)
+//   --stage WxH renders (or serves) at another stage size without touching project.json: the server
+//   answers project.json with the stage swapped in; output defaults to out/shapes/WxH/.
 //
 // Full renders take `sub` subframes per output frame, centred on the frame time,
 // and blend them with ffmpeg tmix for motion blur. Times wrap modulo the loop,
@@ -26,7 +28,8 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/ja
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
-export function serve(dir, port = 0) {
+// `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in; nothing is written.
+export function serve(dir, port = 0, { stage } = {}) {
   const root = path.resolve(dir);
   return new Promise((resolve) => {
     const server = createServer(async (req, res) => {
@@ -34,13 +37,19 @@ export function serve(dir, port = 0) {
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
       if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
       try {
-        const body = await readFile(file);
+        const body = stage && rel === '/project.json' ? await stagedProject(file, stage) : await readFile(file);
         res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
         res.end(body);
       } catch { res.writeHead(404); res.end(); }
     });
     server.listen(port, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}/` }));
   });
+}
+
+async function stagedProject(file, [width, height]) {
+  let proj = {};
+  try { proj = JSON.parse(await readFile(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  return JSON.stringify({ ...proj, stage: { width, height } });
 }
 
 async function openPage(browser, url, viewport, errors) {
@@ -62,16 +71,18 @@ async function openPage(browser, url, viewport, errors) {
   return page;
 }
 
-export async function openProject(dir, { workers = 4 } = {}) {
+export async function openProject(dir, { workers = 4, stage: stageOverride } = {}) {
   const root = path.resolve(dir);
   const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
-  const { server, url } = await serve(root);
+  const { server, url } = await serve(root, 0, { stage: stageOverride });
   const browser = await chromium.launch();
   const errors = [];
   try {
     const probePage = await openPage(browser, url, { width: 800, height: 800 }, errors);
     const stage = await probePage.evaluate(() => window.STAGE);
     await probePage.close();
+    if (stageOverride && (stage.width !== stageOverride[0] || stage.height !== stageOverride[1]))
+      throw new Error(`asked for stage ${stageOverride.join('x')} but the page set ${stage.width}x${stage.height}; index.html must take its stage from project.json`);
     const viewport = { width: stage.width, height: stage.height };
     const pages = await Promise.all(Array.from({ length: workers }, () => openPage(browser, url, viewport, errors)));
     return { browser, pages, stage, song, errors, url,
@@ -107,7 +118,7 @@ export async function projectLoops(root) {
 export async function render(dir, opts = {}) {
   const root = path.resolve(dir);
   const preview = !!opts.preview;
-  const proj = await openProject(root, { workers: opts.workers ?? 4 });
+  const proj = await openProject(root, { workers: opts.workers ?? 4, stage: opts.stage });
   try {
     const { song, pages, errors } = proj;
     const fps = song.fps, D = song.loop.duration_sec, frames = song.loop.frames;
@@ -125,7 +136,8 @@ export async function render(dir, opts = {}) {
       const t = (f + (sub === 1 ? 0 : (k - (sub - 1) / 2) / sub)) * dt;
       return loops ? ((t % D) + D) % D : Math.min(D, Math.max(0, t));
     };
-    const out = path.resolve(opts.out ?? path.join(root, 'out', preview ? 'preview.mp4' : 'video.mp4'));
+    const outBase = opts.stage ? path.join(root, 'out', 'shapes', opts.stage.join('x')) : path.join(root, 'out');
+    const out = path.resolve(opts.out ?? path.join(outBase, preview ? 'preview.mp4' : 'video.mp4'));
     await mkdir(path.dirname(out), { recursive: true });
     // Encode beside the target under the same extension (ffmpeg picks the muxer from it)
     // and rename on success, so a failed render never destroys the previous video.
@@ -178,10 +190,18 @@ export async function render(dir, opts = {}) {
   } finally { await proj.close(); }
 }
 
-const USAGE = 'usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--serve [--port N]]';
+const USAGE = 'usage: render.mjs DIR [--preview] [--out FILE] [--sub N] [--workers N] [--from S --to S] [--stage WxH] [--serve [--port N]]';
+
+// "WxH" -> [w, h]: even integers >= 64 (H.264 4:2:0 needs even sizes).
+export function parseStage(s) {
+  const m = /^(\d+)x(\d+)$/.exec(s ?? '');
+  const wh = m && [Number(m[1]), Number(m[2])];
+  if (!wh || wh.some((n) => n < 64 || n % 2)) throw new UsageError(`--stage must be WxH with even integers >= 64, got "${s}"`);
+  return wh;
+}
 
 function parseArgs(argv) {
-  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port']), BOOL = new Set(['preview', 'serve']);
+  const VALUE = new Set(['out', 'sub', 'workers', 'from', 'to', 'port', 'stage']), BOOL = new Set(['preview', 'serve']);
   const o = {}; let dir;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -203,18 +223,19 @@ function parseArgs(argv) {
     if (o[k].trim() === '' || !Number.isFinite(Number(o[k]))) throw new UsageError(`--${k} must be a number of seconds, got "${o[k]}"`);
     return Number(o[k]);
   };
-  return { dir, o, sub: posInt('sub'), workers: posInt('workers'), port: posInt('port'), from: secs('from'), to: secs('to') };
+  return { dir, o, sub: posInt('sub'), workers: posInt('workers'), port: posInt('port'), from: secs('from'), to: secs('to'),
+    stage: o.stage == null ? undefined : parseStage(o.stage) };
 }
 
 async function main() {
-  const { dir, o, sub, workers, port, from, to } = parseArgs(process.argv.slice(2));
+  const { dir, o, sub, workers, port, from, to, stage } = parseArgs(process.argv.slice(2));
   if (!dir) throw new UsageError(USAGE);
   if (o.serve) {
-    const { url } = await serve(dir, port ?? 8123);
+    const { url } = await serve(dir, port ?? 8123, { stage });
     console.log(`${url}?play   (click the page to start audio)`);
     return;
   }
-  console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to }));
+  console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to, stage }));
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
