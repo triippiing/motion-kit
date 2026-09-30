@@ -119,14 +119,16 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
   if (!Array.isArray(cursor) || !cursor.length) errors.push('cursor() must return at least one row');
   else {
     if (cursor[0].at !== 0) errors.push('the first cursor row must be at beat 0');
-    let open = null, openRow = -1, openIdx = -1;
+    // A 'down' aimed at one of its row's drag hotspots (meta.drag): a drag, not a press-and-hold.
+    const isDrag = (c) => { const r = c.target && targetRow(rows, c); return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target); };
+    let open = null, openRow = -1, openIdx = -1, openDrag = false;
     cursor.forEach((c, i) => {
       if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${c.at})`);
       for (const k of Object.keys(c)) if (!CURSOR_KEYS.has(k)) errors.push(`unknown cursor key "${k}" at beat ${c.at} (keys: ${[...CURSOR_KEYS].join(', ')})`);
       if (!c.target && !(typeof c.x === 'number' && typeof c.y === 'number')) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
       if (c.press !== undefined && ![true, 'down', 'up'].includes(c.press)) errors.push(`press at beat ${c.at} should be true, 'down' or 'up'`);
       if (c.sound !== undefined && c.sound !== 'key') errors.push(`sound at beat ${c.at} should be 'key'`);
-      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); }
+      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(c); }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${c.at} has no 'down' before it`);
         else {
@@ -134,13 +136,14 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
           // 'down' can sit on a later row than an untargeted 'up').
           const upRow = rows.indexOf(pressRow(rows, c));
           if (upRow !== openRow) errors.push(`drag from beat ${open} to ${c.at} crosses a state change at beat ${rows[Math.max(openRow, upRow)].row.at}; keep drags inside one row`);
+          // Only a press on a drag hotspot (meta.drag) is a drag; a held button press stays silent.
           // A cursor row starts moving at its own beat, so the 'up' row's move lands after the release:
           // the drag itself needs a moving row strictly between the two presses.
-          if (!cursor.slice(openIdx + 1, i).some((m) => spot(m) !== spot(cursor[openIdx])))
+          if (openDrag && !cursor.slice(openIdx + 1, i).some((m) => spot(m) !== spot(cursor[openIdx])))
             warnings.push(`drag from beat ${open} to ${c.at} never moves: add a cursor row between the press 'down' and the 'up' that moves the cursor (the 'up' row's own move starts only after the release)`);
+          if (openDrag && spot(c) !== spot(cursor[i - 1]))
+            warnings.push(`press 'up' at beat ${c.at} also moves the cursor, but that move starts only after the release; give the 'up' row the same position as the row before it`);
         }
-        if (i && spot(c) !== spot(cursor[i - 1]))
-          warnings.push(`press 'up' at beat ${c.at} also moves the cursor, but that move starts only after the release; give the 'up' row the same position as the row before it`);
         open = null;
       }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);

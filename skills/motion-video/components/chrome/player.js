@@ -7,6 +7,7 @@ export const meta = {
   motion: "A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to, unless it seeks: it seeks to its `position` on arrival (the thumb glides) only when that `position` differs from the one the previous player row wrote (a left-out `position` counts as the default), never because playback has moved on. To carry on, repeat the previous row's `position` or leave it out of both. It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist. In a looping piece, start and end on a paused player; a playing one moves with the clock and cannot match at the seam.",
   props: { title: ['string', 'Midnight Drive'], artist: ['string', 'The Placeholders'], playing: ['boolean', false], position: ['number', 0.25], duration: ['number', 214] },
   hotspots: ['play', 'thumb'],
+  drag: ['thumb'],
   sounds: [],
   example: "{ at: 0, use: 'player', title: 'Midnight Drive', artist: 'The Placeholders', position: 0.4 }",
   edgeCases: [{ playing: true, position: 0 }, { title: 'A very long track title that will not fit on the card', artist: 'Somebody with a long name', position: 1 }, { position: 0.5, duration: 3725 }],

@@ -129,6 +129,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `icon` | `enum:volume\|none` | `"volume"` |
 
 **Hotspots:** `thumb`, `track`  
+**Drag:** `thumb` (a drag is three cursor rows: down, move, up)  
 **Sounds:** none
 
 ```js
@@ -605,6 +606,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `duration` | `number` | `214` |
 
 **Hotspots:** `play`, `thumb`  
+**Drag:** `thumb` (a drag is three cursor rows: down, move, up)  
 **Sounds:** none
 
 ```js

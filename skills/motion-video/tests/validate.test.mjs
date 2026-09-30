@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validate, didYouMean, typeOk, matchHotspot } from '../components/core/validate.js';
 
-const fake = (name, props = {}, hotspots = []) => ({ meta: { name, props, hotspots } });
+const fake = (name, props = {}, hotspots = [], drag) => ({ meta: { name, props, hotspots, ...(drag ? { drag } : {}) } });
 const registry = {
   toast: fake('toast', { text: ['string', 'Saved'], icon: ['enum:check|none', 'check'] }, ['toast', 'action']),
   tabs: fake('tabs', { items: ['string[]', ['A', 'B']], active: ['string', 'A'] }, ['tab:<item>']),
   button: fake('button', { label: ['string', 'Go'] }, ['button']),
+  slider: fake('slider', { value: ['number', 0.4] }, ['thumb', 'track'], ['thumb']),
 };
 const song = { beats: Array.from({ length: 16 }, (_, i) => ({ i, t: i * 0.5 })), beat_sec: 0.5, rules: { min_hold_beats: 2, max_states: 8 } };
 const loopOk = (rows) => [...rows, { ...rows[0], at: 14 }];
@@ -123,10 +124,10 @@ test('a drag must stay inside one row', () => {
 
 const NEVER_MOVES = /drag from beat 1 to 3 never moves: add a cursor row between the press 'down' and the 'up' that moves the cursor \(the 'up' row's own move starts only after the release\)/;
 const UP_MOVES = /press 'up' at beat 3 also moves the cursor/;
-const dragStates = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }]);
+const dragStates = loopOk([{ at: 0, use: 'slider' }, { at: 4, use: 'button' }]);
 
-test('a drag whose only move is on the up row warns, strict or not', () => {
-  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'button', press: 'down' }, { at: 3, target: 'button', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }];
+test('a slider thumb drag whose only move is on the up row warns, strict or not', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'thumb', press: 'down' }, { at: 3, target: 'thumb', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }];
   for (const strict of [false, true]) {
     const r = run(dragStates, cur, { strict });
     assert.deepEqual(r.errors, []);
@@ -135,29 +136,45 @@ test('a drag whose only move is on the up row warns, strict or not', () => {
   }
 });
 
-test('a drag with a row between that does not change position warns', () => {
-  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 5, y: 5, press: 'down' }, { at: 2, x: 5, y: 5, sound: 'key' }, { at: 3, x: 5, y: 5, press: 'up' }, { at: 14, x: 0, y: 0 }];
+test('a thumb drag with a row between that does not change position warns', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'thumb', press: 'down' }, { at: 2, target: 'thumb', sound: 'key' }, { at: 3, target: 'thumb', press: 'up' }, { at: 14, x: 0, y: 0 }];
   const r = run(dragStates, cur);
   assert.ok(r.warnings.some((w) => NEVER_MOVES.test(w)), r.warnings.join('\n'));
   assert.ok(!r.warnings.some((w) => UP_MOVES.test(w)));
 });
 
-test('a drag with a move row between and a still up row is clean', () => {
-  const states = loopOk([{ at: 0, use: 'toast' }, { at: 4, use: 'button' }]);
-  for (const move of [{ dx: 40 }, { dy: -10 }, { x: 9, y: 5 }, { target: 'action' }]) {
-    const mid = { at: 2, target: 'toast', ...move };
-    const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'toast', press: 'down' }, mid, { ...mid, at: 3, press: 'up' }, { at: 14, x: 0, y: 0 }];
-    const r = run(states, cur);
+test('a thumb drag with a move row between and a still up row is clean', () => {
+  for (const move of [{ dx: 40 }, { dy: -10 }, { target: 'track' }]) {
+    const mid = { at: 2, target: 'thumb', ...move };
+    const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'thumb', press: 'down' }, mid, { ...mid, at: 3, press: 'up' }, { at: 14, x: 0, y: 0 }];
+    const r = run(dragStates, cur);
     assert.deepEqual(r.errors, [], JSON.stringify(move));
     assert.deepEqual(r.warnings, [], JSON.stringify(move));
   }
 });
 
 test('an explicit dx: 0 is the same position as no dx', () => {
-  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'button', press: 'down' }, { at: 2, target: 'button', dx: 0 }, { at: 3, target: 'button', dx: 0, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'thumb', press: 'down' }, { at: 2, target: 'thumb', dx: 0 }, { at: 3, target: 'thumb', dx: 0, press: 'up' }, { at: 14, x: 0, y: 0 }];
   const r = run(dragStates, cur);
   assert.ok(r.warnings.some((w) => NEVER_MOVES.test(w)));
   assert.ok(!r.warnings.some((w) => UP_MOVES.test(w)));
+});
+
+test('a press-and-hold on a hotspot that is not a drag hotspot stays silent', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'slider' }]);
+  const held = run(states, [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'button', press: 'down' }, { at: 3, target: 'button', press: 'up' }, { at: 14, x: 0, y: 0 }], { strict: true });
+  assert.deepEqual(held.errors, []);
+  assert.ok(!held.warnings.some((w) => /never moves|also moves/.test(w)), held.warnings.join('\n'));
+  // The slider's track is a hotspot but not a drag one.
+  const track = run(dragStates, [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'track', press: 'down' }, { at: 3, target: 'track', dx: 20, press: 'up' }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(track.warnings, []);
+});
+
+test('untargeted presses and custom rows stay silent', () => {
+  const xy = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 5, y: 5, press: 'down' }, { at: 3, x: 50, y: 5, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  assert.deepEqual(run(dragStates, xy).warnings, []);
+  const custom = loopOk([{ at: 0, name: 'card', w: 100, h: 100, r: 10 }, { at: 4, use: 'button' }]);
+  assert.deepEqual(run(custom, xy).warnings, []);
 });
 
 test('an inherited name is an unknown component, not a crash', () => {

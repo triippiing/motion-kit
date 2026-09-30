@@ -56,7 +56,7 @@ export function catalogMd(list) {
       L.push(`### ${m.name}`, '', `![${m.name}](docs-images/${m.name}.png)`, '', `**Use when:** ${m.useWhen}`, '', `**Motion:** ${m.motion}`, '',
         '| Prop | Type | Default |', '|---|---|---|',
         ...Object.entries(m.props).map(([k, [ty, def]]) => `| \`${k}\` | \`${cell(ty)}\` | \`${cell(JSON.stringify(def))}\` |`), '',
-        `**Hotspots:** ${m.hotspots.map((h) => `\`${h}\``).join(', ') || 'none'}  `, `**Sounds:** ${m.sounds.join(', ') || 'none'}`, '',
+        `**Hotspots:** ${m.hotspots.map((h) => `\`${h}\``).join(', ') || 'none'}  `, ...(m.drag ? [`**Drag:** ${m.drag.map((h) => `\`${h}\``).join(', ')} (a drag is three cursor rows: down, move, up)  `] : []), `**Sounds:** ${m.sounds.join(', ') || 'none'}`, '',
         '```js', m.example, '```', '');
     }
   }

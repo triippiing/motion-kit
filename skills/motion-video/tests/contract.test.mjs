@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
 import { registry } from '../components/index.js';
 import { typeOk, validate, RESERVED } from '../components/core/validate.js';
-import { collect } from '../scripts/build_catalog.mjs';
+import { collect, catalogMd } from '../scripts/build_catalog.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -41,6 +41,13 @@ test('a family hotspot without a hotspotExample is caught', () => {
   assert.deepEqual(missingFamilyExamples({ hotspots: ['tab:<item>'], hotspotExample: { 'tab:<item>': 'item:Month' } }), ['tab:<item>'], 'the example must be in the family');
 });
 
+test('the catalog lists drag hotspots only for components that have them', async () => {
+  const md = catalogMd(await collect());
+  const section = (n) => md.split(`### ${n}\n`)[1].split('\n### ')[0];
+  assert.match(section('slider'), /\*\*Drag:\*\* `thumb`/);
+  assert.doesNotMatch(section('button'), /\*\*Drag:\*\*/);
+});
+
 test('the registry has at least the reference component', () => {
   assert.ok(registry.button, 'button is registered');
 });
@@ -55,6 +62,12 @@ for (const [name, c] of Object.entries(registry)) {
     assert.equal(ex.use, name);
     for (const [k, [ty, def]] of Object.entries(m.props)) assert.ok(typeOk(ty, def), `default of ${k} matches ${ty}`);
     for (const k of Object.keys(m.props)) assert.ok(!RESERVED.has(k), `prop "${k}" is a reserved row key (${[...RESERVED].join(', ')})`);
+    const src = readFileSync(path.join(COMP, m.group, `${name}.js`), 'utf8');
+    if (/cursorAt/.test(src)) assert.ok(m.drag, 'a component that reads ctx.cursorAt is dragged: list its drag hotspots in meta.drag');
+    if (m.drag !== undefined) {
+      assert.ok(Array.isArray(m.drag) && m.drag.length, 'meta.drag is a non-empty array of hotspots');
+      for (const d of m.drag) assert.ok(m.hotspots.includes(d), `meta.drag entry "${d}" is one of the hotspots (${m.hotspots.join(', ')})`);
+    }
     assert.deepEqual(missingFamilyExamples(m), [], 'every family hotspot needs a hotspotExample naming one real member (e.g. { \'tab:<item>\': \'tab:Month\' })');
     for (const f of ['geometry', 'mount', 'render', 'hotspot']) assert.equal(typeof c[f], 'function', f);
   });
