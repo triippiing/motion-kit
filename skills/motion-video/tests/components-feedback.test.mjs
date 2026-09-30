@@ -56,7 +56,8 @@ test('toast: the action hotspot sits right of centre', async () => {
 test('toast: targeting action on a toast without one is a clear error', async () => {
   const dir = makeProject({ bars: 2, states: `[${REST}{ at: 2, use: 'toast' }${BACK}]`,
     cursor: "[{ at: 0, x: 0, y: 200 }, { at: 3, target: 'action' }, { at: END - 2, x: 0, y: 200 }]" });
-  await assert.rejects(openScene(dir), /hotspot "action" did not resolve on toast at beat 2/);
+  // Validation catches it before anything renders, and says what the toast does have.
+  await assert.rejects(openScene(dir), /hotspot "action" at beat 3 does not resolve on toast at beat 3 \(it has: toast\)/);
 });
 
 test('toast: a continuation with new text crossfades it', async () => {

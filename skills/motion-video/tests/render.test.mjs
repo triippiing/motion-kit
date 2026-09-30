@@ -192,7 +192,7 @@ test('a misspelt colour role fails the render with the role list, not a silent N
   const proj = scaffold();
   const f = path.join(proj, 'index.html');
   writeFileSync(f, readFileSync(f, 'utf8').replace("fill: 'ink'", "fill: 'acent'"));
-  await assert.rejects(render(proj, { preview: true, workers: 1 }), /unknown colour "acent" \(theme roles: .*accent/);
+  await assert.rejects(render(proj, { preview: true, workers: 1 }), /fill at beat [\d.]+ should be a theme role \(.*accent.*\) or #rrggbb, got "acent"/);
 });
 
 test('a project with no theme.json falls back to the house roles', async () => {
