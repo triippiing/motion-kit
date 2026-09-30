@@ -93,8 +93,8 @@
     }
     for (const dock of [$("dock-old"), $("dock")]) {
       dock.addEventListener("click", (e) => {
-        const name = e.target.getAttribute("data-page");
-        if (name !== null) navigate(pageIndex(name));
+        const item = e.target.closest("button");
+        if (item) navigate(pageIndex(item.dataset.page));
       });
     }
 
@@ -106,6 +106,18 @@
     });
     addEventListener("mousedown", () => cursor.classList.add("down"));
     addEventListener("mouseup", () => cursor.classList.remove("down"));
+    // Every style the springs pill is given, checked as it is written:
+    // capture.mjs refuses to write a video in which the pill ever hid or
+    // left the dock (fix round 1: an overshooting edge once hid it).
+    window.pillFaults = [];
+    new MutationObserver(() => {
+      const style = $("dock").querySelector("i[data-dock-pill]").getAttribute("style") || "";
+      const edges = [...style.matchAll(/\* (-?[\d.]+)\)/g)].map((m) => Number(m[1]));
+      const [left, width] = edges;
+      if (/display:none/.test(style) || !(left >= 0) || !(width >= 0.75) || left + width > PAGES.length + 1e-4) {
+        window.pillFaults.push(style);
+      }
+    }).observe($("dock"), { subtree: true, attributes: true, attributeFilter: ["style"] });
     window.ready = true;
   </script>
 </body>

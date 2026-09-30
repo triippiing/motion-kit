@@ -25,7 +25,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { chromium } = await import(
   path.join(HERE, '../../skills/motion-video/node_modules/playwright/index.mjs'));
 const FIN = path.join(os.homedir(), 'Documents/AUTOMATION/personal-finance');
-const NEW = 'motion-demo', OLD = 'main';
+const NEW = process.env.FIN_REF || 'motion-demo', OLD = 'main';
 const FFMPEG = '/opt/homebrew/bin/ffmpeg';
 const SIZE = { width: 960, height: 200 };
 
@@ -109,6 +109,8 @@ if (process.argv.includes('--serve')) {
     await press(1, 'Retirement → Plan', 14); await wait(400 + 500 * slow);
     await press(4, 'Plan → Settings', 14); await wait(50 * slow);
     await press(0, '… retargeted to Today mid-flight', 4); await wait(600 + 500 * slow);
+    const faults = await page.evaluate(() => window.pillFaults);
+    if (faults.length) throw new Error(`springs pill hid or left the dock at ${slow}x: ${faults[0]}`);
   }
   await context.close();
   await browser.close();
