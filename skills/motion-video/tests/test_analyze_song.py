@@ -120,6 +120,21 @@ class AnalyzeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("shorter than", r.stderr)
 
+    def test_cli_bad_numbers_and_unwritable_out_are_clean_errors(self):
+        song = str(click_track(self.tmp / "e.wav", 120))
+        for flag in ("--bars", "--fps"):
+            for bad in ("0", "-2", "x"):
+                r = self._cli(song, flag, bad)
+                self.assertEqual(r.returncode, 2, (flag, bad, r.stderr))
+                self.assertIn("error:", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+        blocker = self.tmp / "afile"
+        blocker.write_text("x")
+        r = self._cli(song, "--out", str(blocker / "sub"), "--bars", "2")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("error:", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

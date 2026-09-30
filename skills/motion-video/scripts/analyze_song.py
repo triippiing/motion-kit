@@ -234,13 +234,23 @@ def write_clip(src, start_sec, duration_sec, out_path):
         raise SongError(f"could not write clip: {r.stderr.decode(errors='replace')[:300]}")
 
 
+def positive_int(text):
+    try:
+        n = int(text)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {text!r}")
+    return n
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("song")
     ap.add_argument("--out", default=".")
-    ap.add_argument("--bars", type=int, default=7)
+    ap.add_argument("--bars", type=positive_int, default=7)
     ap.add_argument("--start-bar", type=int)
-    ap.add_argument("--fps", type=int, default=60)
+    ap.add_argument("--fps", type=positive_int, default=60)
     ap.add_argument("--states", type=int)
     a = ap.parse_args(argv)
     try:
@@ -249,7 +259,7 @@ def main(argv=None):
         out.mkdir(parents=True, exist_ok=True)
         write_clip(a.song, song["loop"]["start_sec"], song["loop"]["duration_sec"], out / "clip.wav")
         (out / "song.json").write_text(json.dumps(song, indent=2))
-    except SongError as e:
+    except (SongError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     L = song["loop"]

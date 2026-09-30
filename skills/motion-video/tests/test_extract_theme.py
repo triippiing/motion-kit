@@ -89,6 +89,15 @@ class ExtractThemeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("no such file", r.stderr)
 
+    def test_cli_map_without_equals_is_a_clean_error(self):
+        out = Path(tempfile.mkdtemp())
+        r = subprocess.run([sys.executable, str(SCRIPTS / "extract_theme.py"), "--out", str(out), "--map", "accent"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("error:", r.stderr)
+        self.assertIn("role=--var", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_real_finance_css_if_present(self):
         css = Path.home() / "Documents/AUTOMATION/personal-finance/web/style.css"
         if not css.exists():

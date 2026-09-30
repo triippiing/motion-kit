@@ -9,9 +9,10 @@ DIR="$1"; SONG="$2"; shift 2
 SIZE=square; THEME=""; MAPS=(); ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --size)  SIZE="$2"; shift 2 ;;
-    --theme) THEME="$2"; shift 2 ;;
-    --map)   MAPS+=(--map "$2"); shift 2 ;;
+    --size|--theme|--map)
+      if [ $# -lt 2 ]; then echo "error: $1 needs a value" >&2; exit 2; fi
+      case "$1" in --size) SIZE="$2" ;; --theme) THEME="$2" ;; --map) MAPS+=(--map "$2") ;; esac
+      shift 2 ;;
     *)       ARGS+=("$1"); shift ;;
   esac
 done

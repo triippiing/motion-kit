@@ -264,3 +264,12 @@ test('the CLI entry guard works from a path with spaces', () => {
     assert.equal(r.status, 2, `${f}: ${r.status} ${r.stderr}`); assert.match(r.stderr, /usage/);
   }
 });
+
+test('new_project.sh flags with no value are a clear error, not an unbound-variable crash', () => {
+  const script = path.join(SKILL, 'scripts', 'new_project.sh');
+  for (const flag of ['--size', '--theme', '--map']) {
+    const r = spawnSync(script, [path.join(tmpdir(), 'never-made'), 'song.wav', flag], { encoding: 'utf8' });
+    assert.equal(r.status, 2, `${flag}: ${r.status} ${r.stderr}`);
+    assert.match(r.stderr, new RegExp(`error: ${flag} needs a value`));
+  }
+});

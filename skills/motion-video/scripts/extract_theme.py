@@ -127,6 +127,10 @@ def main(argv=None):
     ap.add_argument("--out", required=True)
     ap.add_argument("--map", action="append", default=[], help="role=--css-var, e.g. accent=--pos")
     a = ap.parse_args(argv)
+    bad = [m for m in a.map if "=" not in m]
+    if bad:
+        print(f"error: --map needs role=--var, got {bad[0]!r}", file=sys.stderr)
+        return 2
     overrides = dict(m.split("=", 1) for m in a.map)
     if a.css is None:
         theme, warnings = dict(HOUSE), []
