@@ -13,17 +13,29 @@ w.set(62);          // later: w.set(80) mid-flight keeps position AND velocity
 ## 2. Two-edge indicator (stretch toward travel, no overshoot)
 Pure, so it is unit-testable and drivable from requestAnimationFrame.
 ```js
-function indicatorEdges(from, changes, t, settle, lead = 0.7) {
+// Edges are in item units: resting on item i spans [i, i + 1]; n = item count.
+// Each edge carries its own value AND velocity from change to change (a fresh
+// closed-form segment per change) and is held between where it was at the last
+// change and its target, so a quick reversal cannot pass the item it heads for.
+// (Summing one Springs.track spring per change does overshoot on reversals.)
+function indicatorEdges(from, changes, t, settle, n, lead = 0.7) {
   const trail = Springs.fromSettle(settle, 1), fast = Springs.fromSettle(settle * lead, 1);
-  const L = [], R = []; let at = from;
+  const hold = (x, a, b) => Math.min(Math.max(x, Math.min(a, b)), Math.max(a, b));
+  const edges = [{ x0: from, v0: 0, t0: 0, to: from, omega: trail },
+                 { x0: from + 1, v0: 0, t0: 0, to: from + 1, omega: trail }];
+  const at = (e, when) => {
+    const r = Springs.response(when - e.t0, e.x0 - e.to, e.v0, e.omega, 1);
+    const x = hold(e.to + r.e, e.x0, e.to);
+    return { x, v: x === e.to + r.e ? r.v : 0 };   // a held edge is still
+  };
   for (const c of changes) {
-    const fwd = c.index > at;
-    L.push({ t: c.t, to: c.index, omega: fwd ? trail : fast });
-    R.push({ t: c.t, to: c.index + 1, omega: fwd ? fast : trail });
-    at = c.index;
+    if (t < c.t) break;
+    const now = edges.map((e) => at(e, c.t));
+    const fwd = c.index + 0.5 > (now[0].x + now[1].x) / 2;   // from where it IS
+    const omegas = fwd ? [trail, fast] : [fast, trail];
+    edges.forEach((e, k) => Object.assign(e, { x0: now[k].x, v0: now[k].v, t0: c.t, to: c.index + k, omega: omegas[k] }));
   }
-  return { left: Springs.track(t, { from, changes: L, omega: trail, zeta: 1 }).value,
-           right: Springs.track(t, { from: from + 1, changes: R, omega: trail, zeta: 1 }).value };
+  return { left: hold(at(edges[0], t).x, 0, n), right: hold(at(edges[1], t).x, 0, n) };
 }
 ```
 
