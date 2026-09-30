@@ -33,6 +33,9 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
    `Springs.track` for anything that changes more than once; per-change `omega` for
    two-edge stretches; `fromSettle(seconds, zeta)` instead of raw stiffness. Timing comes from
    `beatT(beat)`, never hard-coded seconds.
+   If the plan names a transitions.dev moment (success check, tabs sliding, toast...), rebuild it
+   from `t` with springs using that transition's durations, distances and blur as starting values;
+   never paste its CSS transitions or keyframes into the page.
 4. `beat_stills.mjs DIR`, then **look at `out/stills/contact-sheet.png`** (Read the image).
    Fix anything off the grid, cramped, clipped or hard to read. Repeat until the seam check passes.
 5. `render.mjs DIR --preview`, then the final render. Report the output path, duration,

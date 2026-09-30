@@ -27,4 +27,8 @@ if [ -d "$SKILL/node_modules/playwright" ]; then
   then ok "playwright chromium"; else bad "playwright chromium" "(cd '$SKILL' && npx playwright install chromium)"; fi
 else bad "playwright package" "npm --prefix '$SKILL' install"; fi
 
+# Optional companion skill: reported, never counted as a failure.
+if [ -d "$HOME/.claude/skills/transitions-dev" ]; then ok "transitions.dev skills (optional companion)"
+else printf '  optional transitions.dev skills not installed\n           add: npx skills add Jakubantalik/transitions.dev -g -a claude-code -s "*" -y\n'; fi
+
 exit $fail

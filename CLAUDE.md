@@ -118,6 +118,23 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;
   put maths in a pure function of `(from, changes, t)` and unit-test it; reduced motion jumps.
 
+## Companion: transitions.dev
+
+`install.sh` also installs the free [transitions.dev](https://transitions.dev) skills by Jakub Antalik
+(`transitions-dev`, `transitions-polish`) into `~/.claude/skills` with their own CLI
+(`npx skills add Jakubantalik/transitions.dev -g -a claude-code -s '*' -y`; skip with `--no-transitions`).
+They are a catalog of 32 ready-made UI transitions with decision rules and `reveal`, `review`,
+`apply` and `refine` commands.
+
+- `motion-ui` reaches for the catalog for standard UI moments (dropdown, modal, toast, tabs, success
+  check...) and keeps motion-kit springs for interruptible or physical motion. The project's own motion
+  spec still wins: catalog values are mapped onto the project's tokens.
+- `motion-design` names catalog moments when planning a video, then rebuilds them in `seek(t)` with
+  springs. Their CSS/JS never goes into a video page (it would break purity).
+- **Licence:** their terms allow use and modification in your projects but forbid republishing the
+  collection (or a substantial part) as a library or kit. Never copy their files into this repo;
+  reference transitions by name and let their CLI install them.
+
 ## Code map
 
 ```

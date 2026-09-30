@@ -32,6 +32,13 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 `skills/motion-video/scripts/doctor.sh`, which prints the exact fix for anything still missing
 (only Homebrew itself needs a manual, password-prompted install).
 
+## Companion: transitions.dev
+
+`install.sh` also installs the free [transitions.dev](https://transitions.dev) Claude Code skills by
+Jakub Antalik (a catalog of 32 ready-made UI transitions). `motion-ui` and `motion-design` suggest
+matching transitions from it while you build. It is installed from its own source and never copied
+into this repo, per its terms. Skip it with `./install.sh --no-transitions`.
+
 ## Using it with Claude
 
 Open Claude Code in the cloned folder, or just give it this repo's URL: `CLAUDE.md` explains
