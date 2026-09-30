@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
@@ -115,4 +115,50 @@ test('a malformed project.json is a warning (checked as a loop), not silently ig
   assert.match(r.warnings.join('\n'), /project\.json is not valid JSON \(.+\); checking as a loop/);
   const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.match(cli.stdout, /warning: project\.json is not valid JSON/);
+});
+
+test('fill and ink are checked against theme.json (house roles when it is missing)', async () => {
+  const dir = makeProject({ bars: 4 });
+  const pos = good.replace("{ at: 4, use: 'check' }", "{ at: 4, use: 'check', fill: 'pos' }");
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(pos));
+  const tf = path.join(dir, 'theme.json');
+  writeFileSync(tf, JSON.stringify({ canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b', font: 'Geist' }));
+  assert.match((await checkBrief(dir)).errors.join('\n'), /fill at beat 4 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/);
+  writeFileSync(tf, JSON.stringify({ canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b', pos: '#1a7f37' }));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+  rmSync(tf);
+  assert.match((await checkBrief(dir)).errors.join('\n'), /got "pos"/, 'no theme.json: the house roles');
+});
+
+test('a cursor target that does not resolve fails the brief', async () => {
+  const dir = makeProject({ bars: 4 });
+  const tabs = good.replace("{ at: 4, use: 'check' }", "{ at: 4, use: 'tabs', items: ['Day', 'Month'], active: 'Day' }")
+    .replace("{ at: 2, target: 'button', press: true },", "{ at: 2, target: 'button', press: true },\n  { at: 5, target: 'tab:Mnoth', press: true },");
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(tabs));
+  assert.match((await checkBrief(dir)).errors.join('\n'), /hotspot "tab:Mnoth" at beat 5 does not resolve on tabs at beat 5 \(it has: tab:Day, tab:Month\)/);
+});
+
+test('a stray comma in states() is a readable error', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' },", "{ at: 4, use: 'check' },,")));
+  assert.deepEqual((await checkBrief(dir)).errors, ['states() row 3 (after beat 4) is empty (a stray comma?)']);
+});
+
+test('the CLI turns a crash into one error line, exit 2 (malformed song.json, malformed theme.json)', () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  writeFileSync(path.join(dir, 'theme.json'), '{ "canvas": ');
+  let r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: theme\.json is not valid JSON \(/);
+  rmSync(path.join(dir, 'theme.json'));
+  writeFileSync(path.join(dir, 'song.json'), '{ "beats": [');
+  r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: song\.json is not valid JSON \(/);
+  assert.doesNotMatch(r.stderr, /at .*\.mjs:\d+/, 'no stack trace');
+  writeFileSync(path.join(dir, 'song.json'), '{ "bpm": 120 }');
+  r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: song\.json has no beats list/);
 });

@@ -161,3 +161,19 @@ test('designScale must be a positive number: anything else is a readable motion-
   }
   assert.doesNotThrow(() => make(...rows, { designScale: 1.5 }));
 });
+
+test('a cursor row aims at the next row when its hotspot resolves only there', () => {
+  // m: item hotspots exist only for the row's own items.
+  const m = { ...box('m', ['item:<i>']), meta: { name: 'm', props: { items: ['string[]', ['A']] }, hotspots: ['item:<i>'], sounds: [] },
+    hotspot: (h, p) => (p.items.includes(h.slice(5)) ? { x: 30, y: 7 } : null) };
+  const s = make([{ at: 0, use: 'm' }, { at: 4, use: 'm', items: ['A', 'B'] }, { at: 12, use: 'm' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 3.5, target: 'item:B', press: true }, { at: 12, x: 0, y: 0 }], { registry: { ...registry, m } });
+  assert.deepEqual(s.cursorRows[1], { at: 3.5, target: 'item:B', press: true, x: 30, y: 7 });
+  assert.equal(s.rows[1].ctx.presses.length, 1);
+  assert.equal(s.rows[0].ctx.presses.length, 0);
+});
+
+test('fill and ink overrides are checked against the theme before anything renders', () => {
+  assert.throws(() => make([{ at: 0, use: 'a', fill: 'pos' }, { at: 12, use: 'a', fill: 'pos' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]),
+    /motion-kit: .*fill at beat 0 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/s);
+});

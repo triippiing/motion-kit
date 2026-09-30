@@ -10,10 +10,15 @@
 //   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
 //            hotspots: [..], sounds: [..], edgeCases: [rowObjects],
 //            hotspotExample?: { 'tab:<item>': 'tab:Month' },  // docs only; validate/engine ignore it
-//            drag?: ['thumb'] }  // hotspots a press 'down' drags (the component reads cursorAt); validate warns
+//            drag?: ['thumb'],   // hotspots a press 'down' drags (the component reads cursorAt); validate warns
 //                                // when a drag on one never moves the cursor between 'down' and 'up'
+//            choices?: { active: 'items' } }  // selection props and the list prop each picks from; strict
+//                                // validation (check_brief) warns when a selection names a value not in its list
 //   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
-//   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
+//   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx).
+//   hotspot is also called with ctx = {} (validation, and choosing which row a cursor row aims at, happen
+//   before any row has a ctx): whether it returns null must not depend on ctx, and any ctx read is guarded
+//   (ctx?.continues). A cursor row aims at the first candidate row on which its hotspot resolves.
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
@@ -34,13 +39,13 @@
 // entrance. Otherwise prev is null and continues false. The shape's geometry still morphs
 // between the rows as usual.
 // A drag (press 'down' ... 'up') must not span a row change; validate rejects it.
-import { validate, targetRow, pressRow, lookup } from './validate.js';
+import { validate, targetRow, pressRow, lookup, rowProps, rowGeo } from './validate.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
 export function createScene(o) {
   const { states, cursor, extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
-  const { errors } = validate({ states, cursor, registry, song, loop });
+  const { errors } = validate({ states, cursor, registry, song, theme, loop });
   if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
   const { track, fromSettle } = Springs;
   const bs = song.beat_sec;
@@ -61,18 +66,11 @@ export function createScene(o) {
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {
     const comp = row.use ? lookup(registry, row.use) : null;
-    let props = null;
-    if (comp) {
-      props = {};
-      for (const [k, [, def]] of Object.entries(comp.meta.props)) props[k] = k in row ? row[k] : structuredClone(def);
-    }
-    return { i, row, comp, props, t0: beatT(row.at) };
+    return { i, row, comp, props: comp ? rowProps(row, comp) : null, t0: beatT(row.at) };
   });
   rows.forEach((r, i) => { r.t1 = rows[i + 1] ? rows[i + 1].t0 : Infinity; });
-  for (const r of rows) {
-    const g = r.comp ? r.comp.geometry(r.props, base) : {};
-    r.geo = { w: r.row.w ?? g.w, h: r.row.h ?? g.h, r: r.row.r ?? g.r, fill: r.row.fill ?? g.fill ?? 'surface', ink: r.row.ink ?? g.ink ?? 'ink' };
-  }
+  const custom = { geometry: () => ({}) };
+  for (const r of rows) r.geo = rowGeo(r.row, r.comp ?? custom, r.props, base);
 
   // A component row continues the one before it when both use the same component.
   const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // check_brief.mjs PROJECT [--no-loop] -- validate MOTION-BRIEF.md: required sections, then the beat table's
-// states()/cursor() code with the engine's validator in strict mode (holds, budget, quiet beats).
+// states()/cursor() code with the engine's validator in strict mode (holds, budget, quiet beats), with fill/ink
+// checked against the project's theme.json. A project it cannot read (malformed song.json) is "error: ...", exit 2.
 // A piece is checked as a loop (last rows repeat the first) unless --no-loop is given or the project's
 // project.json says "loop": false (a launch video that ends on its own end card).
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
@@ -27,6 +28,18 @@ export function projectLoop(dir) {
   }
 }
 
+// The house theme's colour roles (what extract_theme.py writes without a product CSS).
+export const HOUSE = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b' };
+const readJson = (dir, name) => {
+  const text = readFileSync(path.join(dir, name), 'utf8');
+  try { return JSON.parse(text); } catch (e) { throw new Error(`${name} is not valid JSON (${e.message})`); }
+};
+
+// The project's theme roles from theme.json, else the house roles.
+export function projectTheme(dir) {
+  return existsSync(path.join(dir, 'theme.json')) ? readJson(dir, 'theme.json') : HOUSE;
+}
+
 // loop: an explicit option wins (--no-loop), else project.json's.
 export async function checkBrief(dir, opts = {}) {
   const errors = [], warnings = [];
@@ -39,7 +52,9 @@ export async function checkBrief(dir, opts = {}) {
   const table = at < 0 ? '' : md.slice(at);
   const code = [...table.matchAll(/```(?:js|javascript)\r?\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
   if (!code.trim()) return { errors: [...errors, 'no ```js block with states() and cursor() under "## Beat table"'], warnings };
-  const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
+  const song = readJson(dir, 'song.json');
+  if (!Array.isArray(song?.beats)) throw new Error('song.json has no beats list (re-run analyze_song.py)');
+  const theme = projectTheme(dir);
   let states, cursor;
   try {
     const ctx = vm.createContext({ END: song.beats.length });
@@ -48,7 +63,7 @@ export async function checkBrief(dir, opts = {}) {
     const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
     return { errors: [...errors, `beat table code ${why}`], warnings };
   }
-  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, loop, strict: true });
+  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   return { errors: [...errors, ...r.errors], warnings: [...warnings, ...r.warnings] };
 }
 
@@ -60,7 +75,8 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
     console.error('usage: check_brief.mjs PROJECT [--no-loop] (needs PROJECT/MOTION-BRIEF.md and song.json)'); process.exit(2);
   }
   const loop = opts.includes('--no-loop') ? false : projectLoop(dir).loop;
-  const r = await checkBrief(dir, { loop });
+  let r;
+  try { r = await checkBrief(dir, { loop }); } catch (e) { console.error(`error: ${e.message}`); process.exit(2); }
   for (const w of r.warnings) console.log(`warning: ${w}`);
   for (const e of r.errors) console.error(`error: ${e}`);
   console.log(r.errors.length ? `brief has ${r.errors.length} error(s)` : `brief OK${loop ? '' : ' (not a loop)'}`);

@@ -48,6 +48,11 @@ test('the catalog lists drag hotspots only for components that have them', async
   assert.doesNotMatch(section('button'), /\*\*Drag:\*\*/);
 });
 
+test('the selection components declare meta.choices', () => {
+  assert.deepEqual(Object.fromEntries(['tabs', 'dropdown', 'dock', 'chip-row'].map((n) => [n, registry[n].meta.choices])),
+    { tabs: { active: 'items' }, dropdown: { selected: 'items' }, dock: { active: 'items' }, 'chip-row': { selected: 'chips' } });
+});
+
 test('the registry has at least the reference component', () => {
   assert.ok(registry.button, 'button is registered');
 });
@@ -67,6 +72,13 @@ for (const [name, c] of Object.entries(registry)) {
     if (m.drag !== undefined) {
       assert.ok(Array.isArray(m.drag) && m.drag.length, 'meta.drag is a non-empty array of hotspots');
       for (const d of m.drag) assert.ok(m.hotspots.includes(d), `meta.drag entry "${d}" is one of the hotspots (${m.hotspots.join(', ')})`);
+    }
+    if (m.choices !== undefined) {
+      assert.ok(m.choices && typeof m.choices === 'object' && Object.keys(m.choices).length, 'meta.choices is a non-empty { prop: listProp } object');
+      for (const [k, list] of Object.entries(m.choices)) {
+        assert.ok(['string', 'string[]'].includes(m.props[k]?.[0]), `meta.choices key "${k}" is a string or string[] prop`);
+        assert.equal(m.props[list]?.[0], 'string[]', `meta.choices "${k}" picks from "${list}", a string[] prop`);
+      }
     }
     assert.deepEqual(missingFamilyExamples(m), [], 'every family hotspot needs a hotspotExample naming one real member (e.g. { \'tab:<item>\': \'tab:Month\' })');
     for (const f of ['geometry', 'mount', 'render', 'hotspot']) assert.equal(typeof c[f], 'function', f);
@@ -88,6 +100,7 @@ for (const [name, c] of Object.entries(registry)) {
     for (const h of names) {
       const pt = c.hotspot(h, p, geo, base);
       assert.ok(pt, `hotspot ${h} resolves`);
+      assert.ok(c.hotspot(h, p, geo, {}), `hotspot ${h} resolves without a ctx (validation and routing call it with {})`);
       assert.ok(Math.abs(pt.x) <= geo.w / 2 && Math.abs(pt.y) <= geo.h / 2, `${h} inside ${geo.w}x${geo.h}: ${JSON.stringify(pt)}`);
     }
   });

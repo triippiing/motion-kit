@@ -7,6 +7,7 @@ export const meta = {
   motion: 'A press on a chip selects it: single-select moves the selection there, `multi` toggles the pressed chip. Selected chips fill with the accent and their text turns surface with a quick colour spring; the pressed chip dips with the cursor. A following chip-row row continues from the selection after the presses (write it as its `selected`) and blends to its own `selected` on arrival if it differs.',
   props: { chips: ['string[]', ['All', 'Bills', 'Savings', 'Fun']], selected: ['string[]', ['All']], multi: ['boolean', false] },
   hotspots: ['chip:<label>'],
+  choices: { selected: 'chips' },
   hotspotExample: { 'chip:<label>': 'chip:Bills' },
   sounds: [],
   example: "{ at: 0, use: 'chip-row', chips: ['All', 'Bills', 'Savings', 'Fun'], selected: ['All'] }",

@@ -7,6 +7,7 @@ export const meta = {
   motion: 'A press on a tab sends the indicator there: the leading edge moves first, so it stretches and settles, and quick reversals stay inside the bar. The active label is shown in the indicator. A following tabs row continues from the last pressed tab (write it as its `active`) and travels on arrival if `active` differs.',
   props: { items: ['string[]', ['Day', 'Week', 'Month']], active: ['string', 'Day'] },
   hotspots: ['tab:<item>'],
+  choices: { active: 'items' },
   hotspotExample: { 'tab:<item>': 'tab:Month' },
   sounds: [],
   example: "{ at: 0, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Week' }",

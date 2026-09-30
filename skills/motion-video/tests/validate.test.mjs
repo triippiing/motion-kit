@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validate, didYouMean, typeOk, matchHotspot } from '../components/core/validate.js';
+import { validate, didYouMean, typeOk, matchHotspot, targetRow, pressRow } from '../components/core/validate.js';
 
-const fake = (name, props = {}, hotspots = [], drag) => ({ meta: { name, props, hotspots, ...(drag ? { drag } : {}) } });
+// Fakes with real geometry/hotspot: a hotspot resolves when its name matches (tabs: only its own items).
+const fake = (name, props = {}, hotspots = [], drag, hotspot) => ({ meta: { name, props, hotspots, ...(drag ? { drag } : {}) },
+  geometry: () => ({ w: 200, h: 100, r: 20, fill: 'surface', ink: 'ink' }),
+  hotspot: hotspot ?? ((h) => (matchHotspot(hotspots, h) ? { x: 0, y: 0 } : null)) });
 const registry = {
   toast: fake('toast', { text: ['string', 'Saved'], icon: ['enum:check|none', 'check'] }, ['toast', 'action']),
-  tabs: fake('tabs', { items: ['string[]', ['A', 'B']], active: ['string', 'A'] }, ['tab:<item>']),
+  tabs: fake('tabs', { items: ['string[]', ['A', 'B']], active: ['string', 'A'] }, ['tab:<item>'], undefined,
+    (h, p) => (h.startsWith('tab:') && p.items.includes(h.slice(4)) ? { x: 0, y: 0 } : null)),
   button: fake('button', { label: ['string', 'Go'] }, ['button']),
   slider: fake('slider', { value: ['number', 0.4] }, ['thumb', 'track'], ['thumb']),
 };
@@ -189,4 +193,88 @@ test('a look-ahead drag reports the state change it actually crosses', () => {
   let r;
   assert.doesNotThrow(() => { r = run([{ at: 0, use: 'button' }, { at: 4, use: 'tabs' }], cur, { loop: false }); });
   assert.match(r.errors.join('\n'), /drag from beat 3\.5 to 3\.8 crosses a state change at beat 4; keep drags inside one row/);
+});
+
+// ---- hotspots must resolve with the row's real props (the library's own components)
+import { registry as lib } from '../components/index.js';
+const libRun = (states, cursor, o = {}) => validate({ states: loopOk(states), cursor: [{ at: 0, x: 0, y: 0 }, ...cursor, { at: 14, x: 0, y: 0 }], registry: lib, song, ...o });
+const missed = (states, cursor) => libRun(states, cursor).errors.join('\n');
+
+test('a hotspot that names no real item is an error listing what the row has', () => {
+  assert.match(missed([{ at: 0, use: 'tabs', items: ['Day', 'Week', 'Month'] }], [{ at: 2, target: 'tab:Mnoth' }]),
+    /hotspot "tab:Mnoth" at beat 2 does not resolve on tabs at beat 2 \(it has: tab:Day, tab:Week, tab:Month\): did you mean "tab:Month"\?/);
+  assert.match(missed([{ at: 0, use: 'list' }], [{ at: 2, target: 'row:9' }]), /"row:9" at beat 2 does not resolve on list at beat 2 \(it has: row:0 to row:2\)/);
+  assert.match(missed([{ at: 0, use: 'line-chart' }], [{ at: 2, target: 'point:12' }]), /"point:12" .* on line-chart at beat 2 \(it has: point:0 to point:7\)/);
+  assert.match(missed([{ at: 0, use: 'calendar' }], [{ at: 2, target: 'day:8' }]), /"day:8" .* on calendar at beat 2 \(it has: day:1 to day:7\)/);
+  assert.match(missed([{ at: 0, use: 'dropdown', open: false }], [{ at: 2, target: 'item:Oldest' }]), /"item:Oldest" .* on dropdown at beat 2 \(it has: trigger\)/);
+  assert.match(missed([{ at: 0, use: 'toast', text: 'Saved' }], [{ at: 2, target: 'action' }]), /"action" .* on toast at beat 2 \(it has: toast\)/);
+  // An open dropdown lists its items.
+  assert.match(missed([{ at: 0, use: 'dropdown', open: true }], [{ at: 2, target: 'item:Nope' }]), /\(it has: trigger, item:Newest, item:Oldest, item:Popular\)/);
+});
+
+test('a cursor row aims at the first candidate row on which its hotspot resolves', () => {
+  // The dropdown at beat 0 is closed; the one starting at beat 4 is open: item:Oldest at 3.5 is on the next row.
+  const states = loopOk([{ at: 0, use: 'dropdown' }, { at: 4, use: 'dropdown', open: true }, { at: 8, use: 'button' }]);
+  const rows = states.map((row) => ({ row, comp: lib[row.use] }));
+  assert.equal(targetRow(rows, { at: 3.5, target: 'item:Oldest' }), rows[1]);
+  assert.equal(pressRow(rows, { at: 3.5, target: 'item:Oldest', press: true }), rows[1]);
+  assert.equal(targetRow(rows, { at: 3.5, target: 'trigger' }), rows[0], 'both resolve: the active row wins');
+  assert.equal(targetRow(rows, { at: 2, target: 'item:Oldest' }), null, 'the next row is too far ahead');
+  assert.deepEqual(validate({ states, cursor: [{ at: 0, x: 0, y: 0 }, { at: 3.5, target: 'item:Oldest', press: true }, { at: 14, x: 0, y: 0 }], registry: lib, song }).errors, []);
+  // Two tabs rows with different items: a drag on 'Year' (only on the row at beat 4) stays inside that row.
+  const t = libRun([{ at: 0, use: 'tabs' }, { at: 4, use: 'tabs', items: ['Month', 'Year'], active: 'Month' }, { at: 8, use: 'button' }],
+    [{ at: 3.5, target: 'tab:Year', press: 'down' }, { at: 3.7, target: 'tab:Year', dx: 0, press: 'up' }]);
+  assert.deepEqual(t.errors, []);
+});
+
+test('fill and ink must be a theme role or #rrggbb when a theme is given', () => {
+  const theme = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b', font: 'Geist' };
+  const bad = run(loopOk([{ at: 0, use: 'button', fill: 'accnet', ink: 'pos' }]), undefined, { theme }).errors.join('\n');
+  assert.match(bad, /fill at beat 0 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "accnet"/);
+  assert.match(bad, /ink at beat 0 should be a theme role .* got "pos"/, 'pos is a role only when the theme defines it');
+  assert.match(run(loopOk([{ at: 0, use: 'button', fill: 'font' }]), undefined, { theme }).errors.join('\n'), /got "font"/, 'a non-colour key is not a role');
+  assert.deepEqual(run(loopOk([{ at: 0, use: 'button', fill: 'accent', ink: '#A0b0C0' }]), undefined, { theme }).errors, []);
+  assert.deepEqual(run(loopOk([{ at: 0, use: 'button', ink: 'pos' }]), undefined, { theme: { ...theme, pos: '#1a7f37' } }).errors, []);
+  assert.match(run(loopOk([{ at: 0, name: 'x', w: 10, h: 10, r: 2, fill: 3 }]), undefined, { theme }).errors.join('\n'), /fill at beat 0 .* got 3/);
+});
+
+test('w, h and r overrides must be finite numbers >= 0', () => {
+  for (const [k, v, shown] of [['w', -5, '-5'], ['h', Infinity, 'Infinity'], ['r', '20', '"20"'], ['w', NaN, 'NaN']]) {
+    const e = run(loopOk([{ at: 0, use: 'button', [k]: v }])).errors.join('\n');
+    assert.match(e, new RegExp(`${k} at beat 0 should be a number >= 0, got ${shown.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  }
+  assert.deepEqual(run(loopOk([{ at: 0, use: 'button', w: 300, h: 0, r: 12 }])).errors, []);
+  const custom = run([{ at: 0, name: 'x', w: 10, h: -1, r: 2 }], undefined, { loop: false }).errors;
+  assert.deepEqual(custom, ['h at beat 0 should be a number >= 0, got -1'], 'one message for one bad value');
+});
+
+test('holes, non-object rows and non-numeric beats are readable errors, not crashes', () => {
+  // eslint-disable-next-line no-sparse-arrays
+  const holes = run([{ at: 0, use: 'button' }, , { at: 14, use: 'button' }]);
+  assert.deepEqual(holes.errors, ['states() row 2 (after beat 0) is empty (a stray comma?)']);
+  assert.match(run([null, { at: 14, use: 'button' }]).errors.join('\n'), /states\(\) row 1 should be an object like \{ at: 4, \.\.\. \}, got null/);
+  assert.match(run([{ at: 0, use: 'button' }, 'toast']).errors.join('\n'), /states\(\) row 2 \(after beat 0\) should be an object .* got "toast"/);
+  assert.match(run([{ at: '0', use: 'button' }]).errors.join('\n'), /states\(\) row 1 needs a numeric `at` \(a beat\), got "0"/);
+  assert.match(run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: NaN, x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]).errors.join('\n'),
+    /cursor\(\) row 2 \(after beat 0\) needs a numeric `at` \(a beat\), got NaN/);
+  // eslint-disable-next-line no-sparse-arrays
+  assert.match(run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, , { at: 14, x: 0, y: 0 }]).errors.join('\n'), /cursor\(\) row 2 \(after beat 0\) is empty/);
+});
+
+test('identical messages are reported once', () => {
+  const r = run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'nope' }, { at: 2, target: 'nope' }, { at: 3, zz: 1, x: 0, y: 0 }, { at: 3, zz: 1, x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
+  const e = r.errors;
+  assert.equal(e.length, new Set(e).size);
+  assert.equal(e.filter((x) => /unknown cursor key "zz" at beat 3/.test(x)).length, 1);
+});
+
+test('strict: a selection naming a value not in its list warns (meta.choices)', () => {
+  const warn = (row) => libRun([row], [], { strict: true }).warnings.filter((w) => /is not one of its/.test(w));
+  assert.match(warn({ at: 0, use: 'tabs', active: 'Mnoth', items: ['Day', 'Month'] }).join('\n'), /active "Mnoth" of tabs at beat 0 is not one of its items \(Day, Month\): did you mean "Month"\?/);
+  assert.match(warn({ at: 0, use: 'dropdown', selected: 'Latest' }).join('\n'), /selected "Latest" of dropdown at beat 0 is not one of its items/);
+  assert.match(warn({ at: 0, use: 'dock', active: 'Home' }).join('\n'), /active "Home" of dock/);
+  assert.match(warn({ at: 0, use: 'chip-row', selected: ['All', 'Bils'] }).join('\n'), /selected "Bils" of chip-row at beat 0 is not one of its chips .*did you mean "Bills"/);
+  assert.deepEqual(warn({ at: 0, use: 'dropdown', selected: '' }), [], 'an empty selection means none');
+  assert.deepEqual(warn({ at: 0, use: 'tabs', active: 'Week' }), []);
+  assert.deepEqual(libRun([{ at: 0, use: 'tabs', active: 'Mnoth' }], []).warnings, [], 'strict only');
 });
