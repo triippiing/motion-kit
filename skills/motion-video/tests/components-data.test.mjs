@@ -65,6 +65,49 @@ test('line-chart: the path draws on and targeting point:7 shows its value', asyn
   });
 });
 
+// Ruling H: the tooltip follows the cursor rows aimed at points, not the pointer's path, so a pointer passing
+// close to point 6 on its way to point 7 never flashes point 6's value.
+test('line-chart: travelling to point:7 never shows another point; leaving hides the tooltip', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:7' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    const seen = await s.page.evaluate(([a, b, bs]) => {
+      const out = new Set();
+      for (let beat = a; beat <= b + 1e-9; beat += 0.005) { window.seek(beat * bs); out.add(document.querySelector('.c-line-chart .lc-tip').textContent); }
+      return [...out];
+    }, [2, 4, bs]);
+    assert.ok(!seen.includes('£9'), `tooltip texts seen: ${seen}`);
+    assert.deepEqual(seen.filter(Boolean), ['£13']);
+    await at(2.99);
+    assert.equal(await num(s, '.c-line-chart .lc-tip', 'opacity'), 0, 'hidden before the cursor row');
+    await at(4.9);
+    assert.ok(await num(s, '.c-line-chart .lc-tip', 'opacity') < 0.01, 'gone once the cursor is aimed elsewhere');
+  });
+});
+
+test('line-chart: the hover prop pops at +1.6 beats; an out-of-range index shows nothing', async () => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 3 }, { at: 5, use: 'button' }, { at: 6, use: 'line-chart', hover: 20 }${BACK}]`, cursor: STILL }, async (s, at) => {
+    await at(3.55);
+    assert.equal(await num(s, '.c-line-chart[data-row="1"] .lc-tip', 'opacity'), 0, 'not before +1.6 beats');
+    await at(4.4);
+    assert.ok(await num(s, '.c-line-chart[data-row="1"] .lc-tip', 'opacity') > 0.95, 'up after');
+    assert.equal(await text(s, '.c-line-chart[data-row="1"] .lc-tip'), '£8');
+    await at(8.5);
+    assert.equal(await num(s, '.c-line-chart[data-row="3"] .lc-tip', 'opacity'), 0);
+    assert.equal(await text(s, '.c-line-chart[data-row="3"] .lc-tip'), '');
+  });
+});
+
+test('line-chart: a continuation that drops hover fades the old tooltip out', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart', hover: 3 }, { at: 4, use: 'line-chart' }${BACK}]`, cursor: STILL }, async (s, at) => {
+    const op = () => num(s, '.c-line-chart[data-row="2"] .lc-tip', 'opacity');
+    await at(4.03);
+    const a = await op();
+    assert.ok(a > 0.5 && a < 1, `fading, not cut: ${a}`);
+    await at(4.6);
+    assert.ok(await op() < 0.01, 'gone');
+  });
+});
+
 test('line-chart: a continuation morphs from the previous line without redrawing', async () => {
   await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart', points: [1, 2, 3] }, { at: 4, use: 'line-chart', points: [3, 2, 1, 4] }${BACK}]`, cursor: STILL }, async (s, at) => {
     const d = () => s.page.evaluate(() => document.querySelector('.c-line-chart[data-row="2"] .lc-line').getAttribute('d'));
@@ -137,6 +180,22 @@ test('goal: the text reads saved of target with the percentage; met on the house
     assert.equal(await text(s, '.c-goal[data-row="2"] .gl-text'), '£4,000 of £4,000 · 100%');
     assert.equal(await s.page.evaluate(() => document.querySelector('.c-goal[data-row="2"] .gl-fill').style.background), 'var(--accent)');
     assert.ok(await num(s, '.c-goal[data-row="2"] .gl-chip', 'opacity') > 0.99, 'check chip shown');
+  });
+});
+
+test('goal: a continuation that changes the target eases the text with the bar', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2000, target: 4000 }, { at: 4, use: 'goal', saved: 2000, target: 8000 }${BACK}]`, cursor: STILL }, async (s, at) => {
+    const read = () => s.page.evaluate(() => ({ text: document.querySelector('.c-goal[data-row="2"] .gl-text').textContent,
+      w: parseFloat(document.querySelector('.c-goal[data-row="2"] .gl-fill').style.width) }));
+    await at(4.02);
+    assert.match((await read()).text, /^£2,000 of £4,\d{3} · (50|49)%$/, 'starts on the old target');
+    await at(4.6);
+    const mid = await read(), m = /of £([\d,]+) · (\d+)%/.exec(mid.text);
+    const target = Number(m[1].replace(/,/g, ''));
+    assert.ok(target > 4000 && target < 8000, `target easing: ${mid.text}`);
+    assert.ok(Math.abs(mid.w / 664 - 2000 / target) < 0.01, `bar agrees with text: ${mid.w} vs ${mid.text}`);
+    await at(5.9);
+    assert.equal((await read()).text, '£2,000 of £8,000 · 25%');
   });
 });
 

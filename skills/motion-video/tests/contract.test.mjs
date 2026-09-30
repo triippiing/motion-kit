@@ -13,7 +13,7 @@ const ROLES = /^(canvas|surface|ink|muted|accent|pos|neg|#[0-9a-f]{6})$/i;
 // Anything that makes render depend on more than t. Comments are stripped first (strings are kept,
 // so a CSS 'transition: ...' string still counts).
 // transition/animation as a CSS property in any spelling: 'transition: ...', style.transition =, transitionDuration.
-const IMPURE = /\b(?:transition|animation)|Date\.now|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
+const IMPURE = /\b(?:transition|animation)|Date\.now|new\s+Date\s*\(\s*\)|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
 const code = (src) => src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => str ?? '');
 
 test('shared code and every component file read no clock and use no CSS transitions', async () => {
@@ -24,7 +24,8 @@ test('shared code and every component file read no clock and use no CSS transiti
   }
   assert.match(code("x = 1; // setTimeout here is fine\n/* Date.now */ y = 'transition: all'"), IMPURE, 'strings still scanned');
   assert.doesNotMatch(code('x = 1; // setTimeout in a comment\n/* Date.now */'), IMPURE, 'comments ignored');
-  for (const bad of ['e.style.transition = x', 'Object.assign(e.style, { transitionDuration: 1 })', "e.style.animation = 'spin 1s'"]) assert.match(code(bad), IMPURE, bad);
+  assert.doesNotMatch(code("d = new Date(week + 'T00:00:00Z')"), IMPURE, 'a fixed date is not the clock');
+  for (const bad of ['d = new Date()', 'e.style.transition = x', 'Object.assign(e.style, { transitionDuration: 1 })', "e.style.animation = 'spin 1s'"]) assert.match(code(bad), IMPURE, bad);
 });
 
 const theme = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b' }; // house: no pos/neg

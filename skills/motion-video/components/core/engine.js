@@ -11,8 +11,12 @@
 //   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press).
-//   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, cursorAt, geo, row,
+//   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
 //           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
+//   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
+//   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
+//   press } (the cursor moved elsewhere), in time order. A component that reacts to where the cursor is aimed
+//   (a chart point's hover) reads the latest entry at or before t.
 //   loop_sec: the loop's length in seconds when the piece loops, else null. Periodic motion (spinners,
 //   pulses) takes its period from helpers' loopPeriod(ctx, sec) so a whole number of cycles fits the loop.
 // Continuations: a component row directly after a row with the same `use` continues it.
@@ -69,6 +73,18 @@ export function createScene(o) {
     pressRow(rows, c).presses.push({ t: beatT(c.at), kind: c.press, hotspot: c.target ?? null });
   }
 
+  // ---- targets: each cursor row goes to the row it aims at; to every other row whose window it falls in, it
+  // means the cursor is aimed elsewhere (target null).
+  for (const r of rows) r.targets = [];
+  for (const c of cursor) {
+    const t = beatT(c.at), to = c.target ? targetRow(rows, c) : null;
+    for (const r of rows) {
+      if (r === to) r.targets.push({ t, target: c.target, press: c.press ?? null });
+      else if (t >= r.t0 && t < r.t1) r.targets.push({ t, target: null, press: c.press ?? null });
+    }
+  }
+  for (const r of rows) r.targets.sort((a, b) => a.t - b.t);
+
   // ---- row contexts, built in order on first use: a continuation's prev is the previous row's end state,
   // which may depend on the cursor (a slider's release point), so the pointer is read from the cursor
   // rows resolved so far until all of them are.
@@ -85,7 +101,7 @@ export function createScene(o) {
   function ctxOf(i) {
     const r = rows[i];
     if (!r.ctx) {
-      r.ctx = { ...base, t0: i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, cursorAt: cursorLocal, geo: r.geo, row: r.row,
+      r.ctx = { ...base, t0: i === 0 ? -1e6 : r.t0, t1: r.t1, presses: r.presses, targets: r.targets, cursorAt: cursorLocal, geo: r.geo, row: r.row,
         prev: null, continues: continues(i), settled: i === 0 };
       if (r.ctx.continues) r.ctx.prev = endOf(i - 1);
     }

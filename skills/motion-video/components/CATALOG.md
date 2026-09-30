@@ -364,7 +364,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** Progress towards a target amount: a savings pot, a fundraiser, a budget.
 
-**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount; a changed label crossfades.
+**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it); a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -387,7 +387,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** A value over time: a portfolio, a balance, a weekly total.
 
-**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: aimed at `point:<i>`, the dot and tooltip come up as it arrives and go when it leaves. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
+**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|

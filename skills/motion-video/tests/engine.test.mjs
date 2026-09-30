@@ -116,3 +116,11 @@ test('a continuation starts from the previous row\'s endState; hotspots get the 
     [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'box', press: true }, { at: 12, x: 0, y: 0 }]);
   assert.deepEqual(t.rows[1].ctx.prev, { label: 'p' });
 });
+
+test('ctx.targets: each row sees the cursor rows aimed at it, and other cursor rows in its window as null', () => {
+  const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'box' }, { at: 5, target: 'item:3' }, { at: 6, target: 'item:3', press: true }, { at: 7, x: 40, y: 0 }, { at: 12, x: 0, y: 0 }]);
+  assert.deepEqual(s.rows[1].ctx.targets, [{ t: 2.5, target: 'item:3', press: null }, { t: 3, target: 'item:3', press: true }, { t: 3.5, target: null, press: null }]);
+  assert.deepEqual(s.rows[0].ctx.targets, [{ t: 0, target: null, press: null }, { t: 1, target: 'box', press: null }]);
+  assert.deepEqual(s.rows[2].ctx.targets, [{ t: 6, target: null, press: null }]);
+});
