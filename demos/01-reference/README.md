@@ -19,7 +19,7 @@ Uses a commercial track for local viewing only; re-run analyze_song on a license
 
 ```bash
 S=~/.claude/skills/motion-video/scripts
-python3 $S/analyze_song.py ~/Desktop/"Tints (feat. Kendrick Lamar).flac" --out demos/01-reference --bars 7 --states 12 --start-bar 21
+python3 $S/analyze_song.py "<your copy of the song>" --out demos/01-reference --bars 7 --states 12 --start-bar 21
 node $S/render.mjs demos/01-reference --serve         # watch live with audio (?play, click)
 node $S/beat_stills.mjs demos/01-reference            # one still per beat + loop-seam check
 node $S/render.mjs demos/01-reference                 # final: demos/01-reference/out/video.mp4

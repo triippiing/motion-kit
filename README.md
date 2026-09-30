@@ -25,7 +25,7 @@ Needs Homebrew, `ffmpeg` (`brew install ffmpeg`), Node 20+ and Python 3 with num
 
 ```bash
 git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
-~/motion-kit/install.sh   # links skills into ~/.claude/skills, installs Playwright, runs the doctor
+~/motion-kit/install.sh   # links the skills, installs missing deps + the transitions.dev companion, runs the doctor
 ```
 
 `install.sh` installs ffmpeg, numpy, Playwright and its Chromium when they are missing, then runs
@@ -74,7 +74,9 @@ skills/motion-design/    planning skill + direction and state-plan references
 skills/motion-video/     scripts, seek(t) template, tests
 skills/motion-ui/        in-app motion skill + tested patterns
 demos/                   01 reference sequence, 02 finance-app promo, 03 dock pill capture
-docs/superpowers/        design spec and implementation plan
+docs/superpowers/        the original design spec and implementation plan (historical record)
+CLAUDE.md                the project guide for Claude (and people): start here
+CREDITS.md               everyone and everything this builds on
 ```
 
 ## Tests

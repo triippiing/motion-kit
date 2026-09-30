@@ -27,7 +27,7 @@ node $S/render.mjs demos/02-finance-promo          # -> out/video.mp4
 ```
 
 `clip.wav` and `out/` are not committed. To recreate `clip.wav`, re-run
-`analyze_song.py ~/Desktop/"Tints (feat. Kendrick Lamar).flac" --out demos/02-finance-promo --bars 7 --start-bar 7`.
+`analyze_song.py "<your copy of the song>" --out demos/02-finance-promo --bars 7 --start-bar 7`.
 
 ## Licence note
 

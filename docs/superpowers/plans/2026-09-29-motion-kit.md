@@ -1,5 +1,10 @@
 # motion-kit Implementation Plan
 
+> **Historical record.** This document describes how motion-kit was designed and first built
+> (2026-09-29/30). The code, `README.md` and `CLAUDE.md` are the current source of truth; where they
+> differ from this document, they win.
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Three callable Claude Code skills (motion-design, motion-video, motion-ui) plus a shared spring library that turn "code-only motion design" into a repeatable pipeline for any project's look and any output size, proven by three demo videos and documented on the wiki's Claude section.

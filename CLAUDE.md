@@ -20,7 +20,8 @@ UI**. It ships as three Claude Code skills plus the scripts they call.
 
 ```bash
 git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
-~/motion-kit/install.sh      # links skills into ~/.claude/skills, installs ffmpeg/numpy/Playwright+Chromium, runs the doctor
+~/motion-kit/install.sh      # links skills into ~/.claude/skills, installs ffmpeg/numpy/Playwright+Chromium and the
+                             # transitions.dev companion skills, runs the doctor
 ```
 
 Only Homebrew itself needs a manual step (it asks for a password): the doctor prints the
@@ -146,7 +147,8 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
 skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from
 skills/motion-ui/references/      patterns.md (pattern 2 is extracted and tested by tests/patterns.test.mjs)
 demos/                            worked examples (see "Demos" below)
-docs/superpowers/                 the design spec and implementation plan this was built from
+docs/superpowers/                 the design spec and implementation plan this was built from (historical: the
+                                  code and CLAUDE.md are current; the plan records how it was first built)
 tests/, skills/*/tests/           node:test + python unittest
 ```
 

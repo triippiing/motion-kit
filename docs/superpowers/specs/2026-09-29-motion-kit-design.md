@@ -1,7 +1,12 @@
 # motion-kit — design
 
+> **Historical record.** This document describes how motion-kit was designed and first built
+> (2026-09-29/30). The code, `README.md` and `CLAUDE.md` are the current source of truth; where they
+> differ from this document, they win.
+
+
 Date: 2026-09-29
-Status: draft, awaiting review
+Status: implemented (see the historical note above)
 
 ## Purpose
 
