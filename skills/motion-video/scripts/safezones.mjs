@@ -19,8 +19,13 @@ import { didYouMean } from '../components/core/validate.js';
 
 const DEFAULT_PRESETS = path.resolve(import.meta.dirname, '..', 'presets.json');
 
+// The presets file; unreadable, malformed or missing its two objects is a UsageError (error: ..., exit 2).
 export async function loadPresets(file = process.env.MOTION_PRESETS || DEFAULT_PRESETS) {
-  return JSON.parse(await readFile(file, 'utf8'));
+  let text, P;
+  try { text = await readFile(file, 'utf8'); } catch (e) { throw new UsageError(`cannot read presets ${file}: ${e.code ?? e.message}`); }
+  try { P = JSON.parse(text); } catch (e) { throw new UsageError(`presets ${file} is not valid JSON: ${e.message}`); }
+  if (!P || typeof P.shapes !== 'object' || typeof P.presets !== 'object') throw new UsageError(`presets ${file} needs "shapes" and "presets" objects`);
+  return P;
 }
 
 // Known preset names, de-duplicated in the order given; an unknown one is a UsageError with a did-you-mean.
@@ -190,10 +195,12 @@ function parseArgs(argv) {
 async function main() {
   const { dir, ...opts } = parseArgs(process.argv.slice(2));
   const { issues, notes } = await checkSafeZones(dir, opts);
-  const P = await loadPresets();
+  const P = await loadPresets(), design = await designStage(path.resolve(dir));
+  const names = resolvePresets(P, opts.presets), zoned = names.filter((n) => scaledMargins(P.presets[n], presetStage(P, n, design)));
   for (const n of notes) console.log(`note: ${n}`);
+  for (const n of names) if (!zoned.includes(n)) console.log(`no safe zones for ${n} (the whole frame is shown)`);
   for (const i of issues) console.log(issueText(i, P));
-  if (!issues.length) console.log(`no safe-zone issues (${opts.presets.join(', ')})`);
+  if (!issues.length && zoned.length) console.log(`no safe-zone issues (${zoned.join(', ')})`);
   process.exit(issues.length ? 1 : 0);
 }
 

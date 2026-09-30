@@ -52,7 +52,7 @@ export { loadPresets };
 export async function reusableRender(dir, file, stage) {
   const root = path.resolve(dir);
   if (!existsSync(file) || !existsSync(stampPath(file))) return false;
-  const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
+  const song = await readSong(root);
   let stamp;
   try { stamp = JSON.parse(await readFile(stampPath(file), 'utf8')); } catch { return false; }
   const { sources, ...made } = stamp ?? {};
@@ -69,7 +69,11 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   const P = await loadPresets();
   const chosen = resolvePresets(P, names);
   const design = await designStage(root);
+  const song = await readSong(root);
   const exportsDir = path.resolve(outDir ?? path.join(root, 'out', 'exports'));
+  // Staging dirs left by an export that was killed part-way (a finished or failed one removes its own).
+  if (existsSync(exportsDir)) for (const e of await readdir(exportsDir, { withFileTypes: true }))
+    if (e.isDirectory() && e.name.startsWith('.staging-')) await rm(path.join(exportsDir, e.name), { recursive: true, force: true });
   // Manifest paths are relative to the project when they are inside it, absolute otherwise.
   const rel = (p) => { const r = path.relative(root, p); return r.startsWith('..') || path.isAbsolute(r) ? p : r; };
 
@@ -98,7 +102,6 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   }
 
   await mkdir(exportsDir, { recursive: true });
-  const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
   const commercial = await commercialMusic(root);
   const files = [];
   // Encode into a staging dir; nothing reaches exportsDir unless every preset succeeds.
@@ -225,6 +228,12 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
   for (const f of ordered) log(summary(f));
   return manifest;
+}
+
+// song.json, or a UsageError when it is not valid JSON.
+async function readSong(root) {
+  try { return JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8')); }
+  catch (e) { throw new UsageError(`song.json is not valid JSON: ${e.message}`); }
 }
 
 // Whether the project's music is a commercial track: project.json "music": "commercial", or the brief's Decisions say so.

@@ -349,6 +349,34 @@ test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill 
   assert.match(r.stdout, /^discord\s+256x256 60fps .* no audio  out\/exports\/discord\.mp4, 2 estimated values\nmanifest: /);
 });
 
+test('CLI: unreadable or malformed presets and a malformed song.json are error: ... exit 2', () => {
+  const dir = makeProject({ bars: 2, size: '128x128' });
+  const bad = path.join(TMP, 'bad-presets.json');
+  writeFileSync(bad, '{ "presets": ');
+  for (const [file, msg] of [[bad, /^error: presets .*bad-presets\.json is not valid JSON/], [path.join(TMP, 'none.json'), /^error: cannot read presets .*none\.json/]]) {
+    const r = exportCli([dir, '--for', 'discord'], file);
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, msg);
+    assert.doesNotMatch(r.stderr, /\n\s+at /, 'no stack trace');
+  }
+  writeFileSync(bad, JSON.stringify({ presets: {} }));
+  let r = exportCli([dir, '--for', 'discord'], bad);
+  assert.equal(r.status, 2); assert.match(r.stderr, /^error: presets .* needs "shapes" and "presets" objects/);
+  writeFileSync(path.join(dir, 'song.json'), '{ "beats": [');
+  r = exportCli([dir, '--for', 'discord'], PRESETS);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: song\.json is not valid JSON/);
+});
+
+test('an export removes stale staging dirs left by an interrupted one', async () => {
+  const outDir = path.join(TMP, 'stale');
+  mkdirSync(path.join(outDir, '.staging-abc123', 'x'), { recursive: true });
+  writeFileSync(path.join(outDir, '.staging-abc123', 'x', 'discord.mp4'), 'partial');
+  writeFileSync(path.join(outDir, '.keep'), '');
+  await exportProject(DIR, { for: ['discord'], silent: true, outDir, log: () => {} });
+  assert.deepEqual(noStaging(outDir), ['.keep'], 'only staging dirs are removed');
+});
+
 // ---- size caps, web outputs, GIF ----
 
 const psnr = (a, b) => {

@@ -39,7 +39,8 @@ test('a small centred component raises nothing (and design-shape presets need no
   const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
   let r = spawnSync('node', [SCRIPT, dir, '--for', 'web,discord,x'], { encoding: 'utf8', env });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^no safe-zone issues \(web, discord, x\)/);
+  assert.match(r.stdout, /^no safe zones for web \(the whole frame is shown\)\nno safe zones for discord .*\nno safe zones for x .*\n$/);
+  assert.doesNotMatch(r.stdout, /no safe-zone issues/, 'nothing was checked, so it does not claim a clean check');
   r = spawnSync('node', [SCRIPT, dir, '--for', 'reels'], { encoding: 'utf8', env });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^error: .*Executable doesn't exist/);
