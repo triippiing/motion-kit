@@ -20,6 +20,9 @@ Success means:
    one-page authoring guide, and get friendly errors for mistakes.
 4. `demos/04-library-reference` rebuilds demo 1's sequence using only the library, with a large
    reduction in hand-written code versus `demos/01-reference/index.html`.
+5. `motion-design` works as the suite's **planner** (see "Planner"): a Superpowers-style front door
+   that routes the request, asks the right questions one at a time, assesses everything, writes a
+   `MOTION-BRIEF.md` whose beat table is real `use:`/`target:` code, and gates on approval.
 
 ## Non-goals
 
@@ -94,6 +97,58 @@ const cursor = () => [
 - Cursor rows take either `x`,`y` (as today) or `target: '<hotspot>'`, optionally with
   `dx`,`dy` offsets. `press: true | 'down' | 'up'` and `sound` work as today.
 
+## Planner (motion-design v2)
+
+The finished suite is used through one front door: the user describes what they want and
+`motion-design` plans it the way Superpowers plans software. v1 ships in this sub-project; each
+later sub-project (B to F) plugs in its own questions and checks.
+
+**1. Route.** Classify the request and say the classification out loud so the user can correct it:
+- *loop promo* (social loop, the current style) → full planning flow below;
+- *launch video* (non-looping, intro/end card) → same flow; until sub-project D lands, say that
+  intro/end cards are hand-built;
+- *in-app motion* → hand to `motion-ui`;
+- *re-time or re-render an existing project* → `motion-video` directly.
+
+**2. Ask, one question per message, multiple choice where possible:**
+1. Goal and audience (launch, feature highlight, social loop, investor demo...).
+2. Where it will be posted → size and length (square / vertical / landscape; bars from length).
+3. Which product → read its stylesheet for the theme (`extract_theme.py`, show the printed roles)
+   and look at its real screens/UI to learn what it does.
+4. The song → a file the user supplies (never downloaded), rights check (commercial tracks are for
+   local viewing), then `analyze_song.py`; state BPM, confidence and warnings.
+5. The 3 to 6 moments the product should show → for each, **propose a component** from
+   `CATALOG.md` by matching its "use when" line (and name a transitions.dev idea where relevant),
+   with the props filled from the product; the user approves or swaps.
+Questions whose answers are already in the request are skipped, and the understanding is written
+back for correction before planning (as Superpowers brainstorming does).
+
+**3. Assess before planning.** Run the doctor; read `song.json` rules (min hold, max states, loop
+window, sections, accents); check theme coverage (roles found vs defaulted); choose the loop start
+bar; check that the number of moments fits the state budget; check text will be legible at the
+output size.
+
+**4. Write `MOTION-BRIEF.md` into the project.** Sections: request and classification, decisions
+(platform, size, length, theme, song window) with one-line reasons, the moment-to-component map,
+and the beat table as the real `states()` / `cursor()` code with `use:` and `target:` rows, plus a
+readable table (bar.beat, time, component, what changes, sound). Then self-check it with the
+engine's validator (`scripts/check_brief.mjs PROJECT`): components and props valid, targets exist,
+holds and budget respected, loop seam rows present, a change on every beat. Fix issues before
+showing it.
+
+**5. Approval gate, then hand-off.** Show the brief; no build until the user approves or asks for
+changes. On approval, `motion-video` copies the tables from the brief into `index.html`, runs
+beat stills (and reviews the contact sheet), previews and renders.
+
+**Extension points.** The question list and the assessment checklist are sections in
+`skills/motion-design/references/planner.md` that later sub-projects extend: B adds the platform
+preset question and safe-zone checks, C sync confidence and nudging, D intro/end cards, E real
+screens.
+
+**Tested by** a baseline/GREEN pair (a fresh agent with and without the skill on the same request
+must show: routing said out loud, one question at a time, component proposals from the catalog, a
+validated MOTION-BRIEF.md, a stop for approval) and by unit tests for `check_brief.mjs`.
+
 ## Architecture
 
 ```
@@ -108,6 +163,7 @@ skills/motion-video/components/
   gallery/               a project that plays every component (used by tests and thumbnails)
   docs-images/           generated gallery thumbnails referenced by CATALOG.md
 scripts/build_catalog.mjs   regenerates CATALOG.md (+ --check mode for tests)
+scripts/check_brief.mjs     validates a project's MOTION-BRIEF.md tables with the engine's validator
 scripts/gallery_stills.mjs  regenerates docs-images from the gallery
 ```
 
@@ -192,7 +248,9 @@ time; render and seam check pass; contact sheet reviewed.
 1. Core: engine, helpers, modifiers, validation, index generation, catalog generator, gallery
    harness, template integration.
 2. Controls (7). 3. Feedback (5). 4. Data (8). 5. App chrome (8).
-6. Docs (recipes, authoring guide, skill + CLAUDE.md/README/wiki updates), proof demo 04.
+6. Planner: `planner.md`, motion-design v2 flow, `check_brief.mjs`, baseline/GREEN behaviour test.
+7. Docs (recipes, authoring guide, motion-video + CLAUDE.md/README/wiki updates), proof demo 04
+   planned through the new planner end to end.
 
 ## Roadmap (later sub-projects, each with its own spec and plan)
 
