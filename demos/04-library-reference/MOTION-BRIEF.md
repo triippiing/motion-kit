@@ -50,9 +50,9 @@ check, toast rise and unblur, command filtering.
 | 8 | 3.1 | 4.404 | player | grows to a card, art and title; cursor to play (8.5) | |
 | 9 | 3.2 | 4.954 | player | presses play, play morphs to pause | click |
 | 10 | 3.3 | 5.504 | player (cont.) | playing; cursor grabs the thumb (10.5) | click |
-| 11 | 3.4 | 6.055 | player (cont.) | drags the thumb right, releases (11.5), playback resumes | |
+| 11 | 3.4 | 6.055 | player (cont.) | drags the thumb right (11), releases there (11.5), playback resumes | |
 | 12 | 4.1 | 6.605 | slider | becomes a volume slider; cursor on the thumb, grabs (12.5) | click |
-| 13 | 4.2 | 7.156 | slider | drags past max, track stretches, springs back on release (13.5) | |
+| 13 | 4.2 | 7.156 | slider | drags past max (13), track stretches, releases (13.5), springs back | |
 | 14 | 4.3 | 7.706 | toggle | collapses into a toggle; cursor to the knob (14.5) | |
 | 15 | 4.4 | 8.257 | toggle | presses, knob flips with a two-edge stretch (strong .88) | click |
 | 16 | 5.1 | 8.807 | tabs | Day / Week / Month, Day active (strong .68); cursor to Month (16.5) | |
@@ -95,9 +95,11 @@ const cursor = () => [
   { at: 9,    target: 'play', press: true },
   { at: 10,   target: 'thumb' },
   { at: 10.5, target: 'thumb', press: 'down' },
+  { at: 11,   target: 'thumb', dx: 200 },
   { at: 11.5, target: 'thumb', dx: 200, press: 'up' },
   { at: 12,   target: 'thumb' },
   { at: 12.5, target: 'thumb', press: 'down' },
+  { at: 13,   target: 'thumb', dx: 320 },
   { at: 13.5, target: 'thumb', dx: 320, press: 'up' },
   { at: 14.5, target: 'knob' },
   { at: 15,   target: 'knob', press: true },

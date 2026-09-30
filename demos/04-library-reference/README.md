@@ -20,7 +20,7 @@ song (or any song you have the rights to; a different song re-times the piece, t
 
 ```bash
 S=~/.claude/skills/motion-video/scripts
-python3 $S/analyze_song.py "<your song>" --out demos/04-library-reference --bars 7 --states 12 --start-bar 21
+python3 $S/analyze_song.py "<your song>" --out demos/04-library-reference --bars 7 --states 14 --start-bar 21
 node $S/beat_stills.mjs demos/04-library-reference     # one still per beat + loop-seam check
 node $S/render.mjs demos/04-library-reference --serve  # watch live with audio (?play, click)
 node $S/render.mjs demos/04-library-reference          # final: demos/04-library-reference/out/video.mp4
@@ -30,8 +30,8 @@ node $S/render.mjs demos/04-library-reference          # final: demos/04-library
 
 | | Demo 1 (`01-reference`) | Demo 4 (`04-library-reference`) |
 |---|---|---|
-| Project-specific JS, non-blank lines | 290 (the whole `<script type="module">`) | 58 (between the table markers) |
-| Same, excluding comment-only lines | 269 | 43 |
+| Project-specific JS, non-blank lines | 290 (the whole `<script type="module">`) | 60 (between the table markers) |
+| Same, excluding comment-only lines | 269 | 45 |
 | Custom CSS layers | yes (hand-written per state) | none |
 | Build time, approved plan to final MP4 | not recorded | about 3 minutes wall clock |
 

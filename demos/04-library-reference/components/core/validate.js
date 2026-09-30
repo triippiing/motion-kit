@@ -77,6 +77,8 @@ const withDefaults = (row, registry) => {
   for (const [k, [, def]] of Object.entries(props)) if (!Object.hasOwn(full, k)) full[k] = def;
   return full;
 };
+// Where a cursor row points: target/x/y plus its offset (an omitted dx/dy is 0).
+const spot = (c) => canon({ target: c.target ?? null, x: c.x ?? null, y: c.y ?? null, dx: c.dx ?? 0, dy: c.dy ?? 0 });
 const same = (a, b, registry) => canon({ ...withDefaults(a, registry), at: 0 }) === canon({ ...withDefaults(b, registry), at: 0 });
 
 export function validate({ states, cursor, registry, song, loop = true, strict = false }) {
@@ -117,14 +119,14 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
   if (!Array.isArray(cursor) || !cursor.length) errors.push('cursor() must return at least one row');
   else {
     if (cursor[0].at !== 0) errors.push('the first cursor row must be at beat 0');
-    let open = null, openRow = -1;
+    let open = null, openRow = -1, openIdx = -1;
     cursor.forEach((c, i) => {
       if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${c.at})`);
       for (const k of Object.keys(c)) if (!CURSOR_KEYS.has(k)) errors.push(`unknown cursor key "${k}" at beat ${c.at} (keys: ${[...CURSOR_KEYS].join(', ')})`);
       if (!c.target && !(typeof c.x === 'number' && typeof c.y === 'number')) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
       if (c.press !== undefined && ![true, 'down', 'up'].includes(c.press)) errors.push(`press at beat ${c.at} should be true, 'down' or 'up'`);
       if (c.sound !== undefined && c.sound !== 'key') errors.push(`sound at beat ${c.at} should be 'key'`);
-      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openRow = rows.indexOf(pressRow(rows, c)); }
+      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${c.at} has no 'down' before it`);
         else {
@@ -132,7 +134,13 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
           // 'down' can sit on a later row than an untargeted 'up').
           const upRow = rows.indexOf(pressRow(rows, c));
           if (upRow !== openRow) errors.push(`drag from beat ${open} to ${c.at} crosses a state change at beat ${rows[Math.max(openRow, upRow)].row.at}; keep drags inside one row`);
+          // A cursor row starts moving at its own beat, so the 'up' row's move lands after the release:
+          // the drag itself needs a moving row strictly between the two presses.
+          if (!cursor.slice(openIdx + 1, i).some((m) => spot(m) !== spot(cursor[openIdx])))
+            warnings.push(`drag from beat ${open} to ${c.at} never moves: add a cursor row between the press 'down' and the 'up' that moves the cursor (the 'up' row's own move starts only after the release)`);
         }
+        if (i && spot(c) !== spot(cursor[i - 1]))
+          warnings.push(`press 'up' at beat ${c.at} also moves the cursor, but that move starts only after the release; give the 'up' row the same position as the row before it`);
         open = null;
       }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
