@@ -70,7 +70,8 @@ Details worth knowing:
   sourced platform limits are in `skills/motion-video/presets.json` (`source`, `checked`, and an `estimated`
   list the manifest copies). Discord is 20 MB free and 1 GB with Nitro. Export never overwrites
   `out/video.mp4`; it reuses it (or a shape render) only when its `.render.json` stamp matches exactly, it
-  lasts the loop, and it is newer than every project file. Over a size cap it re-encodes two-pass and, if that
+  lasts the loop, and no project file changed after that render started (the stamp's `sources`; the stamp's
+  renderer id covers render.mjs, the engine, ffmpeg's version and Playwright's Chromium). Over a size cap it re-encodes two-pass and, if that
   bitrate is too low, steps the short side down (1080, 720, 540); if the cap still cannot be met it stops with `error: ...`,
   exit 2 when the numbers rule it out and exit 1 when an encode missed it, and writes nothing to
   `out/exports`. Every preset with audio aims at -14 LUFS / -1 dBTP and warns when a file misses by more

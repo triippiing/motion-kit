@@ -113,8 +113,9 @@ file (this call's), then the manifest path.
 `DIR/out/shapes/<W>x<H>/video.mp4`, with the stage swapped in as the page is served (`project.json` on
 disk is never changed). Export never overwrites `DIR/out/video.mp4`. It reuses `out/video.mp4` (for the
 design size) or an earlier shape render only when its `.render.json` stamp matches exactly (a full-quality,
-full-loop render at that size by the current renderer), it lasts the loop, and it is newer than every
-project file. Anything else (a preview, a `--from`/`--to` section, an old render) is rendered again.
+full-loop render at that size by the current renderer: render.mjs, the engine, ffmpeg's version and
+Playwright's Chromium), it lasts the loop, and no project file changed after that render started (the
+stamp's `sources`, taken at render start, so an edit saved mid-render counts). Anything else (a preview, a `--from`/`--to` section, an old render) is rendered again.
 
 **Encoding.** Each preset is encoded from its size's render: frame rate dropped to the preset's fps,
 scaled, H.264 at the preset's CRF (capped by its maxrate), AAC. Over the preset's max length is a warning,

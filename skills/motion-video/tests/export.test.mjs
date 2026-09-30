@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
-import { beatTime, FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
+import { beatTime, FFMPEG, newestSource, render, rendererId, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
 import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
@@ -64,7 +64,7 @@ function lufs(file) {
 // A stand-in render (made with ffmpeg, not render.mjs) gets the stamp a full export-quality render would have.
 async function standInStamp(dir, file, stage) {
   const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
-  writeFileSync(stampPath(file), JSON.stringify(await renderStamp(dir, { stage, sub: 4, preview: false, song })));
+  writeFileSync(stampPath(file), JSON.stringify(await renderStamp(dir, { stage, sub: 4, preview: false, song, sources: await newestSource(dir) })));
 }
 function standIn(dir, file, seconds, { size = '128x128', noise = false } = {}) {
   mkdirSync(path.dirname(file), { recursive: true });
@@ -96,8 +96,9 @@ test('stage override does not touch project.json or out/video.mp4', async () => 
   assert.ok(!existsSync(path.join(dir, 'out', 'video.mp4')), 'default render untouched');
   // The render is stamped with how it was made; a 1-subframe render is not good enough for export.
   const stamp = JSON.parse(readFileSync(stampPath(out), 'utf8'));
-  assert.deepEqual({ ...stamp, renderer: 'x' }, { stage: [216, 384], sub: 1, from: null, to: null, preview: false,
-    loop: { duration_sec: loopSec(dir), frames: JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.frames }, renderer: 'x' });
+  assert.deepEqual({ ...stamp, renderer: 'x', sources: 0 }, { stage: [216, 384], sub: 1, from: null, to: null, preview: false,
+    loop: { duration_sec: loopSec(dir), frames: JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.frames }, renderer: 'x', sources: 0 });
+  assert.equal(stamp.sources, await newestSource(dir), 'sources: the newest project file when the render started');
   assert.equal(await reusableRender(dir, out, [216, 384]), false, '--sub 1 render not reused');
   // The served project.json keeps the file's other keys and swaps the stage.
   const { server, url } = await serve(dir, 0, { stage: [216, 384] });
@@ -184,7 +185,7 @@ test('a render is reused only with a matching stamp, the whole loop and nothing 
   const f = path.join(dir, 'out', 'video.mp4');
   standIn(dir, f, D);
   assert.equal(await reusableRender(dir, f, [128, 128]), false, 'no stamp');
-  const stamp = await renderStamp(dir, { stage: [128, 128], sub: 4, preview: false, song });
+  const stamp = await renderStamp(dir, { stage: [128, 128], sub: 4, preview: false, song, sources: await newestSource(dir) });
   const cases = { section: { from: 0, to: 1 }, sub1: { sub: 1 }, preview: { preview: true, sub: 1 }, size: { stage: [256, 256] },
     renderer: { renderer: 'an older render.mjs' }, loop: { loop: { ...stamp.loop, frames: stamp.loop.frames + 1 } } };
   for (const [name, change] of Object.entries(cases)) {
@@ -198,15 +199,41 @@ test('a render is reused only with a matching stamp, the whole loop and nothing 
   assert.equal(await reusableRender(dir, f, [128, 128]), false, 'half-length video');
   standIn(dir, f, D);
   writeFileSync(stampPath(f), JSON.stringify(stamp));
+  // A project file saved during the render (after it started, before the video was written) makes it stale,
+  // even though the video file itself is newer.
+  const during = new Date(stamp.sources + 1000), done = new Date(stamp.sources + 2000);
+  utimesSync(path.join(dir, 'index.html'), during, during);
+  utimesSync(f, done, done);
+  assert.equal(await reusableRender(dir, f, [128, 128]), false, 'project edited during the render');
+  writeFileSync(stampPath(f), JSON.stringify({ ...stamp, sources: await newestSource(dir) }));
+  assert.equal(await reusableRender(dir, f, [128, 128]), true, 'a render started after that edit is fine');
   const later = new Date(Date.now() + 5000);
   utimesSync(path.join(dir, 'index.html'), later, later);
   assert.equal(await reusableRender(dir, f, [128, 128]), false, 'project edited after the render');
+  writeFileSync(stampPath(f), JSON.stringify({ ...stamp, sources: undefined }));
+  assert.equal(await reusableRender(dir, f, [128, 128]), false, 'an old stamp without sources');
   // Export then renders its own copy and leaves the user's out/video.mp4 alone.
   const bytes = readFileSync(f);
   const m = await exportProject(dir, { for: ['discord'], log: () => {} });
   assert.deepEqual(m.renders, [{ size: '128x128', shapes: ['design'], path: path.join('out', 'shapes', '128x128', 'video.mp4'), reused: false }]);
   assert.deepEqual(readFileSync(f), bytes, 'out/video.mp4 untouched');
   assert.equal(await reusableRender(dir, path.join(dir, m.renders[0].path), [128, 128]), true, "export's own render is reusable next time");
+});
+
+test('the renderer id changes with ffmpeg or Chromium, so their renders are not reused', async () => {
+  const dir = makeProject({ bars: 2, size: '128x128' });
+  const base = await rendererId(dir, { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1200/chrome' });
+  assert.equal(await rendererId(dir, { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1200/chrome' }), base);
+  assert.notEqual(await rendererId(dir, { ffmpeg: 'ffmpeg version 8.1', chromiumPath: '/x/chromium-1200/chrome' }), base);
+  assert.notEqual(await rendererId(dir, { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1201/chrome' }), base);
+  assert.notEqual(await rendererId(dir), base, 'the real ffmpeg line and Chromium path are hashed');
+  // A stamp from another renderer id is not reused.
+  const f = path.join(dir, 'out', 'video.mp4');
+  standIn(dir, f, loopSec(dir));
+  await standInStamp(dir, f, [128, 128]);
+  assert.equal(await reusableRender(dir, f, [128, 128]), true);
+  writeFileSync(stampPath(f), JSON.stringify({ ...JSON.parse(readFileSync(stampPath(f), 'utf8')), renderer: base }));
+  assert.equal(await reusableRender(dir, f, [128, 128]), false);
 });
 
 test('a missed loudness target is a warning naming measured vs target', () => {

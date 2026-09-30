@@ -14,10 +14,11 @@
 // so the blur across the seam is continuous; a one-off piece (project.json "loop": false)
 // clamps them to [0, D] instead, so its end never blurs into its start. --preview is half size, 1 subframe.
 import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -157,18 +158,42 @@ export async function projectLoops(root) {
   try { return JSON.parse(await readFile(path.join(root, 'project.json'), 'utf8')).loop !== false; } catch { return true; }
 }
 
+// Newest mtime (ms) of the project's own files (everything outside out/ and dotfiles).
+export async function newestSource(root) {
+  let newest = 0;
+  const walk = async (d) => {
+    for (const e of await readdir(d, { withFileTypes: true })) {
+      if (e.name.startsWith('.') || (d === root && e.name === 'out')) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) await walk(p);
+      else newest = Math.max(newest, (await stat(p)).mtimeMs);
+    }
+  };
+  await walk(path.resolve(root));
+  return newest;
+}
+
+// The first line of `ffmpeg -version` (read once): a different ffmpeg can encode the same frames differently.
+let ffmpegVersion;
+const ffmpegLine = () => (ffmpegVersion ??= promisify(execFile)(FFMPEG, ['-version'])
+  .then((r) => r.stdout.split('\n')[0].trim(), () => 'ffmpeg unknown'));
+
 // What produced a render, written beside it as <out>.render.json so export.mjs can tell a full-quality,
 // full-loop render made by this renderer from a preview, a section or a stale one. `renderer` hashes this
-// file and the project's components/core/engine.js (the code that turns the tables into frames).
-export async function rendererId(root) {
+// file, the project's components/core/engine.js (the code that turns the tables into frames), the ffmpeg
+// version line and Playwright's Chromium path (which names its revision; reading it launches nothing).
+// The options override the ffmpeg line or the Chromium path (tests).
+export async function rendererId(root, { ffmpeg, chromiumPath } = {}) {
   const h = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url)));
   try { h.update(await readFile(path.join(root, 'components', 'core', 'engine.js'))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  h.update(`\0${ffmpeg ?? await ffmpegLine()}\0${chromiumPath ?? chromium.executablePath()}`);
   return h.digest('hex').slice(0, 16);
 }
 
-export async function renderStamp(root, { stage, sub, from = null, to = null, preview = false, song }) {
+// `sources` is newestSource() taken when the render started, so a file saved during the render makes it stale.
+export async function renderStamp(root, { stage, sub, from = null, to = null, preview = false, song, sources }) {
   return { stage, sub, from, to, preview, loop: { duration_sec: song.loop.duration_sec, frames: song.loop.frames },
-    renderer: await rendererId(path.resolve(root)) };
+    renderer: await rendererId(path.resolve(root)), sources };
 }
 
 export const stampPath = (out) => `${out}.render.json`;
@@ -183,6 +208,7 @@ export async function render(dir, opts = {}) {
     throw new UsageError(`--guides output must not be named video.mp4 or preview.mp4 (those are the renders export reuses); got ${opts.out}`);
   if (opts.guides && opts.out && existsSync(stampPath(path.resolve(opts.out))))
     throw new UsageError(`--guides output ${opts.out} has a render stamp (${path.basename(stampPath(opts.out))}); pick another --out so a render is never overwritten by guides`);
+  const sources = await newestSource(root);   // before anything is read, so an edit during the render counts as newer
   const proj = await openProject(root, { workers: opts.workers ?? 4, stage: stageOpt });
   try {
     const { song, pages, errors, stage } = proj;
@@ -254,7 +280,7 @@ export async function render(dir, opts = {}) {
     await rename(part, out);
     // A guides render is never stamped: export.mjs reuses only stamped renders, and guides must never reach an export.
     if (!opts.guides) await writeFile(stampPath(out), JSON.stringify(await renderStamp(root, { stage: [stage.width, stage.height], sub,
-      from: opts.from ?? null, to: opts.to ?? null, preview, song }), null, 2) + '\n');
+      from: opts.from ?? null, to: opts.to ?? null, preview, song, sources }), null, 2) + '\n');
     } catch (e) { ff.kill('SIGKILL'); await rm(part, { force: true }); throw e; }
     if (process.stderr.isTTY) process.stderr.write('\n');
     return out;

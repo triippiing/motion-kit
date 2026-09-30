@@ -7,7 +7,7 @@
 // rendered once into out/shapes/<W>x<H>/video.mp4 via render.mjs's stage override (project.json is never
 // rewritten, and the user's out/video.mp4 is never overwritten). An existing render (out/video.mp4 for the
 // design size, or the shapes/ one) is reused only when its render.json stamp says it is a full-quality,
-// full-loop render at that size by the current renderer, and it is newer than every project file. Each preset is then
+// full-loop render at that size by the current renderer, and no project file changed after it started. Each preset is then
 // encoded from its shape's render (fps drop, scale, CRF capped by maxrate, two-pass loudnorm to the preset's LUFS and
 // true peak, or no audio with --silent) into out/exports/<preset>.mp4. The AAC audio is encoded on its own and muxed in;
 // when its true peak overshoots the ceiling (AAC does on sharp transients) it steps down a ladder of AAC coders
@@ -30,7 +30,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { beatTime, render, renderStamp, stampPath, UsageError } from './render.mjs';
+import { beatTime, newestSource, render, renderStamp, stampPath, UsageError } from './render.mjs';
 import { designStage, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
 import { briefCommercial } from './check_brief.mjs';
 import { aacWithinPeak, capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
@@ -45,33 +45,20 @@ const GIF_TRIES = 4;
 
 export { loadPresets };
 
-// Newest mtime of the project's own files (everything outside out/ and dotfiles).
-async function newestSource(root) {
-  let newest = 0;
-  const walk = async (d) => {
-    for (const e of await readdir(d, { withFileTypes: true })) {
-      if (e.name.startsWith('.') || (d === root && e.name === 'out')) continue;
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) await walk(p);
-      else newest = Math.max(newest, (await stat(p)).mtimeMs);
-    }
-  };
-  await walk(root);
-  return newest;
-}
-
 // Whether `file` can stand in for a fresh export render at `stage`: its stamp matches exactly what
 // render.mjs would write for a full-quality (4 subframes, not preview) full-loop render at that stage by the
-// current renderer, its video lasts the loop (within one frame), and it is newer than every project file.
+// current renderer, its video lasts the loop (within one frame), and no project file is newer than the moment
+// the render started (the stamp's `sources`, compared on its own).
 export async function reusableRender(dir, file, stage) {
   const root = path.resolve(dir);
   if (!existsSync(file) || !existsSync(stampPath(file))) return false;
   const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
   let stamp;
   try { stamp = JSON.parse(await readFile(stampPath(file), 'utf8')); } catch { return false; }
-  const want = await renderStamp(root, { stage, sub: 4, preview: false, song });
-  if (JSON.stringify(stamp) !== JSON.stringify(want)) return false;
-  if ((await stat(file)).mtimeMs < await newestSource(root)) return false;
+  const { sources, ...made } = stamp ?? {};
+  const { sources: _, ...want } = await renderStamp(root, { stage, sub: 4, preview: false, song });
+  if (JSON.stringify(made) !== JSON.stringify(want)) return false;
+  if (!(Number(sources) >= await newestSource(root))) return false;
   const p = await probe(file);
   return p.width === stage[0] && p.height === stage[1] && Math.abs(p.videoDuration - song.loop.duration_sec) <= 1 / song.fps + 1e-6;
 }
