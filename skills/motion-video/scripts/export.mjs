@@ -22,7 +22,8 @@ import path from 'node:path';
 import { beatTime, render, renderStamp, stampPath, UsageError } from './render.mjs';
 import { capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
 
-// A size cap that cannot be met: bad input for this project (exit 2), but not a usage mistake.
+// A size cap the numbers show cannot be met before encoding: bad input for this project (exit 2), but not a
+// usage mistake. A cap missed only after encoding (two-pass retry, GIF tries, webm/jpg check) is a plain Error (exit 1).
 export class CapError extends UsageError {}
 
 // The poster frame: beat 1 plus half a beat, after the first beat's motion has settled.
@@ -188,7 +189,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
     // Never ship a file over the cap: formats without a fitting strategy just check it.
     const checkCap = async (where) => {
       const bytes = (await stat(where.staged)).size;
-      if (cap && bytes > capBytes(cap)) throw new CapError(`${name}: ${path.basename(where.final)} is ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
+      if (cap && bytes > capBytes(cap)) throw new Error(`${name}: ${path.basename(where.final)} is ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
     };
     if (outputs.includes('mp4')) {
       const where = at('mp4'), opts = { size, fps: p.fps, video: p.video, audio: p.audio, silent: noAudio, af };
@@ -199,7 +200,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
         // Over the cap at CRF: two-pass at the bitrate that fills it; one retry aiming lower if the container overshoots.
         const crfMB = (bytes / MB).toFixed(2);
         for (const headroom of [0.97, 0.93]) {
-          const fit = fitToCap({ duration: src.duration, maxMB: cap, audioKbps: noAudio ? 0 : p.audio.kbps, sizes: capSizes(size), headroom });
+          const fit = fitToCap({ duration: src.duration, maxMB: cap, audioKbps: noAudio ? 0 : p.audio.kbps ?? 128, sizes: capSizes(size), headroom });
           if (fit.error) throw new CapError(`${name}: ${fit.error}`);
           await encode(input, where.staged, { ...opts, size: fit.size, videoKbps: fit.videoKbps });
           bytes = (await stat(where.staged)).size;
