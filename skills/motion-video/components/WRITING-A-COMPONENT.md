@@ -312,7 +312,7 @@ From the `motion-video` folder:
 
 ```bash
 node scripts/build_catalog.mjs                        # regenerate components/index.js and CATALOG.md
-node scripts/gallery.mjs '' --only tag --stills       # write components/docs-images/tag.png
+node scripts/gallery.mjs --only tag --stills          # write components/docs-images/tag.png
 ```
 
 Then **look at the thumbnail** (open `components/docs-images/<name>.png`; Claude: Read the image).

@@ -120,7 +120,7 @@ shown settled so the loop seam matches; hover comes from `ctx.targets`; anything
 period from `loopPeriod`.
 
 After adding or changing a component: `node $S/build_catalog.mjs` (regenerates `components/index.js` and
-`CATALOG.md`; `npm test` fails when they are stale), `node $S/gallery.mjs '' --only NAME --stills` (its
+`CATALOG.md`; `npm test` fails when they are stale), `node $S/gallery.mjs --only NAME --stills` (its
 thumbnail; look at it), then `npm test`. `gallery.mjs OUT` without `--stills` writes a project that
 plays every component and edge case.
 

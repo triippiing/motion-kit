@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { gallery } from '../scripts/gallery.mjs';
+import { gallery, parseArgs } from '../scripts/gallery.mjs';
 import { openScene } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
 import { readFileSync } from 'node:fs';
@@ -34,6 +34,22 @@ test('every component renders purely (same DOM whatever came before) and the gal
 
 test('gallery --only with an unknown name is a clear error, exit 2', () => {
   const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), '', '--only', 'nope'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: --only names no known component: nope/);
+});
+
+test('gallery flags: OUT is optional and --only takes the next argument', () => {
+  assert.deepEqual(parseArgs(['--only', 'tabs,dock', '--stills']), { out: null, only: ['tabs', 'dock'], stills: true });
+  assert.deepEqual(parseArgs(['out/g', '--stills']), { out: 'out/g', only: null, stills: true });
+  assert.deepEqual(parseArgs(['--stills', '--only', 'button', 'out/g']), { out: 'out/g', only: ['button'], stills: true });
+  assert.deepEqual(parseArgs(['', '--stills']), { out: null, only: null, stills: true }, 'an empty OUT is no OUT');
+  assert.throws(() => parseArgs(['--only']), /--only needs a comma-separated list of components/);
+  assert.throws(() => parseArgs(['--still']), /unknown option "--still"/);
+  assert.throws(() => parseArgs(['a', 'b']), /one OUT directory at most/);
+});
+
+test('gallery --only x --stills without OUT checks the names first (no OUT called --only)', () => {
+  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), '--only', 'nope', '--stills'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^error: --only names no known component: nope/);
 });

@@ -70,7 +70,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
     const stale = Object.entries(files).filter(([f, s]) => !existsSync(path.join(COMP, f)) || readFileSync(path.join(COMP, f), 'utf8') !== s).map(([f]) => f);
     // The catalog shows each component's thumbnail, so a missing one is stale too.
     stale.push(...list.map((c) => `docs-images/${c.meta.name}.png`).filter((f) => !existsSync(path.join(COMP, f))));
-    if (stale.length) { console.error(`stale: ${stale.join(', ')} (run node scripts/build_catalog.mjs && node scripts/gallery.mjs "" --stills)`); process.exit(1); }
+    if (stale.length) { console.error(`stale: ${stale.join(', ')} (run node scripts/build_catalog.mjs && node scripts/gallery.mjs --stills)`); process.exit(1); }
     console.log(`catalog up to date (${list.length} components)`);
   } else {
     for (const [f, s] of Object.entries(files)) writeFileSync(path.join(COMP, f), s);

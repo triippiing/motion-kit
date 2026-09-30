@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// gallery.mjs OUT [--only a,b] [--stills] -- a project that plays every component in catalog order:
+// gallery.mjs [OUT] [--only a,b] [--stills] -- a project that plays every component in catalog order:
 // a neutral rest shape, each component's example (2 beats each), then each component's edge cases
 // (2 beats each), then back to rest. Starting from rest gives every example a real entrance.
 // --stills writes components/docs-images/<name>.png (480 px) from a settled frame of each example.
@@ -30,10 +30,28 @@ export async function gallery({ only = null } = {}) {
   return { dir, list, plays };
 }
 
+const USAGE = 'usage: gallery.mjs [OUT] [--only a,b] [--stills]';
+// Command-line flags in any order: an optional OUT directory (an empty one is none), --only NAMES, --stills.
+export function parseArgs(argv) {
+  const o = { out: null, only: null, stills: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--stills') o.stills = true;
+    else if (a === '--only') {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith('--')) throw new Error(`--only needs a comma-separated list of components (${USAGE})`);
+      o.only = v.split(',').filter(Boolean);
+    } else if (a.startsWith('--')) throw new Error(`unknown option "${a}" (${USAGE})`);
+    else if (o.out !== null) throw new Error(`one OUT directory at most, got "${o.out}" and "${a}" (${USAGE})`);
+    else o.out = a || null;
+  }
+  return o;
+}
+
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
-  const out = process.argv[2];
-  const oi = process.argv.indexOf('--only');
-  const only = oi > 0 ? (process.argv[oi + 1] ?? '').split(',').filter(Boolean) : null;
+  let args;
+  try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`error: ${e.message}`); process.exit(2); }
+  const { out, only, stills } = args;
   if (only) {
     const names = (await collect()).map((c) => c.meta.name);
     const bad = only.filter((n) => !names.includes(n));
@@ -41,7 +59,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
   }
   const { dir, plays } = await gallery({ only });
   if (out) execFileSync('cp', ['-R', dir + '/.', out]);
-  if (process.argv.includes('--stills')) {
+  if (stills) {
     mkdirSync(path.join(COMP, 'docs-images'), { recursive: true });
     const proj = await openProject(dir, { workers: 1 });
     const song = proj.song;
