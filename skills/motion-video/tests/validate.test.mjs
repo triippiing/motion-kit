@@ -116,8 +116,48 @@ test('a drag must stay inside one row', () => {
   const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }]);
   const bad = run(states, [{ at: 0, x: 0, y: 0 }, { at: 3, x: 0, y: 0, press: 'down' }, { at: 5, x: 9, y: 0, press: 'up' }, { at: 14, x: 0, y: 0 }]);
   assert.match(bad.errors.join('\n'), /drag from beat 3 to 5 crosses a state change at beat 4; keep drags inside one row/);
-  const ok = run(states, [{ at: 0, x: 0, y: 0 }, { at: 1, x: 0, y: 0, press: 'down' }, { at: 3, x: 9, y: 0, press: 'up' }, { at: 14, x: 0, y: 0 }]);
+  const ok = run(states, [{ at: 0, x: 0, y: 0 }, { at: 1, x: 0, y: 0, press: 'down' }, { at: 2, x: 9, y: 0 }, { at: 3, x: 9, y: 0, press: 'up' }, { at: 14, x: 0, y: 0 }]);
   assert.deepEqual(ok.errors, []);
+  assert.deepEqual(ok.warnings, []);
+});
+
+const NEVER_MOVES = /drag from beat 1 to 3 never moves: add a cursor row between the press 'down' and the 'up' that moves the cursor \(the 'up' row's own move starts only after the release\)/;
+const UP_MOVES = /press 'up' at beat 3 also moves the cursor/;
+const dragStates = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }]);
+
+test('a drag whose only move is on the up row warns, strict or not', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'button', press: 'down' }, { at: 3, target: 'button', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  for (const strict of [false, true]) {
+    const r = run(dragStates, cur, { strict });
+    assert.deepEqual(r.errors, []);
+    assert.ok(r.warnings.some((w) => NEVER_MOVES.test(w)), r.warnings.join('\n'));
+    assert.ok(r.warnings.some((w) => UP_MOVES.test(w)), r.warnings.join('\n'));
+  }
+});
+
+test('a drag with a row between that does not change position warns', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 5, y: 5, press: 'down' }, { at: 2, x: 5, y: 5, sound: 'key' }, { at: 3, x: 5, y: 5, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  const r = run(dragStates, cur);
+  assert.ok(r.warnings.some((w) => NEVER_MOVES.test(w)), r.warnings.join('\n'));
+  assert.ok(!r.warnings.some((w) => UP_MOVES.test(w)));
+});
+
+test('a drag with a move row between and a still up row is clean', () => {
+  const states = loopOk([{ at: 0, use: 'toast' }, { at: 4, use: 'button' }]);
+  for (const move of [{ dx: 40 }, { dy: -10 }, { x: 9, y: 5 }, { target: 'action' }]) {
+    const mid = { at: 2, target: 'toast', ...move };
+    const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'toast', press: 'down' }, mid, { ...mid, at: 3, press: 'up' }, { at: 14, x: 0, y: 0 }];
+    const r = run(states, cur);
+    assert.deepEqual(r.errors, [], JSON.stringify(move));
+    assert.deepEqual(r.warnings, [], JSON.stringify(move));
+  }
+});
+
+test('an explicit dx: 0 is the same position as no dx', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'button', press: 'down' }, { at: 2, target: 'button', dx: 0 }, { at: 3, target: 'button', dx: 0, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  const r = run(dragStates, cur);
+  assert.ok(r.warnings.some((w) => NEVER_MOVES.test(w)));
+  assert.ok(!r.warnings.some((w) => UP_MOVES.test(w)));
 });
 
 test('an inherited name is an unknown component, not a crash', () => {

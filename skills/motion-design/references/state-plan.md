@@ -86,6 +86,7 @@ const cursor = () => [
   { at: 9,    target: 'play', press: true },
   { at: 10,   target: 'thumb' },
   { at: 10.5, target: 'thumb', press: 'down' },
+  { at: 11,   target: 'thumb', dx: 320 },
   { at: 11.5, target: 'thumb', dx: 320, press: 'up' },
   { at: 12.5, target: 'knob' },
   { at: 13,   target: 'knob', press: true },
