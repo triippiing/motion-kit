@@ -41,10 +41,10 @@
   .file { display:flex; align-items:center; justify-content:center; gap:12px; width:320px; height:72px; box-sizing:border-box;
           border-radius:16px; background:var(--surface); border:2px solid var(--line); font-size:24px; font-weight:600; color:var(--ink); }
   .mark { display:grid; place-items:center; border-radius:50%; background:var(--pos, var(--accent)); color:var(--surface); }
-  .day { position:absolute; top:84px; width:106.857px; height:196px; box-sizing:border-box; border-radius:20px;
+  .day { position:absolute; top:84px; width:121.143px; height:196px; box-sizing:border-box; border-radius:20px;
          background:var(--canvas); border:2px solid var(--line); }
-  .day .wd { position:absolute; left:16px; top:16px; font-size:17px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
-  .day .dn { position:absolute; left:16px; top:42px; font-size:32px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .day .wd { position:absolute; left:16px; top:14px; font-size:22px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .day .dn { position:absolute; left:16px; top:46px; font-size:32px; font-weight:600; font-variant-numeric:tabular-nums; }
   .day .ring { position:absolute; inset:-2px; border-radius:20px; border:2px solid var(--accent); box-shadow:inset 0 0 0 2px var(--accent); opacity:0; }
   .dock-item { position:absolute; top:0; width:150px; height:150px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
                font-size:21px; font-weight:600; letter-spacing:.02em; }
@@ -96,7 +96,7 @@
             <svg width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M7 14.5 L12 19.5 L21 9"/></svg>
           </div>
           <div id="ch-t1" class="abs" style="left:156px;top:130px;font-size:28px;font-weight:600">payslip-march.pdf read.</div>
-          <div id="ch-t2" class="abs line num" style="left:156px;top:174px">Net pay £3,200 · imported 28 Mar</div>
+          <div id="ch-t2" class="abs line num" style="left:156px;top:174px">Net pay £3,200 · imported 25 Mar</div>
         </div>
       </div>
 
@@ -130,21 +130,21 @@
 
       <!-- calendar 900x320 (surface): a week of #calendar-grid -->
       <div class="layer" data-state="calendar">
-        <div class="box" style="width:900px;height:320px">
+        <div class="box" style="width:1000px;height:320px">
           <div class="abs k" style="left:40px;top:38px">March</div>
-          <div class="abs line num" style="right:40px;top:34px;font-size:22px">26 Mar – 1 Apr</div>
-          <div class="day" style="left:40px"><span class="wd">Mon</span><span class="dn">26</span></div>
-          <div class="day" style="left:158.857px"><span class="wd">Tue</span><span class="dn">27</span></div>
-          <div class="day" style="left:277.714px"><span id="c-pay" class="ring"></span><span class="wd">Wed</span><span class="dn">28</span>
-            <span id="c-badge" class="abs" style="left:14px;top:146px;padding:6px 9px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:14px;font-weight:700;letter-spacing:.04em">PAYDAY</span></div>
-          <div class="day" style="left:396.571px"><span class="wd">Thu</span><span class="dn">29</span></div>
-          <div id="c-fri" class="day" style="left:515.429px"><span id="c-sel" class="abs" style="inset:-2px;border-radius:20px;border:2px solid var(--accent);background:var(--accent-soft);opacity:0"></span>
-            <span id="c-hov" class="ring" style="box-shadow:none"></span><span class="wd" style="z-index:1">Fri</span><span class="dn" style="z-index:1">30</span>
+          <div class="abs line num" style="right:40px;top:32px;font-size:24px">23 to 29 Mar</div>
+          <div class="day" style="left:40px"><span class="wd">Mon</span><span class="dn">23</span></div>
+          <div class="day" style="left:173.143px"><span class="wd">Tue</span><span class="dn">24</span></div>
+          <div class="day" style="left:306.286px"><span id="c-pay" class="ring"></span><span class="wd">Wed</span><span class="dn">25</span>
+            <span id="c-badge" class="abs" style="left:12px;top:140px;padding:6px 8px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:18px;font-weight:700;letter-spacing:.03em">PAYDAY</span></div>
+          <div class="day" style="left:439.429px"><span class="wd">Thu</span><span class="dn">26</span></div>
+          <div id="c-fri" class="day" style="left:572.571px"><span id="c-sel" class="abs" style="inset:-2px;border-radius:20px;border:2px solid var(--accent);background:var(--accent-soft);opacity:0"></span>
+            <span id="c-hov" class="ring" style="box-shadow:none"></span><span class="wd" style="z-index:1">Fri</span><span class="dn" style="z-index:1">27</span>
             <span id="c-rent" class="abs" style="left:10px;right:10px;top:112px;height:68px;border-radius:12px;background:var(--track);opacity:0">
-              <span class="abs" style="left:12px;top:8px;font-size:16px;font-weight:600;color:var(--muted)">Rent</span>
-              <span class="abs num" style="left:12px;top:32px;font-size:22px;font-weight:600">£850</span></span></div>
-          <div class="day" style="left:634.286px;background:var(--track)"><span class="wd">Sat</span><span class="dn">31</span></div>
-          <div class="day" style="left:753.143px;background:var(--track);opacity:.4"><span class="wd">Sun</span><span class="dn">1</span></div>
+              <span class="abs" style="left:12px;top:6px;font-size:20px;font-weight:600;color:var(--muted)">Rent</span>
+              <span class="abs num" style="left:12px;top:32px;font-size:24px;font-weight:600">£850</span></span></div>
+          <div class="day" style="left:705.714px;background:var(--track)"><span class="wd">Sat</span><span class="dn">28</span></div>
+          <div class="day" style="left:838.857px;background:var(--track)"><span class="wd">Sun</span><span class="dn">29</span></div>
         </div>
       </div>
 
@@ -240,7 +240,7 @@ const states = () => [
   { at: 4,       name: 'chip',       w: 660, h: 300, ...CARD },
   { at: 6,       name: 'goal',       w: 620, h: 280, ...CARD },
   { at: 8,       name: 'surplus',    w: 700, h: 340, ...CARD },
-  { at: 11,      name: 'calendar',   w: 900, h: 320, ...CARD },
+  { at: 11,      name: 'calendar',   w: 1000, h: 320, ...CARD },
   { at: 14,      name: 'statuspill', w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
   { at: 15,      name: 'statuspill', w: 660, h: 112, r: 56, fill: 'surface', ink: 'ink' },
   { at: 16,      name: 'dock',       w: 780, h: 150, r: 40, fill: 'surface', ink: 'ink' },
@@ -266,14 +266,14 @@ const cursor = () => [
   { at: 3.3,     x: 236,  y: 250 },                   // out of the way while it reads
   { at: 5,       x: 214,  y: 176 },                   // drift toward the next card
   { at: 9.2,     x: 190,  y: 50 },                    // onto the spare segment
-  { at: 11.2,    x: 150,  y: 80 },                    // onto Fri 30
-  { at: 13,      x: 150,  y: 80,  press: true },      // select the day
+  { at: 11.2,    x: 162,  y: 84 },                    // onto Fri 27
+  { at: 13,      x: 162,  y: 84,  press: true },      // select the day
   { at: 13.5,    x: 150,  y: 118 },                   // off the pill
   { at: 16,      x: 30,   y: -30 },                   // to Calendar in the dock
   { at: 17,      x: 30,   y: -30, press: true },      // press Calendar
   { at: 18.2,    x: 262,  y: 6 },                     // hover the newest point
-  { at: 22.6,    x: 260,  y: 130 },                   // onto Add goal
-  { at: 24,      x: 260,  y: 130, press: true },      // press Add goal
+  { at: 22.6,    x: 284,  y: 142 },                   // onto Add goal
+  { at: 24,      x: 284,  y: 142, press: true },      // press Add goal
   { at: 24.4,    x: 130,  y: 34 },                    // rest on the button while it works
   { at: END - 2, ...HOME },
 ];
