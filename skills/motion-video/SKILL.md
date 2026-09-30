@@ -80,7 +80,7 @@ node scripts/export.mjs DIR --for reels,x,discord,web [--silent]
 live in `presets.json` at the root of this skill. Each platform limit there was researched from the
 platform's own docs and carries a `source` URL and a `checked` date (`web` and `gif` are house defaults,
 with no source); values that could not be sourced
-(most loudness targets and several safe zones) are listed in the preset's `estimated` field, which the
+(every loudness target, and the TikTok and Shorts safe zones; Reels' zones come from Meta's ads guidance) are listed in the preset's `estimated` field, which the
 manifest copies for every file.
 
 | Group | Preset | Size | fps | Max length | Size cap | Audio |
@@ -124,7 +124,7 @@ first) and the manifest records the step-down. If no size works, the export stop
 | Exit | Meaning |
 |---|---|
 | 2 | the cap is impossible on the numbers: at that length, after the audio's share, even 540 short side would be under its quality floor. The message says what to change (raise the cap, shorten the piece, or `--silent`) |
-| 1 | the cap was still missed after encoding (two-pass, GIF narrowing, or a WebM or JPG over it) |
+| 1 | the cap was still missed after encoding (two-pass, GIF narrowing, or a WebM or JPG over it), or any other runtime failure (an ffmpeg or render error) |
 
 Both print `error: ...`. Every file is staged first, so a failed export writes nothing into
 `out/exports` (no files, no manifest). A GIF over its cap is narrowed by 0.8 up to 4 times.

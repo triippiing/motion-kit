@@ -70,13 +70,14 @@ Details worth knowing:
   sourced platform limits are in `skills/motion-video/presets.json` (`source`, `checked`, and an `estimated`
   list the manifest copies). Discord is 20 MB free and 1 GB with Nitro. Export never overwrites
   `out/video.mp4`; it reuses it (or a shape render) only when its `.render.json` stamp matches exactly, it
-  lasts the loop, and it is newer than every project file. Over a size cap it encodes two-pass and steps the
-  resolution down (1080, 720, 540 short side); if the cap still cannot be met it stops with `error: ...`,
+  lasts the loop, and it is newer than every project file. Over a size cap it re-encodes two-pass and, if that
+  bitrate is too low, steps the short side down (1080, 720, 540); if the cap still cannot be met it stops with `error: ...`,
   exit 2 when the numbers rule it out and exit 1 when an encode missed it, and writes nothing to
   `out/exports`. Every preset with audio aims at -14 LUFS / -1 dBTP and warns when a file misses by more
-  than 1 LU (very peaky audio, like a click track, can). `--silent` drops the audio. A commercial track (`**Song:** ..., a commercial track` or
-  `**Music:** commercial` in the brief's Decisions, or `"music": "commercial"` in project.json) warns on
-  every public preset. `export.mjs DIR --for reels,tiktok --guides` renders previews with translucent
+  than 1 LU, or its true peak ceiling by 0.5 dB (very peaky audio, like a click track, can). `--silent` drops
+  the audio. A commercial track (`**Song:** ..., a commercial track` or `**Music:** commercial` in the
+  brief's Decisions, or `"music": "commercial"` in project.json) warns on every public preset that carries
+  audio. `export.mjs DIR --for reels,tiktok --guides` renders previews with translucent
   bands over each safe zone (`out/shapes/<W>x<H>/preview-guides-<preset>.mp4`); guides never reach an
   export. `safezones.mjs DIR --for reels,tiktok` checks the zones on their own.
 - Vertical pieces: the template's cursor rest `x: 240, y: 280` sits in the Reels/TikTok/Shorts bottom and
