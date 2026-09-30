@@ -14,7 +14,8 @@ import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -115,12 +116,28 @@ export async function projectLoops(root) {
   try { return JSON.parse(await readFile(path.join(root, 'project.json'), 'utf8')).loop !== false; } catch { return true; }
 }
 
+// What produced a render, written beside it as <out>.render.json so export.mjs can tell a full-quality,
+// full-loop render made by this renderer from a preview, a section or a stale one. `renderer` hashes this
+// file and the project's components/core/engine.js (the code that turns the tables into frames).
+export async function rendererId(root) {
+  const h = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url)));
+  try { h.update(await readFile(path.join(root, 'components', 'core', 'engine.js'))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  return h.digest('hex').slice(0, 16);
+}
+
+export async function renderStamp(root, { stage, sub, from = null, to = null, preview = false, song }) {
+  return { stage, sub, from, to, preview, loop: { duration_sec: song.loop.duration_sec, frames: song.loop.frames },
+    renderer: await rendererId(path.resolve(root)) };
+}
+
+export const stampPath = (out) => `${out}.render.json`;
+
 export async function render(dir, opts = {}) {
   const root = path.resolve(dir);
   const preview = !!opts.preview;
   const proj = await openProject(root, { workers: opts.workers ?? 4, stage: opts.stage });
   try {
-    const { song, pages, errors } = proj;
+    const { song, pages, errors, stage } = proj;
     const fps = song.fps, D = song.loop.duration_sec, frames = song.loop.frames;
     const dt = song.loop.frame_dt ?? D / frames;
     const from = opts.from ?? 0, to = opts.to ?? D;
@@ -183,7 +200,10 @@ export async function render(dir, opts = {}) {
     }
     ff.stdin.end();
     await done;
+    await rm(stampPath(out), { force: true });   // never leave an old stamp describing the new file
     await rename(part, out);
+    await writeFile(stampPath(out), JSON.stringify(await renderStamp(root, { stage: [stage.width, stage.height], sub,
+      from: opts.from ?? null, to: opts.to ?? null, preview, song }), null, 2) + '\n');
     } catch (e) { ff.kill('SIGKILL'); await rm(part, { force: true }); throw e; }
     if (process.stderr.isTTY) process.stderr.write('\n');
     return out;

@@ -3,18 +3,19 @@
 //
 //   node export.mjs DIR --for reels,x,discord,web [--silent]
 //
-// Presets (presets.json beside this skill, or $MOTION_PRESETS) are grouped by shape and each shape is
-// rendered once: the project's own stage into out/video.mp4, other shapes into out/shapes/<shape>/video.mp4
-// via render.mjs's stage override (project.json is never rewritten). A render newer than every project file
-// is reused. Each preset is then encoded from its shape's render (fps drop, scale, CRF capped by maxrate,
+// Presets (presets.json beside this skill, or $MOTION_PRESETS) are grouped by render size and each size is
+// rendered once into out/shapes/<W>x<H>/video.mp4 via render.mjs's stage override (project.json is never
+// rewritten, and the user's out/video.mp4 is never overwritten). An existing render (out/video.mp4 for the
+// design size, or the shapes/ one) is reused only when its render.json stamp says it is a full-quality,
+// full-loop render at that size by the current renderer, and it is newer than every project file. Each preset is then encoded from its shape's render (fps drop, scale, CRF capped by maxrate,
 // two-pass loudnorm to the preset's LUFS and true peak, or no audio with --silent) into out/exports/<preset>.mp4,
 // and out/exports/manifest.json records every file with what was measured.
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { render, UsageError } from './render.mjs';
-import { encode, loudnormArgs, measureLoudness, probe } from './media.mjs';
+import { render, renderStamp, stampPath, UsageError } from './render.mjs';
+import { encode, loudnessMiss, loudnormArgs, measureLoudness, probe } from './media.mjs';
 
 const DEFAULT_PRESETS = path.resolve(import.meta.dirname, '..', 'presets.json');
 
@@ -58,11 +59,20 @@ async function newestSource(root) {
   return newest;
 }
 
-// A render is reused when it is newer than every project file and has the stage we need.
-async function reusable(file, [w, h], newest) {
-  if (!existsSync(file) || (await stat(file)).mtimeMs < newest) return false;
+// Whether `file` can stand in for a fresh export render at `stage`: its stamp matches exactly what
+// render.mjs would write for a full-quality (4 subframes, not preview) full-loop render at that stage by the
+// current renderer, its video lasts the loop (within one frame), and it is newer than every project file.
+export async function reusableRender(dir, file, stage) {
+  const root = path.resolve(dir);
+  if (!existsSync(file) || !existsSync(stampPath(file))) return false;
+  const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
+  let stamp;
+  try { stamp = JSON.parse(await readFile(stampPath(file), 'utf8')); } catch { return false; }
+  const want = await renderStamp(root, { stage, sub: 4, preview: false, song });
+  if (JSON.stringify(stamp) !== JSON.stringify(want)) return false;
+  if ((await stat(file)).mtimeMs < await newestSource(root)) return false;
   const p = await probe(file);
-  return p.width === w && p.height === h;
+  return p.width === stage[0] && p.height === stage[1] && Math.abs(p.videoDuration - song.loop.duration_sec) <= 1 / song.fps + 1e-6;
 }
 
 export async function exportProject(dir, { for: names, silent = false, outDir, log = console.log } = {}) {
@@ -75,26 +85,32 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   catch (e) { if (e.code !== 'ENOENT') throw new UsageError(`project.json is not valid JSON: ${e.message}`); }
   const design = [project.stage?.width ?? 1440, project.stage?.height ?? 1440];
   const exportsDir = path.resolve(outDir ?? path.join(root, 'out', 'exports'));
-  const rel = (p) => path.relative(root, p);
+  // Manifest paths are relative to the project when they are inside it, absolute otherwise.
+  const rel = (p) => { const r = path.relative(root, p); return r.startsWith('..') || path.isAbsolute(r) ? p : r; };
 
-  // Group by render stage: a shape whose size is the design stage shares the design render.
+  // Group by render size: shapes of the same size (including the design shape) share one render.
   const groups = new Map();
   for (const name of chosen) {
     const p = P.presets[name];
     const stage = p.shape === 'design' ? design : P.shapes[p.shape];
     if (!stage) throw new UsageError(`preset "${name}" has unknown shape "${p.shape}"`);
-    const isDesign = stage[0] === design[0] && stage[1] === design[1];
-    const key = isDesign ? 'design' : p.shape;
-    if (!groups.has(key)) groups.set(key, { shape: key, stage, file: isDesign ? path.join(root, 'out', 'video.mp4') : path.join(root, 'out', 'shapes', key, 'video.mp4'), presets: [] });
-    groups.get(key).presets.push(name);
+    const size = `${stage[0]}x${stage[1]}`;
+    if (!groups.has(size)) groups.set(size, { size, stage, shapes: [], presets: [] });
+    const g = groups.get(size);
+    if (!g.shapes.includes(p.shape)) g.shapes.push(p.shape);
+    g.presets.push(name);
   }
 
-  const newest = await newestSource(root);
   const renders = [];
   for (const g of groups.values()) {
-    const reused = await reusable(g.file, g.stage, newest);
-    if (!reused) await render(root, g.shape === 'design' ? {} : { stage: g.stage, out: g.file });
-    renders.push({ shape: g.shape, path: rel(g.file), width: g.stage[0], height: g.stage[1], reused });
+    const own = path.join(root, 'out', 'shapes', g.size, 'video.mp4');
+    const isDesign = g.stage[0] === design[0] && g.stage[1] === design[1];
+    const candidates = isDesign ? [path.join(root, 'out', 'video.mp4'), own] : [own];
+    g.file = null;
+    for (const c of candidates) if (await reusableRender(root, c, g.stage)) { g.file = c; break; }
+    const reused = !!g.file;
+    if (!reused) g.file = await render(root, { stage: g.stage, out: own });
+    renders.push({ size: g.size, shapes: g.shapes, path: rel(g.file), reused });
   }
 
   await mkdir(exportsDir, { recursive: true });
@@ -117,6 +133,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
       await encode(g.file, out, { size, fps: p.fps, video: p.video, audio: p.audio, silent: noAudio, af });
       const m = await probe(out);
       const loud = m.acodec ? await measureLoudness(out) : null;
+      if (loud && !af.skipped) { const miss = loudnessMiss(loud, p.audio); if (miss) warnings.push(miss); }
       files.push({ preset: name, path: rel(out), bytes: m.bytes, duration: m.duration, width: m.width, height: m.height, fps: m.fps,
         vcodec: m.vcodec, acodec: m.acodec, lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
         notes, warnings, source: p.source ?? null, checked: p.checked ?? null, estimated: p.estimated ?? [] });
@@ -132,11 +149,12 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
 
 const round1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
+// One line per file; the notes and warnings themselves are in the manifest.
 function summary(f) {
   const audio = f.acodec ? `${f.lufs} LUFS ${f.truePeak} dBTP` : 'no audio';
-  const extra = [...f.notes, ...f.warnings.map((w) => `warning: ${w}`), f.estimated.length ? `estimated: ${f.estimated.join(', ')}` : null].filter(Boolean);
+  const n = (count, word) => (count ? `, ${count} ${word}${count > 1 ? 's' : ''}` : '');
   return `${f.preset.padEnd(20)} ${f.width}x${f.height} ${f.fps}fps ${f.duration.toFixed(2)}s ${(f.bytes / 1e6).toFixed(2)} MB ${audio}  ${f.path}`
-    + (extra.length ? `\n${' '.repeat(21)}${extra.join('; ')}` : '');
+    + `${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
 }
 
 const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent]';

@@ -24,11 +24,11 @@ const num = (s) => (s == null || /^-?inf$/i.test(String(s).trim()) ? -Infinity :
 
 export async function probe(file) {
   const { stdout } = await run(FFPROBE, ['-v', 'error', '-show_entries',
-    'stream=codec_type,codec_name,width,height,r_frame_rate:format=duration', '-of', 'json', file]);
+    'stream=codec_type,codec_name,width,height,r_frame_rate,duration:format=duration', '-of', 'json', file]);
   const j = JSON.parse(stdout);
   const v = j.streams.find((s) => s.codec_type === 'video'), a = j.streams.find((s) => s.codec_type === 'audio');
   const [n, d] = (v?.r_frame_rate ?? '0/1').split('/').map(Number);
-  return { duration: Number(j.format.duration), width: v?.width ?? null, height: v?.height ?? null, fps: d ? n / d : null,
+  return { duration: Number(j.format.duration), videoDuration: v ? Number(v.duration) : null, width: v?.width ?? null, height: v?.height ?? null, fps: d ? n / d : null,
     vcodec: v?.codec_name ?? null, acodec: a?.codec_name ?? null, bytes: (await stat(file)).size };
 }
 
@@ -54,6 +54,15 @@ export async function loudnormArgs(file, { lufs, truePeak }) {
   const f = `loudnorm=${target}:measured_I=${measured.I}:measured_TP=${measured.TP}:measured_LRA=${measured.LRA}`
     + `:measured_thresh=${measured.thresh}:offset=${measured.offset}:linear=true,aresample=48000`;
   return Object.assign(['-af', f], { skipped: false, measured });
+}
+
+// After an encode: a warning when the file missed its loudness target by more than 1 LU or its true
+// peak ceiling by more than 0.5 dB (loudnorm falls back to dynamic mode, or AAC adds overshoot); else null.
+export function loudnessMiss({ I, TP }, { lufs, truePeak }) {
+  const miss = [];
+  if (!(Math.abs(I - lufs) <= 1)) miss.push(`integrated ${I.toFixed(1)} LUFS vs target ${lufs}`);
+  if (!(TP <= truePeak + 0.5)) miss.push(`true peak ${TP.toFixed(1)} dBTP vs ceiling ${truePeak}`);
+  return miss.length ? `loudness missed its target: ${miss.join('; ')}` : null;
 }
 
 // "8M" / "800k" / 8000000 -> bits per second.

@@ -3,13 +3,14 @@
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
-import { FFMPEG, render, serve } from '../scripts/render.mjs';
-import { exportProject } from '../scripts/export.mjs';
+import { FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
+import { exportProject, reusableRender } from '../scripts/export.mjs';
+import { loudnessMiss } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
@@ -27,6 +28,8 @@ writeFileSync(PRESETS, JSON.stringify({
     // square is the design stage here, so it shares the design render
     x: preset({ shape: 'square' }),
     discord: preset({ shape: 'design', fps: 60, maxMB: 20, public: false }),
+    // a true-peak ceiling (loudnorm's lowest, -9) far below what -5 LUFS needs: loudnorm cannot meet both, so the export must warn
+    tight: preset({ shape: 'design', fps: 60, public: false, audio: { codec: 'aac', kbps: 96, lufs: -5, truePeak: -9 } }),
     web: preset({ shape: 'design', fps: 60, source: null, estimated: ['crf', 'kbps', 'lufs', 'truePeak'] }),
   },
 }));
@@ -42,6 +45,17 @@ function lufs(file) {
   const r = spawnSync(FFMPEG, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128', '-f', 'null', '-'], { encoding: 'utf8' });
   const s = r.stderr.slice(r.stderr.lastIndexOf('Summary:'));
   return Number(s.match(/I:\s+(-?[\d.]+) LUFS/)[1]);
+}
+
+// A stand-in render (made with ffmpeg, not render.mjs) gets the stamp a full export-quality render would have.
+async function standInStamp(dir, file, stage) {
+  const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
+  writeFileSync(stampPath(file), JSON.stringify(await renderStamp(dir, { stage, sub: 4, preview: false, song })));
+}
+function standIn(dir, file, seconds) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=128x128:r=60:d=${seconds}`, '-f', 'lavfi', '-i',
+    'sine=frequency=440:sample_rate=48000', '-t', String(seconds), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
 }
 
 // One project (256x256 design stage, the test square, commercial music) exported once to five presets; most tests read its manifest.
@@ -64,6 +78,11 @@ test('stage override does not touch project.json or out/video.mp4', async () => 
   assert.deepEqual([v.width, v.height], [216, 384]);
   assert.deepEqual(readFileSync(path.join(dir, 'project.json')), before);
   assert.ok(!existsSync(path.join(dir, 'out', 'video.mp4')), 'default render untouched');
+  // The render is stamped with how it was made; a 1-subframe render is not good enough for export.
+  const stamp = JSON.parse(readFileSync(stampPath(out), 'utf8'));
+  assert.deepEqual({ ...stamp, renderer: 'x' }, { stage: [216, 384], sub: 1, from: null, to: null, preview: false,
+    loop: { duration_sec: loopSec(dir), frames: JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.frames }, renderer: 'x' });
+  assert.equal(await reusableRender(dir, out, [216, 384]), false, '--sub 1 render not reused');
   // The served project.json keeps the file's other keys and swaps the stage.
   const { server, url } = await serve(dir, 0, { stage: [216, 384] });
   try {
@@ -84,12 +103,14 @@ test('render --stage must be even integers >= 64', () => {
   }
 });
 
-test('presets sharing a shape share one render', () => {
-  assert.deepEqual(M.renders.map((r) => r.shape).sort(), ['design', 'vertical']);
-  const v = M.renders.find((r) => r.shape === 'vertical');
-  assert.equal(v.path, path.join('out', 'shapes', 'vertical', 'video.mp4'));
-  assert.equal(M.renders.find((r) => r.shape === 'design').path, path.join('out', 'video.mp4'));
-  assert.deepEqual([video(path.join(DIR, v.path)).width, video(path.join(DIR, v.path)).height], [216, 384]);
+test('presets sharing a render size share one render, never written to out/video.mp4', () => {
+  assert.deepEqual(M.renders, [
+    { size: '216x384', shapes: ['vertical'], path: path.join('out', 'shapes', '216x384', 'video.mp4'), reused: false },
+    { size: '256x256', shapes: ['square', 'design'], path: path.join('out', 'shapes', '256x256', 'video.mp4'), reused: false },
+  ]);
+  const v = path.join(DIR, M.renders[0].path);
+  assert.deepEqual([video(v).width, video(v).height], [216, 384]);
+  assert.ok(!existsSync(path.join(DIR, 'out', 'video.mp4')), 'export never writes out/video.mp4');
   assert.equal(JSON.parse(readFileSync(path.join(DIR, 'project.json'), 'utf8')).stage.width, 256, 'project.json untouched');
 });
 
@@ -121,9 +142,10 @@ test('loudness lands within 1 LU of target; near-silent input is left alone and 
     mkdirSync(path.join(dir, 'out'), { recursive: true });
     execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=128x128:r=60:d=${D}`, '-f', 'lavfi', '-i', src, '-t', String(D),
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', path.join(dir, 'out', 'video.mp4')]);
+    await standInStamp(dir, path.join(dir, 'out', 'video.mp4'), [128, 128]);
     const before = lufs(path.join(dir, 'out', 'video.mp4'));
-    const m = await exportProject(dir, { for: ['discord'], log: () => {} });
-    assert.equal(m.renders[0].reused, true, 'fresh design render reused');
+    const m = await exportProject(dir, { for: ['discord', 'tight'], log: () => {} });
+    assert.deepEqual([m.renders[0].reused, m.renders[0].path], [true, path.join('out', 'video.mp4')], 'stamped design render reused');
     const f = m.files[0], I = lufs(path.join(dir, f.path));
     if (name === 'silent') {
       assert.ok(f.notes.includes('loudness skipped (near-silent input)'), JSON.stringify(f.notes));
@@ -133,8 +155,49 @@ test('loudness lands within 1 LU of target; near-silent input is left alone and 
       assert.ok(Math.abs(I - -14) <= 1, `${name}: ${I} LUFS, target -14`);
       assert.ok(Math.abs(f.lufs - I) <= 0.2, `manifest LUFS ${f.lufs} matches ${I}`);
       assert.ok(f.truePeak <= -1 + 0.5, `${name} true peak ${f.truePeak}`);
+      assert.deepEqual(f.warnings, [], `${name} met its target`);
+      const t = m.files[1];
+      assert.ok(t.warnings.some((w) => /^loudness missed its target: integrated -?[\d.]+ LUFS vs target -5/.test(w)), JSON.stringify(t.warnings));
     }
   }
+});
+
+test('a render is reused only with a matching stamp, the whole loop and nothing newer in the project', async () => {
+  const dir = makeProject({ bars: 2, size: '128x128' });
+  const D = loopSec(dir), song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
+  const f = path.join(dir, 'out', 'video.mp4');
+  standIn(dir, f, D);
+  assert.equal(await reusableRender(dir, f, [128, 128]), false, 'no stamp');
+  const stamp = await renderStamp(dir, { stage: [128, 128], sub: 4, preview: false, song });
+  const cases = { section: { from: 0, to: 1 }, sub1: { sub: 1 }, preview: { preview: true, sub: 1 }, size: { stage: [256, 256] },
+    renderer: { renderer: 'an older render.mjs' }, loop: { loop: { ...stamp.loop, frames: stamp.loop.frames + 1 } } };
+  for (const [name, change] of Object.entries(cases)) {
+    writeFileSync(stampPath(f), JSON.stringify({ ...stamp, ...change }));
+    assert.equal(await reusableRender(dir, f, [128, 128]), false, name);
+  }
+  writeFileSync(stampPath(f), JSON.stringify(stamp));
+  assert.equal(await reusableRender(dir, f, [128, 128]), true, 'matching stamp');
+  standIn(dir, f, D / 2);   // a section rendered with a forged full-loop stamp still fails on duration
+  writeFileSync(stampPath(f), JSON.stringify(stamp));
+  assert.equal(await reusableRender(dir, f, [128, 128]), false, 'half-length video');
+  standIn(dir, f, D);
+  writeFileSync(stampPath(f), JSON.stringify(stamp));
+  const later = new Date(Date.now() + 5000);
+  utimesSync(path.join(dir, 'index.html'), later, later);
+  assert.equal(await reusableRender(dir, f, [128, 128]), false, 'project edited after the render');
+  // Export then renders its own copy and leaves the user's out/video.mp4 alone.
+  const bytes = readFileSync(f);
+  const m = await exportProject(dir, { for: ['discord'], log: () => {} });
+  assert.deepEqual(m.renders, [{ size: '128x128', shapes: ['design'], path: path.join('out', 'shapes', '128x128', 'video.mp4'), reused: false }]);
+  assert.deepEqual(readFileSync(f), bytes, 'out/video.mp4 untouched');
+  assert.equal(await reusableRender(dir, path.join(dir, m.renders[0].path), [128, 128]), true, "export's own render is reusable next time");
+});
+
+test('a missed loudness target is a warning naming measured vs target', () => {
+  assert.equal(loudnessMiss({ I: -14.6, TP: -1.2 }, { lufs: -14, truePeak: -1 }), null);
+  assert.equal(loudnessMiss({ I: -14.2, TP: -0.6 }, { lufs: -14, truePeak: -1 }), null, 'within 0.5 dB of the ceiling');
+  assert.equal(loudnessMiss({ I: -16.4, TP: -1 }, { lufs: -14, truePeak: -1 }), 'loudness missed its target: integrated -16.4 LUFS vs target -14');
+  assert.equal(loudnessMiss({ I: -14, TP: 0.3 }, { lufs: -14, truePeak: -1 }), 'loudness missed its target: true peak 0.3 dBTP vs ceiling -1');
 });
 
 test('--silent exports have no audio stream', async () => {
@@ -142,8 +205,8 @@ test('--silent exports have no audio stream', async () => {
   const m = await exportProject(DIR, { for: ['reels', 'discord'], silent: true, outDir, log: () => {} });
   assert.ok(m.renders.every((r) => r.reused), 'renders reused');
   for (const f of m.files) {
-    const p = path.resolve(DIR, f.path);
-    assert.ok(p.startsWith(outDir), p);
+    const p = f.path;
+    assert.ok(path.isAbsolute(p) && p.startsWith(outDir), `outside the project, paths are absolute: ${p}`);
     assert.ok(!hasAudio(p), `${f.preset} has no audio`);
     assert.equal(f.acodec, null); assert.equal(f.lufs, null);
     assert.deepEqual(f.warnings, [], 'no commercial-music warning without audio');
@@ -174,7 +237,7 @@ test('manifest lists every file with bytes, duration, size, fps, LUFS, warnings 
 
 test('commercial music on a public preset warns', () => {
   for (const n of ['reels', 'tiktok', 'shorts', 'x', 'web']) assert.ok(file(n).warnings.some((w) => /commercial music.*--silent/.test(w)), n);
-  assert.deepEqual(file('discord').warnings, [], 'discord is not public');
+  assert.ok(!file('discord').warnings.some((w) => /commercial/.test(w)), 'discord is not public');
 });
 
 test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill dir', () => {
@@ -190,5 +253,5 @@ test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill 
   assert.equal(r.status, 2); assert.match(r.stderr, /^error: .*song\.json/);
   r = cli(DIR, '--for', 'discord', '--silent');
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /discord\s+256x256 60fps .* no audio/);
+  assert.match(r.stdout, /^discord\s+256x256 60fps .* no audio  out\/exports\/discord\.mp4, 2 estimated values\nmanifest: /);
 });
