@@ -178,8 +178,11 @@ export async function render(dir, opts = {}) {
   const preview = !!opts.preview;
   let stageOpt = opts.stage, margins = null;
   if (opts.guides) ({ stage: stageOpt, margins } = await (await import('./safezones.mjs')).guidesFor(root, opts.guides, opts.stage));
-  if (opts.guides && opts.out && ['video.mp4', 'preview.mp4'].includes(path.basename(opts.out)))
+  // Compared case-blind: on a case-insensitive disk (APFS) Video.mp4 is video.mp4. A stamped file is a render export may reuse.
+  if (opts.guides && opts.out && ['video.mp4', 'preview.mp4'].includes(path.basename(opts.out).toLowerCase()))
     throw new UsageError(`--guides output must not be named video.mp4 or preview.mp4 (those are the renders export reuses); got ${opts.out}`);
+  if (opts.guides && opts.out && existsSync(stampPath(path.resolve(opts.out))))
+    throw new UsageError(`--guides output ${opts.out} has a render stamp (${path.basename(stampPath(opts.out))}); pick another --out so a render is never overwritten by guides`);
   const proj = await openProject(root, { workers: opts.workers ?? 4, stage: stageOpt });
   try {
     const { song, pages, errors, stage } = proj;

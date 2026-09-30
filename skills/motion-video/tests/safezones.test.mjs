@@ -4,7 +4,7 @@
 // Reels margins are top 269, bottom 672, sides 65, so the bottom zone starts 288 px below the stage centre.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
@@ -125,6 +125,26 @@ test('render --guides never writes video.mp4 or preview.mp4', () => {
     assert.match(r.stderr, /^error: --guides output must not be named video\.mp4 or preview\.mp4/);
   }
   assert.ok(!existsSync(path.join(dir, 'out')));
+});
+
+test('render --guides refuses Video.mp4 (any case) and any out path that already has a render stamp', () => {
+  const dir = makeProject({ bars: 2 });
+  const shapes = path.join(dir, 'out', 'shapes', '1080x1920');
+  const cli = (out) => spawnSync('node', [path.resolve(import.meta.dirname, '../scripts/render.mjs'), dir, '--guides', 'reels', '--preview',
+    '--out', out], { encoding: 'utf8' });
+  // On a case-insensitive disk (APFS) Video.mp4 is the stamped full render.
+  for (const name of ['Video.mp4', 'PREVIEW.MP4']) {
+    const r = cli(path.join(shapes, name));
+    assert.equal(r.status, 2, name);
+    assert.match(r.stderr, /^error: --guides output must not be named video\.mp4 or preview\.mp4/, name);
+  }
+  mkdirSync(shapes, { recursive: true });
+  const stamped = path.join(shapes, 'keep.mp4');
+  writeFileSync(stampPath(stamped), '{}');
+  const r = cli(stamped);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: --guides output .*keep\.mp4 has a render stamp/);
+  assert.ok(!existsSync(stamped), 'nothing written');
 });
 
 test('render --guides with an unknown preset is error: ... exit 2', () => {
