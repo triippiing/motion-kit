@@ -115,3 +115,12 @@ test('an inherited name is an unknown component, not a crash', () => {
   const r = run(loopOk([{ at: 0, use: 'constructor' }]));
   assert.match(r.errors.join('\n'), /unknown component "constructor"/);
 });
+
+test('a look-ahead drag reports the state change it actually crosses', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 3.5, target: 'tab:A', press: 'down' }, { at: 3.8, x: 0, y: 0, press: 'up' }];
+  const looped = run(loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'tabs' }]), [...cur, { at: 14, x: 0, y: 0 }]);
+  assert.match(looped.errors.join('\n'), /drag from beat 3\.5 to 3\.8 crosses a state change at beat 4; keep drags inside one row/);
+  let r;
+  assert.doesNotThrow(() => { r = run([{ at: 0, use: 'button' }, { at: 4, use: 'tabs' }], cur, { loop: false }); });
+  assert.match(r.errors.join('\n'), /drag from beat 3\.5 to 3\.8 crosses a state change at beat 4; keep drags inside one row/);
+});

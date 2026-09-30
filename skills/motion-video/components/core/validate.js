@@ -127,8 +127,12 @@ export function validate({ states, cursor, registry, song, loop = true, strict =
       if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`); open = c.at; openRow = rows.indexOf(pressRow(rows, c)); }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${c.at} has no 'down' before it`);
-        else if (openRow !== rows.indexOf(pressRow(rows, c)))
-          errors.push(`drag from beat ${open} to ${c.at} crosses a state change at beat ${rows[openRow + 1].row.at}; keep drags inside one row`);
+        else {
+          // The later of the two rows starts at the change the drag crosses (a look-ahead
+          // 'down' can sit on a later row than an untargeted 'up').
+          const upRow = rows.indexOf(pressRow(rows, c));
+          if (upRow !== openRow) errors.push(`drag from beat ${open} to ${c.at} crosses a state change at beat ${rows[Math.max(openRow, upRow)].row.at}; keep drags inside one row`);
+        }
         open = null;
       }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${open} has no matching 'up'`);
