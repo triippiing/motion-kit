@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
 import { briefCommercial, briefExports, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
 import { pathToFileURL } from 'node:url';
+import nodeModule from 'node:module';   // registerHooks is Node >= 22.15 (a named import would fail to link on the 20.11 floor)
 
 const SCRIPT = path.resolve(import.meta.dirname, '../scripts/check_brief.mjs');
 const brief = (tables, sections = true) => `# Motion brief\n\n${sections ? '## Request\nA promo.\n\n## Decisions\n- square\n\n## Moments\n1. Import -> button\n\n' : ''}## Beat table\n\n| # | bar.beat | t | component | what changes | sound |\n|---|---|---|---|---|---|\n\n\`\`\`js\n${tables}\n\`\`\`\n`;
@@ -270,7 +271,8 @@ test('an Exports typo is reported even when the beat table code does not run', a
   assert.match(r.errors.join('\n'), /Exports: unknown preset "reelz"/);
 });
 
-test('without an Exports line check_brief loads neither render.mjs nor Playwright', () => {
+test('without an Exports line check_brief loads neither render.mjs nor Playwright',
+  { skip: typeof nodeModule.registerHooks === 'function' ? false : 'needs Node >= 22.15' }, () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
   const code = `import { registerHooks } from 'node:module';
@@ -279,7 +281,7 @@ registerHooks({ resolve(s, c, next) { const r = next(s, c); seen.push(r.url); re
 const { checkBrief } = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});
 const r = await checkBrief(${JSON.stringify(dir)});
 console.log(JSON.stringify({ errors: r.errors, loaded: seen.filter((u) => /playwright|render\.mjs|safezones\.mjs/.test(u)) }));`;
-  const out = spawnSync('node', ['--input-type=module', '-e', code], { encoding: 'utf8' });
+  const out = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' });
   assert.equal(out.status, 0, out.stderr);
   assert.deepEqual(JSON.parse(out.stdout), { errors: [], loaded: [] });
 });
