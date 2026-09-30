@@ -69,6 +69,33 @@ No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
 ```
 
+## Long pieces and 4K
+
+There is no hard limit on length or resolution. Length is `--bars N` (the song must be at least that
+long); size is `--size WxH` (even numbers). A one-minute 4K piece:
+
+```bash
+new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 bars ~ 1 min at 109 BPM
+```
+
+- **Keep the design size.** The template's numbers (shape sizes, text, the 44 px cursor, the 2.4 zoom cap)
+  are tuned for a ~1440 px stage. At a bigger stage, scale the camera and cursor so the piece looks the
+  same, just sharper. In `index.html`, replace the `zoom` line in `build()` and the cursor `scale(...)`:
+  ```js
+  const K = Math.min(STAGE.width, STAGE.height) / 1440; // design size -> this stage
+  const zoom = (s) => K * Math.min(2.4, Math.max(1, (0.6 * 1440) / Math.max(s.w, s.h)));
+  // in seek():  scale(${p * Math.min(STAGE.width, STAGE.height) / 1440 / z})   (was scale(${p / z}))
+  ```
+  Everything is vector, so the camera zoom renders crisp text rather than upscaling.
+- **Render time** grows with pixels, frames and subframes. Measured on an Apple M5: 1 s of full-quality
+  4K (60 fps, 4 subframes) took ~19 s, so a minute is ~20 to 30 min. Frames stream into ffmpeg, so disk
+  use stays small. Measure your own with `render.mjs DIR --from 0 --to 5` and scale up; iterate with
+  `--preview` (half size, 1 subframe) and `beat_stills.mjs`, and do the full render once.
+- **Plan in chapters.** A minute is ~110 beats and up to ~55 states. Plan 3 or 4 sections that each
+  return to a resting state, rather than one unbroken chain.
+- **Not a loop?** The seam check assumes the last frame equals the first. For a one-off piece that ends
+  elsewhere, its failure can be ignored.
+
 ## Rules that matter (the tests enforce most of them)
 
 - **`seek(t)` is pure.** Every style is computed from `t` alone: no CSS transitions/animations,

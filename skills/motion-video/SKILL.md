@@ -43,6 +43,12 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 - Outside 100–130 BPM: follow the warning (half-time events or half-beat accents).
 - A commercial track is for local viewing: remind the user before they post.
 
+## Long pieces and 4K
+No hard limits: `--bars 28` is about a minute at 109 BPM; `--size 3840x2160` is 4K. At a stage bigger than
+~1440 px, scale the zoom and cursor by `K = min(W, H) / 1440` so the design keeps its proportions (exact lines
+in the repo's CLAUDE.md, "Long pieces and 4K"). Full-quality 4K renders at about 19 s per second of video on
+an Apple M5: measure with `--from 0 --to 5` first, iterate with `--preview`, and render in full once.
+
 ## When the loop stutters
 Seam check failing on frame: the last STATES/CURSOR row must equal the first and be
 ≥ 2 beats before END. Failing on cursor velocity: the last cursor move is too late.
