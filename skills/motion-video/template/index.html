@@ -88,7 +88,12 @@ const content = {
 };
 // ------------------------------------------------------------
 
-const hex = (c) => { const h = (THEME[c] ?? c); return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); };
+// A colour that does not resolve must fail loudly: NaN would leave the browser on the previous frame's colour.
+const hex = (c) => {
+  const h = THEME[c] ?? c;
+  if (!/^#[0-9a-f]{6}$/i.test(h)) throw new Error(`unknown colour "${c}" (theme roles: ${Object.keys(THEME).filter((k) => /^#[0-9a-f]{6}$/i.test(THEME[k])).join(', ')}; or #rrggbb)`);
+  return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+};
 let S, C, tracks, layers;
 
 function build() {
@@ -165,7 +170,9 @@ window.ready = (async () => {
   const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));
   song = await songR.json();
   STAGE = projR.ok ? (await projR.json()).stage : { width: 1440, height: 1440 };
-  THEME = themeR.ok ? await themeR.json() : {};
+  // No theme.json: the house roles, read from the page's own CSS variables.
+  THEME = themeR.ok ? await themeR.json() : Object.fromEntries(['canvas', 'surface', 'ink', 'muted', 'accent']
+    .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
   window.STAGE = STAGE; CX = STAGE.width / 2; CY = STAGE.height / 2;
   END = song.beats.length;
   // Integer beats snap to the measured cue so picture and sound hit together.

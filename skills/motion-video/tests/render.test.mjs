@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { render, openProject, shoot } from '../scripts/render.mjs';
@@ -184,6 +184,26 @@ test('template CURSOR supports press down/up and sound rows; EXTRA_SFX merges in
     const held = await pressAt(3.3 * b), released = await pressAt(3.8 * b);
     assert.ok(Math.abs(held - 0.82) < 0.01, `held press ${held}`);
     assert.ok(Math.abs(released - 1) < 0.01, `released press ${released}`);
+    assert.deepEqual(p.errors, []);
+  } finally { await p.close(); }
+});
+
+test('a misspelt colour role fails the render with the role list, not a silent NaN colour', async () => {
+  const proj = scaffold();
+  const f = path.join(proj, 'index.html');
+  writeFileSync(f, readFileSync(f, 'utf8').replace("fill: 'ink'", "fill: 'acent'"));
+  await assert.rejects(render(proj, { preview: true, workers: 1 }), /unknown colour "acent" \(theme roles: .*accent/);
+});
+
+test('a project with no theme.json falls back to the house roles', async () => {
+  const proj = scaffold();
+  rmSync(path.join(proj, 'theme.json'));
+  const f = path.join(proj, 'index.html');
+  writeFileSync(f, readFileSync(f, 'utf8').replace("fill: 'ink'", "fill: 'accent'"));
+  const p = await openProject(proj, { workers: 1 });
+  try {
+    const bg = await p.pages[0].evaluate((t) => { window.seek(t); return getComputedStyle(document.querySelector('#shape')).backgroundColor; }, p.song.beat_sec * 2.5);
+    assert.match(bg, /^rgb\(\d+, \d+, \d+\)$/);
     assert.deepEqual(p.errors, []);
   } finally { await p.close(); }
 });
