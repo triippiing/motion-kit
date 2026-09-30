@@ -21,7 +21,7 @@ Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.
 
 ## Install (macOS)
 
-Needs Homebrew, `ffmpeg` (`brew install ffmpeg`), Node 20+ and Python 3 with numpy.
+Needs Homebrew, `ffmpeg` (`brew install ffmpeg`), Node 20.11+ and Python 3 with numpy.
 
 ```bash
 git clone https://github.com/triippiing/motion-kit.git ~/motion-kit

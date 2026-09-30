@@ -15,8 +15,9 @@ if command -v ffmpeg >/dev/null; then
   command -v ffprobe >/dev/null && ok ffprobe || bad ffprobe "brew install ffmpeg"
 else bad ffmpeg "brew install ffmpeg"; fi
 
-major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-if [ "$major" -ge 20 ]; then ok "node $(node -v)"; else bad "node >= 20" "nvm install --lts"; fi
+# 20.11 is the first Node with import.meta.dirname, which the scripts use.
+if node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 20 || (a === 20 && b >= 11) ? 0 : 1)' 2>/dev/null
+then ok "node $(node -v)"; else bad "node >= 20.11 (have $(node -v 2>/dev/null || echo none))" "nvm install --lts"; fi
 
 if python3 -c 'import numpy' 2>/dev/null; then ok "numpy $(python3 -c 'import numpy; print(numpy.__version__)')"
 else bad numpy "python3 -m pip install numpy"; fi
