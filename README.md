@@ -16,7 +16,7 @@ Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.
 | Skill | Use it for | Say something like |
 |---|---|---|
 | `motion-design` | Planning a promo or reel: questions, song measurement, a checked `MOTION-BRIEF.md` built from library components, then an approval stop before any code | "Make a promo video for my app to ~/Music/song.mp3" |
-| `motion-video` | Building and rendering: song analysis, the `seek(t)` page, contact sheet, seam check, MP4 | "Render it" / "Re-time this to a new song" |
+| `motion-video` | Building and rendering: song analysis, the `seek(t)` page, contact sheet, seam check, MP4, and ready-to-post exports | "Render it" / "Export it for Reels and X" |
 | `motion-ui` | Live product UI: indicators, toggles, drags, interruptible transitions, following the project's own motion rules | "Make this tab indicator springier" |
 
 ## Install (macOS)
@@ -69,7 +69,24 @@ $S/new_project.sh ~/promo ~/Music/song.mp3 --bars 7 --theme ./app/style.css   # 
 node $S/check_brief.mjs ~/promo      # if you wrote a MOTION-BRIEF.md: check its tables
 node $S/beat_stills.mjs ~/promo      # contact sheet + loop-seam check
 node $S/render.mjs ~/promo           # -> ~/promo/out/video.mp4
+node $S/export.mjs ~/promo --for reels,x,discord,web   # -> ~/promo/out/exports/ (see Exporting)
 ```
+
+## Exporting
+
+One command turns a finished project into ready-to-post files, one per destination:
+
+```bash
+node ~/.claude/skills/motion-video/scripts/export.mjs ~/promo --for reels,x,discord,web
+```
+
+The files land in `~/promo/out/exports/` with a `manifest.json` describing each one. Each shape
+(vertical for Reels/TikTok/Shorts, square or landscape for X/LinkedIn) is rendered natively, not
+letterboxed. Every file keeps to its platform's limits (the presets and their sources are in
+[presets.json](skills/motion-video/presets.json)), or the export stops with an error. The presets are
+`reels`, `tiktok`, `shorts`, `x`, `x-landscape`, `linkedin`, `linkedin-landscape`, `discord`,
+`discord-nitro`, `web` and `gif`. Add `--silent` to drop the audio. The full guide is the Export section
+of [the motion-video skill](skills/motion-video/SKILL.md).
 
 ## Pipeline
 
@@ -80,6 +97,7 @@ new_project.sh DIR SONG [--size square|vertical|landscape|WxH] [--theme app.css]
 index.html: window.seek(t) computes every style from t (closed-form springs, shared/springs.js)
 beat_stills.mjs DIR ──▶ one still per beat + contact sheet + loop-seam check
 render.mjs DIR ──▶ Playwright frames ─▶ ffmpeg tmix motion blur + audio + UI sounds ─▶ out/video.mp4
+export.mjs DIR --for reels,x,... ──▶ one render per shape ─▶ per-platform encodes ─▶ out/exports/ + manifest.json
 ```
 
 ## Layout
@@ -105,6 +123,7 @@ npm test   # node:test suites + python unittest
 
 The demos were cut to a commercial track for local viewing; audio files are git-ignored and
 never committed. Bring your own licensed song and re-run `analyze_song.py`: everything re-times.
+Posting a piece cut to a commercial track? Export it with `--silent`, or the platform may mute it.
 
 ## Credits
 

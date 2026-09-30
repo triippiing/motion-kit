@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
-import { briefCommercial, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
+import { briefCommercial, briefExports, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
 import { pathToFileURL } from 'node:url';
 
 const SCRIPT = path.resolve(import.meta.dirname, '../scripts/check_brief.mjs');
@@ -188,6 +188,27 @@ test('without an Exports line no safe-zone check runs (no browser)', async () =>
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reels'));
   const w = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
   assert.match(w.stdout, /warning: the safe-zone check did not run: /);
+});
+
+test('the state-plan worked example and every recipe still pass the CLI with no Exports line, and no browser', () => {
+  // The planner's docs and recipes are briefs without an **Exports:** line: they must pass exactly as before, without
+  // Playwright (pointed at an empty browsers dir, any launch would fail with "Executable doesn't exist").
+  const read = (rel) => readFileSync(path.resolve(import.meta.dirname, rel), 'utf8');
+  const plan = [...read('../../motion-design/references/state-plan.md').matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const recipes = [...read('../components/RECIPES.md').matchAll(/^### (.+)\n[\s\S]*?```js\n([\s\S]*?)```/gm)].map((m) => [m[1], m[2]]);
+  assert.equal(plan.length, 1);
+  assert.equal(recipes.length, 5);
+  const dir = makeProject({ bars: 7, bpm: 120 });
+  const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
+  for (const [name, code] of [['state-plan.md', plan[0]], ...recipes]) {
+    const md = brief(code);
+    assert.equal(briefExports(md), null, name);
+    writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), md);
+    const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, `${name}: ${r.stdout}${r.stderr}`);
+    assert.equal(r.stdout, 'brief OK\n', `${name}: no warnings at all (so no safe-zone or browser warning)`);
+    assert.equal(r.stderr, '', name);
+  }
 });
 
 test('the Exports line names presets: each issue becomes a warning; unknown names are errors', async () => {
