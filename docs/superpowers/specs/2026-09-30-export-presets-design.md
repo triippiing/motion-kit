@@ -1,7 +1,8 @@
-# Export presets (sub-project B) — design
+# Export presets (sub-project B): design
 
 Date: 2026-09-30
-Status: draft, awaiting review
+Status: implemented
+Superseded where the SDD ledger rulings differ: Discord 20 MB free / 1 GB Nitro, per-field `estimated`, renders in out/shapes/WxH, stamp-gated reuse, loudness misses are warnings.
 Part of: the motion-kit roadmap (A done; B this; then C sync tools, D narrative, E real-app footage, F hardening)
 
 ## Purpose

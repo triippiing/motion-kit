@@ -156,7 +156,7 @@ for commercial use") does not count.
 
 **Safe zones.** Reels, TikTok and Shorts cover the bottom and sides with captions and buttons (the feed,
 chat and web presets have none). `check_brief.mjs` checks the brief's tables against them only when the
-brief has an `**Exports:**` line (it opens Chromium then); each issue is a warning, to resolve or justify.
+brief has an `**Exports:**` line (it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts)); each issue is a warning, to resolve or justify.
 To check a project on its own: `node scripts/safezones.mjs DIR --for reels,tiktok` (exit 1 when anything
 enters a zone, e.g. "beat 12: shape extends 40 px into the Instagram Reels bottom zone"). To see them:
 `node scripts/export.mjs DIR --for reels,tiktok --guides` renders a half-size preview per preset with

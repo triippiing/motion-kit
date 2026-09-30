@@ -49,7 +49,7 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
      (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
      (its Decisions list the destinations as **Exports:** reels, x, discord, web)
 4  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
-     (with an Exports line it also opens Chromium and checks the Reels/TikTok/Shorts safe zones)
+     (with an Exports line it also checks the safe zones; it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts))
 5  show the brief and STOP until the user approves it
    -- motion-video --
 6  paste the brief's states()/cursor() block into DIR/index.html
@@ -266,6 +266,8 @@ template's Google Fonts request.
   that app's CSS, which is not in this repo. Still renders from a clone: `theme.json` is committed.
 - `03-finance-inapp`: capture of `motion-ui` applied to that private app; `capture.mjs` needs the
   app's repo, so it will not run from a clone. The pattern it demonstrates is `motion-ui` pattern 2.
+- `04-library-reference`: demo 1's sequence rebuilt from library components only, and the export proof
+  (every preset it exports, with the results table, in its README).
 
 The songs are not in the repo. To render 01 or 02 from a fresh clone, give it any song you have
 the rights to (the plan re-times automatically, though a different song's accents differ):

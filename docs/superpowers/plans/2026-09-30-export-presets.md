@@ -57,7 +57,7 @@ demos/04-library-reference/README.md; Wiki claude/motion-kit.html               
 **Interfaces:** Produces `presets.json` = `{ "shapes": { "square": [1440,1440], "vertical": [1080,1920], "landscape": [1920,1080] }, "presets": { "<name>": Preset } }` where Preset = `{ label, group, shape: "square"|"vertical"|"landscape"|"design", size?: [w,h], fps: 30|60, maxSeconds: number|null, maxMB: number|null, video: { codec: "h264"|"vp9", crf, maxrate?, profile? }, audio: { codec: "aac"|"opus"|null, kbps, lufs, truePeak }, safe: { top, bottom, left, right } (px at `size`), public: boolean, source: string|null, checked: "YYYY-MM-DD", estimate?: true, notes?: string }`. Kinds with extra outputs: `web` has `"outputs": ["mp4","webm","poster"]`; `gif` has `"gif": { width, fps, maxMB }`.
 
 - [ ] **Step 1: Research.** Use web search/fetch to find each platform's current official limits: Instagram Reels, TikTok, YouTube Shorts, X (Twitter) video, LinkedIn video, Discord upload limits (free and Nitro: Jack reports Nitro is 500 MB now and going to 1 GB soon; confirm from Discord's official support page and record the date; if it has already moved to 1 GB, use that). Record per preset: max length, max file size, recommended resolution/fps/codec, and any published safe-zone guidance (if a platform publishes none, derive margins from widely used creator guidance and mark `"estimate": true` with a `notes` line). Loudness: most platforms publish none; use -14 LUFS integrated, -1 dBTP as the social default and mark it `estimate`. Put URLs in `source`, today's date in `checked`.
-- [ ] **Step 2: Failing schema test** — `presets.test.mjs`:
+- [ ] **Step 2: Failing schema test** (`presets.test.mjs`):
 ```js
 import test from 'node:test';
 import assert from 'node:assert/strict';
