@@ -1,18 +1,9 @@
 // components-feedback.test.mjs -- behaviour of the Feedback group in a real page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProject, openScene } from './harness.mjs';
+import { makeProject, openScene, scene } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
 
-// Open a project, hand the test a seek-by-beat helper, and always close the browser.
-async function scene(opts, fn) {
-  const s = await openScene(makeProject(opts));
-  try {
-    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
-    await fn(s, async (beat) => s.seek(beat * bs), bs);
-    assert.deepEqual(s.errors, []);
-  } finally { await s.close(); }
-}
 const REST = "{ at: 0, use: 'button' }, ", BACK = ", { at: END - 2, use: 'button' }";
 const STILL = '[{ at: 0, x: 0, y: 200 }, { at: END - 2, x: 0, y: 200 }]';
 const rect = (s, sel) => s.page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { l: r.left, w: r.width, cx: r.left + r.width / 2 }; }, sel);

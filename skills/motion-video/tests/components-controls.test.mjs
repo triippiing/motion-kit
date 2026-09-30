@@ -1,18 +1,9 @@
 // components-controls.test.mjs -- behaviour of the Controls group in a real page (button has its own file).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProject, openScene } from './harness.mjs';
+import { makeProject, scene, noFlash } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
 
-// Open a project, hand the test a seek-by-beat helper, and always close the browser.
-async function scene(opts, fn) {
-  const s = await openScene(makeProject(opts));
-  try {
-    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
-    await fn(s, async (beat) => s.seek(beat * bs), bs);
-    assert.deepEqual(s.errors, []);
-  } finally { await s.close(); }
-}
 const rect = (s, sel) => s.page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width, cx: r.left + r.width / 2 }; }, sel);
 
 test('toggle: a press on the knob moves it to the right half and paints the track accent', async () => {
@@ -119,43 +110,29 @@ test('input: key sounds stop when the next row starts', async () => {
   });
 });
 
-// Ruling F: a press in row A, then a continuation row B that states the pressed result, must not flash
-// back to A's written state: at B.t0 + 0.05 beat (and later) B shows what A settled on.
-async function noFlash({ use, a, b, press, read }) {
-  await scene({ bars: 2,
-    states: `[{ at: 0, use: '${use}', ${a} }, { at: 2, use: '${use}', ${b} }, { at: END - 2, use: '${use}', ${a} }]`,
-    cursor: `[{ at: 0, x: 0, y: 120 }, { at: 0.5, target: '${press}' }, { at: 0.8, target: '${press}', press: true }, { at: END - 2, x: 0, y: 120 }]` }, async (s, at) => {
-    await at(1.95);
-    const end = await s.page.evaluate(read, 0);
-    for (const beat of [2.05, 2.3, 3]) {
-      await at(beat);
-      assert.deepEqual(await s.page.evaluate(read, 1), end, `${use} row B at beat ${beat} matches the end of row A`);
-    }
-  });
-}
 test('toggle: a continuation after a press starts from the flipped knob', async () => {
-  await noFlash({ use: 'toggle', a: 'on: false', b: 'on: true', press: 'knob', read: (row) => {
+  await noFlash({ y: 120, use: 'toggle', a: 'on: false', b: 'on: true', press: 'knob', read: (row) => {
     const k = document.querySelector(`.c-toggle[data-row="${row}"] .tg-knob`), tr = k.parentNode;
     return [Math.round(parseFloat(k.style.left)), Math.round(parseFloat(k.style.width)), tr.style.background];
   } });
 });
 
 test('checkbox: a continuation after a press keeps the tick drawn', async () => {
-  await noFlash({ use: 'checkbox', a: 'checked: false', b: 'checked: true', press: 'box', read: (row) => {
+  await noFlash({ y: 120, use: 'checkbox', a: 'checked: false', b: 'checked: true', press: 'box', read: (row) => {
     const b = document.querySelector(`.c-checkbox[data-row="${row}"] .cb-box`), tick = b.querySelector('.cb-tick');
     return [parseFloat(tick.style.strokeDashoffset) < 0.03, b.style.background, tick.style.opacity];
   } });
 });
 
 test('tabs: a continuation after a press keeps the indicator on the pressed tab', async () => {
-  await noFlash({ use: 'tabs', a: "active: 'Day'", b: "active: 'Month'", press: 'tab:Month', read: (row) => {
+  await noFlash({ y: 120, use: 'tabs', a: "active: 'Day'", b: "active: 'Month'", press: 'tab:Month', read: (row) => {
     const i = document.querySelector(`.c-tabs[data-row="${row}"] .tb-ind`);
     return [Math.round(parseFloat(i.style.left)), Math.round(parseFloat(i.style.width))];
   } });
 });
 
 test('dropdown: a continuation after a press keeps the pressed item highlighted', async () => {
-  await noFlash({ use: 'dropdown', a: "open: true, selected: 'Newest'", b: "open: true, selected: 'Oldest'", press: 'item:Oldest', read: (row) =>
+  await noFlash({ y: 120, use: 'dropdown', a: "open: true, selected: 'Newest'", b: "open: true, selected: 'Oldest'", press: 'item:Oldest', read: (row) =>
     [...document.querySelectorAll(`.c-dropdown[data-row="${row}"] .dd-item`)].map((e) => [e.classList.contains('dd-hl'), e.style.background, e.style.opacity]) });
 });
 

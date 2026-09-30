@@ -1,18 +1,9 @@
 // components-chrome.test.mjs -- behaviour of the App chrome group in a real page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProject, openScene } from './harness.mjs';
+import { makeProject, scene, noFlash } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
 
-// Open a project, hand the test a seek-by-beat helper, and always close the browser.
-async function scene(opts, fn) {
-  const s = await openScene(makeProject(opts));
-  try {
-    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
-    await fn(s, async (beat) => s.seek(beat * bs), bs);
-    assert.deepEqual(s.errors, []);
-  } finally { await s.close(); }
-}
 const REST = "{ at: 0, use: 'button' }, ", BACK = ", { at: END - 2, use: 'button' }";
 const STILL = '[{ at: 0, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]';
 const text = (s, sel) => s.page.evaluate((sel) => document.querySelector(sel).textContent, sel);
@@ -124,6 +115,35 @@ test('command: a continuation after a press keeps the pressed row selected', asy
     [...document.querySelectorAll(`.c-command[data-row="${row}"] .cm-row`)].map((e) => [e.classList.contains('cm-sel'), e.style.background]) });
 });
 
+// A continuation with a query that does not extend the previous one springs the rows to the new filter.
+test('command: a continuation that replaces the query springs the rows open instead of snapping', async () => {
+  await scene({ bars: 2, states: "[{ at: 0, use: 'command', query: 'exp' }, { at: 2, use: 'command', query: '' }, { at: END - 2, use: 'command', query: 'exp' }]", cursor: STILL }, async (s, at) => {
+    const rows = (row) => s.page.evaluate((row) => [...document.querySelectorAll(`.c-command[data-row="${row}"] .cm-row`)].map((e) => [Math.round(parseFloat(e.style.height)), e.classList.contains('cm-sel')]), row);
+    await at(1.95);
+    const end = await rows(0);
+    assert.deepEqual(end, [[80, true], [80, false], [0, false], [0, false], [0, false]]);
+    await at(2.01);
+    const early = await rows(1);
+    assert.deepEqual(early.map(([, sel]) => sel), [true, false, false, false, false], 'selection stays on Export report');
+    assert.deepEqual(early.slice(0, 2).map(([h]) => h), [80, 80]);
+    for (const [h] of early.slice(2)) assert.ok(h < 20, `hidden rows start closed, not snapped open: ${JSON.stringify(early)}`);
+    await at(3);
+    assert.deepEqual((await rows(1)).map(([h]) => h), [80, 80, 80, 80, 80]);
+  });
+});
+
+test('command: a continuation with the same query keeps the caret blinking', async () => {
+  await scene({ bars: 2, states: "[{ at: 0, use: 'command', query: 'exp', typeAt: 0 }, { at: 2, use: 'command', query: 'exp' }, { at: END - 2, use: 'command', query: 'exp', typeAt: 0 }]", cursor: STILL }, async (s, at, bs) => {
+    const seen = (row, a, b) => s.page.evaluate(([row, a, b, bs]) => {
+      const out = new Set();
+      for (let beat = a; beat <= b; beat += 0.05) { window.seek(beat * bs); out.add(document.querySelector(`.c-command[data-row="${row}"] .cm-caret`).style.opacity); }
+      return [...out].sort();
+    }, [row, a, b, bs]);
+    assert.deepEqual(await seen(0, 0, 1.95), ['0', '1'], 'row A blinks');
+    assert.deepEqual(await seen(1, 2, 3.95), ['0', '1'], 'row B keeps blinking');
+  });
+});
+
 test('dock: the pill settles on the pressed item; a quick reversal stays inside the dock and never below 0.75 item wide', async () => {
   await scene({ bars: 3, states: "[{ at: 0, use: 'dock' }, { at: END - 2, use: 'dock' }]",
     cursor: "[{ at: 0, x: 0, y: 200 }, { at: 1, target: 'item:Settings', press: true }, { at: 3, target: 'item:Today', press: true }, { at: 3.3, target: 'item:Settings', press: true }, { at: 3.5, target: 'item:Plan', press: true }, { at: END - 2, x: 0, y: 200 }]" }, async (s, at) => {
@@ -186,6 +206,23 @@ test('avatar-stack: the targeted avatar lifts 10px and its neighbours spread', a
   });
 });
 
+// The engine carries the cursor's aim across a continuation, so the lifted avatar stays lifted.
+test('avatar-stack: a hovered avatar stays lifted across a continuation', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'avatar-stack' }, { at: 4, use: 'avatar-stack', extra: 5 }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'avatar:1' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    const ys = await s.page.evaluate(([a, b, bs]) => {
+      const out = [];
+      for (let beat = a; beat <= b + 1e-9; beat += 0.01) {
+        window.seek(beat * bs);
+        const layer = [...document.querySelectorAll('.c-avatar-stack')].find((e) => Number(e.style.opacity) > 0.5);
+        out.push([beat.toFixed(2), Number(/translate\(([-\d.e]+)px, ([-\d.e]+)px\)/.exec(layer.querySelector('.as-av[data-i="1"]').style.transform)[2])]);
+      }
+      return out;
+    }, [3.9, 4.4, bs]);
+    for (const [beat, y] of ys) assert.ok(Math.abs(y + 10) < 0.05, `avatar 1 lifted at beat ${beat}: ${y}`);
+  });
+});
+
 test('chip-row: a single-select press moves the selection; multi-select keeps both', async () => {
   await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'chip-row' }, { at: 6, use: 'button' }, { at: 8, use: 'chip-row', multi: true }${BACK}]`,
     cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'chip:Bills' }, { at: 3, target: 'chip:Bills', press: true }, { at: 8.5, target: 'chip:Savings' }, { at: 9, target: 'chip:Savings', press: true }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at) => {
@@ -205,16 +242,3 @@ test('chip-row: a continuation after a press keeps the pressed chip selected', a
     [...document.querySelectorAll(`.c-chip-row[data-row="${row}"] .cr-chip`)].map((e) => [e.classList.contains('cr-on'), e.style.background]) });
 });
 
-// A press in row A, then a continuation row B that states the pressed result, must not flash back.
-async function noFlash({ use, a, b, press, read }) {
-  await scene({ bars: 2,
-    states: `[{ at: 0, use: '${use}', ${a} }, { at: 2, use: '${use}', ${b} }, { at: END - 2, use: '${use}', ${a} }]`,
-    cursor: `[{ at: 0, x: 0, y: 400 }, { at: 0.5, target: '${press}' }, { at: 0.8, target: '${press}', press: true }, { at: END - 2, x: 0, y: 400 }]` }, async (s, at) => {
-    await at(1.95);
-    const end = await s.page.evaluate(read, 0);
-    for (const beat of [2.05, 2.3, 3]) {
-      await at(beat);
-      assert.deepEqual(await s.page.evaluate(read, 1), end, `${use} row B at beat ${beat} matches the end of row A`);
-    }
-  });
-}

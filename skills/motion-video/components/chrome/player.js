@@ -4,11 +4,11 @@ import { el, frame, icon, prog, fade, applyFade, pressesOn, pressDepth } from '.
 export const meta = {
   name: 'player', group: 'chrome',
   useWhen: 'Media is playing or about to: a song, a podcast, a voice note.',
-  motion: "A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to; if it writes a different `position` from the row before, it seeks there on arrival (the thumb glides). It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist.",
-  props: { title: ['string', 'Tints'], artist: ['string', 'Artist'], playing: ['boolean', false], position: ['number', 0.25], duration: ['number', 214] },
+  motion: "A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to; if it writes a different `position` from the row before, it seeks there on arrival (the thumb glides). It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist. In a looping piece, start and end on a paused player; a playing one moves with the clock and cannot match at the seam.",
+  props: { title: ['string', 'Midnight Drive'], artist: ['string', 'The Placeholders'], playing: ['boolean', false], position: ['number', 0.25], duration: ['number', 214] },
   hotspots: ['play', 'thumb'],
   sounds: [],
-  example: "{ at: 0, use: 'player', title: 'Tints', artist: 'Anderson .Paak', position: 0.4 }",
+  example: "{ at: 0, use: 'player', title: 'Midnight Drive', artist: 'The Placeholders', position: 0.4 }",
   edgeCases: [{ playing: true, position: 0 }, { title: 'A very long track title that will not fit on the card', artist: 'Somebody with a long name', position: 1 }, { position: 0.5, duration: 3725 }],
 };
 
@@ -73,7 +73,7 @@ function drags(ctx) {
 }
 
 // A continuation seeks when its written position differs from the previous row's written one; else it carries on.
-const seeks = (p, ctx) => ctx.continues && ctx.prev.written !== p.position;
+const seeks = (p, ctx) => ctx.continues && ctx.prev._written !== p.position;
 const startPos = (p, ctx) => clamp01(ctx.continues && !seeks(p, ctx) ? ctx.prev.position : p.position);
 
 // Position 0..1 at t: it runs on at 1/duration a second while playing (from 0 for row 0, else the row's start),
@@ -101,8 +101,8 @@ function position(p, ctx, t) {
 }
 
 // The row as it stands when the next row starts: a following player row carries on from here.
-// `written` keeps the row's own position so the next row can tell a seek from carrying on.
-export const endState = (p, ctx) => ({ ...p, playing: playingAt(plays(p, ctx), Infinity), position: position(p, ctx, Math.min(ctx.t1, 1e6)), written: p.position });
+// `_written` keeps the row's own position so the next row can tell a seek from carrying on.
+export const endState = (p, ctx) => ({ ...p, playing: playingAt(plays(p, ctx), Infinity), position: position(p, ctx, Math.min(ctx.t1, 1e6)), _written: p.position });
 
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -138,6 +138,8 @@ export function render(root, p, ctx, t) {
 
 export function hotspot(name, p, geo, ctx) {
   if (name === 'play') return { x: W / 2 - PAD - BTN / 2, y: 55 + BTN / 2 - H / 2 };
+  // The thumb is aimed where it sits when the row starts: hotspots have no time, so while playing it drifts
+  // slightly (about 2.5 px a second on a 214 s track) from the aimed point.
   if (name === 'thumb') {
     const pos = ctx?.continues ? startPos(p, ctx) : clamp01(p.position);
     return { x: COL + pos * TRACK - W / 2, y: TRACK_Y - H / 2 };

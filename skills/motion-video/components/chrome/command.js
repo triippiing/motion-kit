@@ -1,15 +1,15 @@
 // command.js -- a command palette: a search field that types a query and a list that filters as it types.
-import { el, frame, icon, prog, fade, applyFade, pressesOn, loopPeriod } from '../core/helpers.js';
+import { el, frame, icon, fade, applyFade, pressesOn, loopPeriod } from '../core/helpers.js';
 
 export const meta = {
   name: 'command', group: 'chrome',
   useWhen: 'An app is driven from the keyboard: jump to a page, run an action, find a setting.',
-  motion: "The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on) and the selected row (write it as its `selected`). At most 5 items show.",
+  motion: "The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).",
   props: { items: ['string[]', ['Export report', 'Export CSV', 'Invite teammate', 'New goal', 'Settings']], query: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], selected: ['number', 0] },
   hotspots: ['field', 'row:<i>'],
   hotspotExample: { 'row:<i>': 'row:0' },
   sounds: ['key'],
-  example: "{ at: 0, use: 'command', query: 'exp', typeAt: 0.25 }",
+  example: "{ at: 0, use: 'command', query: 'o', typeAt: 0.25 }",
   edgeCases: [{ query: '' }, { query: 'zzz', typeAt: -1 }, { items: ['Settings', 'Sign out'], query: 's', selected: 1 }, { items: ['A very long command name that goes on and on past the edge', 'Short'], query: '' }],
 };
 
@@ -59,29 +59,43 @@ function times(p, ctx) {
   return [...Array(keep).fill(-Infinity), ...typed, ...Array(p.query.length - keep - typed.length).fill(-Infinity)];
 }
 
-// Everything that changes the list, in time order: the query at the start, each character, each press on a row.
+// A continuation whose query does not extend the previous one replaces it on arrival.
+const replaces = (p, ctx) => ctx.continues && !p.query.startsWith(ctx.prev.query);
+
+// Everything that changes the list, in time order: the query at the start (the previous row's when this row
+// replaces it, so the rows spring to the new filter at t0 instead of snapping), each character, each press on a row.
 function events(p, ctx) {
-  const tm = times(p, ctx), sel0 = ctx.continues ? ctx.prev.selected : p.selected;
-  const out = [{ t: -Infinity, n: tm.filter((x) => x === -Infinity).length, sel: sel0 }];
+  const tm = times(p, ctx), sel0 = ctx.continues ? ctx.prev.selected : p.selected, n0 = tm.filter((x) => x === -Infinity).length;
+  const out = [replaces(p, ctx) ? { t: -Infinity, n: 0, q: ctx.prev.query, sel: sel0 } : { t: -Infinity, n: n0, sel: sel0 }];
   const later = [...tm.filter((x) => x > -Infinity).map((x) => ({ t: x, kind: 'key' })),
     ...pressesOn(ctx, 'row').filter((x) => x.kind !== 'up').map((x) => ({ t: x.t, kind: 'sel', sel: Number(x.hotspot.slice(4)) }))];
+  if (replaces(p, ctx)) later.push({ t: ctx.t0, kind: 'query' });
   if (ctx.continues && sel0 !== p.selected) later.push({ t: ctx.t0, kind: 'sel', sel: p.selected });
-  for (const e of later.sort((a, b) => a.t - b.t)) {
+  // At t0 the new query lands before any selection change on the same instant.
+  const rank = { query: 0, sel: 1, key: 2 };
+  for (const e of later.sort((a, b) => a.t - b.t || rank[a.kind] - rank[b.kind])) {
     const last = out.at(-1);
-    out.push({ t: e.t, n: last.n + (e.kind === 'key' ? 1 : 0), sel: e.kind === 'sel' ? e.sel : last.sel });
+    out.push({ t: e.t, n: e.kind === 'query' ? n0 : last.n + (e.kind === 'key' ? 1 : 0), q: e.kind === 'query' ? undefined : last.q,
+      sel: e.kind === 'sel' ? e.sel : last.sel });
   }
   return out;
 }
 
 // For an event: which items are visible, and which item is selected (the sel-th visible one).
 function state(p, e) {
-  const q = p.query.slice(0, e.n), vis = shown(p).map((it) => matches(it, q));
+  const q = e.q ?? p.query.slice(0, e.n), vis = shown(p).map((it) => matches(it, q));
   const order = vis.flatMap((v, i) => (v ? [i] : []));
   return { vis, selItem: order[e.sel] ?? -1 };
 }
 
-// The row as it stands after its presses: a following command row continues from here.
-export const endState = (p, ctx) => ({ ...p, selected: events(p, ctx).at(-1).sel });
+// Whether this row shows a caret that is still blinking when it ends: it typed something, or it continued a
+// row whose caret was blinking and kept the same query.
+const typing = (p, ctx) => p.typeAt >= 0 && p.query.length > kept(p, ctx);
+const blinks = (p, ctx) => typing(p, ctx) || (ctx.continues && !!ctx.prev._caret && p.query === ctx.prev.query);
+
+// The row as it stands after its presses: a following command row continues from here (`_caret`: the caret is
+// blinking at the end, so a continuation with the same query keeps it).
+export const endState = (p, ctx) => ({ ...p, selected: events(p, ctx).at(-1).sel, _caret: blinks(p, ctx) });
 
 const snap = (k) => (k > 0.999 ? 1 : k < 0.001 ? 0 : k);
 const soft = (k) => `color-mix(in srgb, var(--accent) ${(14 * k).toFixed(2)}%, transparent)`;
@@ -92,9 +106,10 @@ export function render(root, p, ctx, t) {
   f.querySelector('.cm-text').textContent = p.query.slice(0, n);
   f.querySelector('.cm-ph').style.opacity = n > 0 ? '0' : '1';
   // Caret as in input: solid while typing, then a ~1 Hz blink with a loop-fitted period and the loop's phase.
-  const typing = p.typeAt >= 0 && p.query.length > kept(p, ctx);
+  // A continuation with the same query keeps a blinking caret blinking (same loop phase, so no jump at t0).
   const blink = loopPeriod(ctx, 1.0), phase = (((t / blink) % 1) + 1) % 1;
-  f.querySelector('.cm-caret').style.opacity = typing && t >= first && (t < end || phase < 0.5) ? '1' : '0';
+  const on = typing(p, ctx) ? t >= first && (t < end || phase < 0.5) : blinks(p, ctx) && phase < 0.5;
+  f.querySelector('.cm-caret').style.opacity = on ? '1' : '0';
   const ev = events(p, ctx), st = ev.map((e) => state(p, e));
   const omega = Springs.fromSettle(0.3 * bs, 1), hi = Springs.fromSettle(0.25 * bs, 1);
   const trackOf = (get, w) => snap(Math.max(0, Math.min(1, Springs.track(t, { from: get(st[0]), changes: ev.slice(1).map((e, j) => ({ t: e.t, to: get(st[j + 1]) })), omega: w, zeta: 1 }).value)));

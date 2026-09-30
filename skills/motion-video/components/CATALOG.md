@@ -517,7 +517,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** An app is driven from the keyboard: jump to a page, run an action, find a setting.
 
-**Motion:** The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on) and the selected row (write it as its `selected`). At most 5 items show.
+**Motion:** The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).
 
 | Prop | Type | Default |
 |---|---|---|
@@ -531,7 +531,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 **Sounds:** key
 
 ```js
-{ at: 0, use: 'command', query: 'exp', typeAt: 0.25 }
+{ at: 0, use: 'command', query: 'o', typeAt: 0.25 }
 ```
 
 ### dock
@@ -581,12 +581,12 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** Media is playing or about to: a song, a podcast, a voice note.
 
-**Motion:** A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to; if it writes a different `position` from the row before, it seeks there on arrival (the thumb glides). It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist.
+**Motion:** A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to; if it writes a different `position` from the row before, it seeks there on arrival (the thumb glides). It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist. In a looping piece, start and end on a paused player; a playing one moves with the clock and cannot match at the seam.
 
 | Prop | Type | Default |
 |---|---|---|
-| `title` | `string` | `"Tints"` |
-| `artist` | `string` | `"Artist"` |
+| `title` | `string` | `"Midnight Drive"` |
+| `artist` | `string` | `"The Placeholders"` |
 | `playing` | `boolean` | `false` |
 | `position` | `number` | `0.25` |
 | `duration` | `number` | `214` |
@@ -595,7 +595,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 **Sounds:** none
 
 ```js
-{ at: 0, use: 'player', title: 'Tints', artist: 'Anderson .Paak', position: 0.4 }
+{ at: 0, use: 'player', title: 'Midnight Drive', artist: 'The Placeholders', position: 0.4 }
 ```
 
 ### sheet

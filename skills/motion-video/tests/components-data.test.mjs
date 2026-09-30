@@ -1,17 +1,8 @@
 // components-data.test.mjs -- behaviour of the Data and content group in a real page.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProject, openScene } from './harness.mjs';
+import { scene, noFlash } from './harness.mjs';
 
-// Open a project, hand the test a seek-by-beat helper, and always close the browser.
-async function scene(opts, fn) {
-  const s = await openScene(makeProject(opts));
-  try {
-    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
-    await fn(s, async (beat) => s.seek(beat * bs), bs);
-    assert.deepEqual(s.errors, []);
-  } finally { await s.close(); }
-}
 const REST = "{ at: 0, use: 'button' }, ", BACK = ", { at: END - 2, use: 'button' }";
 const STILL = '[{ at: 0, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]';
 const one = (row) => ({ bars: 2, states: `[${REST}{ at: 2, ${row} }${BACK}]`, cursor: STILL });
@@ -233,19 +224,6 @@ test('goal: a continuation from a zero target never shows a runaway percentage',
   });
 });
 
-// A press in row A, then a continuation row B that states the pressed result, must not flash back.
-async function noFlash({ use, a, b, press, read }) {
-  await scene({ bars: 2,
-    states: `[{ at: 0, use: '${use}', ${a} }, { at: 2, use: '${use}', ${b} }, { at: END - 2, use: '${use}', ${a} }]`,
-    cursor: `[{ at: 0, x: 0, y: 400 }, { at: 0.5, target: '${press}' }, { at: 0.8, target: '${press}', press: true }, { at: END - 2, x: 0, y: 400 }]` }, async (s, at) => {
-    await at(1.95);
-    const end = await s.page.evaluate(read, 0);
-    for (const beat of [2.05, 2.3, 3]) {
-      await at(beat);
-      assert.deepEqual(await s.page.evaluate(read, 1), end, `${use} row B at beat ${beat} matches the end of row A`);
-    }
-  });
-}
 test('list: a continuation after a press keeps the pressed row highlighted', async () => {
   await noFlash({ use: 'list', a: 'highlight: -1', b: 'highlight: 2', press: 'row:2', read: (row) =>
     [...document.querySelectorAll(`.c-list[data-row="${row}"] .ls-row`)].map((e) => [e.classList.contains('ls-hl'), e.style.background]) });

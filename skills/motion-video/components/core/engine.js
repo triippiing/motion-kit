@@ -10,7 +10,8 @@
 //   geometry(props, ctx) -> { w, h, r, fill, ink }; mount(el, props, ctx); render(el, props, ctx, t);
 //   hotspot(name, props, geo, ctx) -> { x, y } | null (offset from shape centre; ctx is the row's own ctx);
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
-//   once that row's presses have happened, e.g. a toggle flipped by a press).
+//   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
+//   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
 //           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
