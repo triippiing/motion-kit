@@ -7,15 +7,27 @@
 // rendered once into out/shapes/<W>x<H>/video.mp4 via render.mjs's stage override (project.json is never
 // rewritten, and the user's out/video.mp4 is never overwritten). An existing render (out/video.mp4 for the
 // design size, or the shapes/ one) is reused only when its render.json stamp says it is a full-quality,
-// full-loop render at that size by the current renderer, and it is newer than every project file. Each preset is then encoded from its shape's render (fps drop, scale, CRF capped by maxrate,
-// two-pass loudnorm to the preset's LUFS and true peak, or no audio with --silent) into out/exports/<preset>.mp4,
-// and out/exports/manifest.json records every file with what was measured.
+// full-loop render at that size by the current renderer, and it is newer than every project file. Each preset is then
+// encoded from its shape's render (fps drop, scale, CRF capped by maxrate, two-pass loudnorm to the preset's LUFS and
+// true peak, or no audio with --silent) into out/exports/<preset>.mp4. Over the preset's maxMB, the MP4 is re-encoded
+// two-pass at the bitrate that fills the cap, stepping the resolution down (1080/720/540 short side) when that bitrate is
+// under the size's quality floor; when no size works the export stops with an error. `web` also writes <preset>.webm
+// (VP9/Opus) and <preset>.jpg (a poster at beat 1.5); `gif` writes <preset>.gif, narrowing until it fits gif.maxMB.
+// Everything is written into a staging dir and moved into out/exports only when the whole export succeeds, then
+// out/exports/manifest.json records every file with what was measured. Over maxSeconds is a warning, not an error.
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { render, renderStamp, stampPath, UsageError } from './render.mjs';
-import { encode, loudnessMiss, loudnormArgs, measureLoudness, probe } from './media.mjs';
+import { beatTime, render, renderStamp, stampPath, UsageError } from './render.mjs';
+import { capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
+
+// A size cap that cannot be met: bad input for this project (exit 2), but not a usage mistake.
+export class CapError extends UsageError {}
+
+// The poster frame: beat 1 plus half a beat, after the first beat's motion has settled.
+const POSTER_BEAT = 1.5;
+const GIF_TRIES = 4;
 
 const DEFAULT_PRESETS = path.resolve(import.meta.dirname, '..', 'presets.json');
 
@@ -114,36 +126,113 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   }
 
   await mkdir(exportsDir, { recursive: true });
+  const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
   const commercial = project.music === 'commercial';
   const files = [];
-  for (const g of groups.values()) {
-    const src = await probe(g.file);
-    for (const name of g.presets) {
-      const p = P.presets[name], notes = [], warnings = [];
-      const size = p.size ?? g.stage;
-      let noAudio = silent || !p.audio?.codec;
-      if (!noAudio && !src.acodec) { noAudio = true; notes.push('render has no audio'); }
-      let af = [];
-      if (!noAudio) {
-        af = await loudnormArgs(g.file, p.audio);
-        if (af.skipped) notes.push('loudness skipped (near-silent input)');
-        if (commercial && p.public) warnings.push(`commercial music on a public platform (${p.label ?? name}) risks a mute or takedown: export with --silent or use a licensed track`);
-      }
-      const out = path.join(exportsDir, `${name}.mp4`);
-      await encode(g.file, out, { size, fps: p.fps, video: p.video, audio: p.audio, silent: noAudio, af });
-      const m = await probe(out);
-      const loud = m.acodec ? await measureLoudness(out) : null;
-      if (loud && !af.skipped) { const miss = loudnessMiss(loud, p.audio); if (miss) warnings.push(miss); }
-      files.push({ preset: name, path: rel(out), bytes: m.bytes, duration: m.duration, width: m.width, height: m.height, fps: m.fps,
-        vcodec: m.vcodec, acodec: m.acodec, lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
-        notes, warnings, source: p.source ?? null, checked: p.checked ?? null, estimated: p.estimated ?? [] });
+  // Encode into a staging dir; nothing reaches exportsDir unless every preset succeeds.
+  const staging = await mkdtemp(path.join(exportsDir, '.staging-'));
+  try {
+    for (const g of groups.values()) {
+      const src = await probe(g.file);
+      for (const name of g.presets) files.push(...await exportPreset(name, P.presets[name], g.file, src));
     }
+    for (const f of files) await rename(f.staged, f.final);
+  } finally { await rm(staging, { recursive: true, force: true }); }
+
+  async function exportPreset(name, p, input, src) {
+    const size = p.size ?? [src.width, src.height];
+    const label = p.label ?? name;
+    const notes = [];
+    let noAudio = silent || !p.audio?.codec;
+    if (!noAudio && !src.acodec) { noAudio = true; notes.push('render has no audio'); }
+    let af = [];
+    if (!noAudio) {
+      af = await loudnormArgs(input, p.audio);
+      if (af.skipped) notes.push('loudness skipped (near-silent input)');
+    }
+    const at = (ext) => ({ staged: path.join(staging, `${name}.${ext}`), final: path.join(exportsDir, `${name}.${ext}`) });
+    const out = [];
+    // Measure a finished file and build its manifest entry (warnings that depend on what it contains are added here).
+    const entry = async (format, where, { stepDown = null, extraNotes = [], still = false, ...extra } = {}) => {
+      const m = await probe(where.staged), warnings = [];
+      const loud = m.acodec ? await measureLoudness(where.staged) : null;
+      if (m.acodec && commercial && p.public)
+        warnings.push(`commercial music on a public platform (${label}) risks a mute or takedown: export with --silent or use a licensed track`);
+      if (loud && !af.skipped) { const miss = loudnessMiss(loud, p.audio); if (miss) warnings.push(miss); }
+      if (!still && p.maxSeconds && m.duration > p.maxSeconds)
+        warnings.push(`over the ${p.maxSeconds} s maximum length for ${label} (${m.duration.toFixed(2)} s): the platform may reject or trim it`);
+      return { preset: name, format, path: rel(where.final), bytes: m.bytes, duration: still ? null : m.duration, width: m.width, height: m.height,
+        fps: still ? null : m.fps, vcodec: m.vcodec, acodec: m.acodec, lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
+        ...extra, stepDown, notes: [...notes, ...extraNotes], warnings, source: p.source ?? null, checked: p.checked ?? null,
+        estimated: p.estimated ?? [], staged: where.staged, final: where.final };
+    };
+
+    if (p.gif) {
+      // GIF: narrow by 0.8 per try until it fits its cap (gif.maxMB, the one source of the GIF cap).
+      const cap = p.gif.maxMB ?? p.maxMB, where = at('gif');
+      let width = Math.min(p.gif.width ?? src.width, src.width), first = null, m;
+      for (let tries = 1; ; tries++) {
+        await encodeGif(input, where.staged, { width, fps: p.gif.fps ?? p.fps });
+        m = await probe(where.staged);
+        first ??= [m.width, m.height];
+        if (!cap || m.bytes <= capBytes(cap)) break;
+        if (tries === GIF_TRIES) throw new Error(`${name}: GIF still ${(m.bytes / MB).toFixed(2)} MB at width ${width} after ${GIF_TRIES} tries; cap is ${cap} MB (lower gif.fps or gif.width, or shorten the piece)`);
+        width = Math.max(2, Math.round((width * 0.8) / 2) * 2);
+      }
+      const stepped = m.width !== first[0];
+      return [await entry('gif', where, { stepDown: stepped ? { from: first, to: [m.width, m.height] } : null })];
+    }
+
+    const outputs = p.outputs ?? ['mp4'];
+    const cap = p.maxMB;
+    // Never ship a file over the cap: formats without a fitting strategy just check it.
+    const checkCap = async (where) => {
+      const bytes = (await stat(where.staged)).size;
+      if (cap && bytes > capBytes(cap)) throw new CapError(`${name}: ${path.basename(where.final)} is ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
+    };
+    if (outputs.includes('mp4')) {
+      const where = at('mp4'), opts = { size, fps: p.fps, video: p.video, audio: p.audio, silent: noAudio, af };
+      await encode(input, where.staged, opts);
+      let bytes = (await stat(where.staged)).size, stepDown = null;
+      const capNotes = [];
+      if (cap && bytes > capBytes(cap)) {
+        // Over the cap at CRF: two-pass at the bitrate that fills it; one retry aiming lower if the container overshoots.
+        const crfMB = (bytes / MB).toFixed(2);
+        for (const headroom of [0.97, 0.93]) {
+          const fit = fitToCap({ duration: src.duration, maxMB: cap, audioKbps: noAudio ? 0 : p.audio.kbps, sizes: capSizes(size), headroom });
+          if (fit.error) throw new CapError(`${name}: ${fit.error}`);
+          await encode(input, where.staged, { ...opts, size: fit.size, videoKbps: fit.videoKbps });
+          bytes = (await stat(where.staged)).size;
+          stepDown = fit.size[0] === size[0] && fit.size[1] === size[1] ? null : { from: size, to: fit.size, videoKbps: fit.videoKbps };
+          capNotes[0] = `over ${cap} MB at CRF ${p.video?.crf ?? 20} (${crfMB} MB): two-pass at ${fit.videoKbps} kbps`;
+          if (bytes <= capBytes(cap)) break;
+        }
+        if (bytes > capBytes(cap)) throw new Error(`${name}: two-pass encode still ${(bytes / MB).toFixed(2)} MB, over its ${cap} MB cap`);
+      }
+      out.push(await entry('mp4', where, { stepDown, extraNotes: capNotes }));
+    }
+    if (outputs.includes('webm')) {
+      const where = at('webm');
+      await encodeWebm(input, where.staged, { size, fps: p.fps, silent: noAudio, af });
+      await checkCap(where);
+      out.push(await entry('webm', where));
+    }
+    if (outputs.includes('poster')) {
+      const where = at('jpg');
+      const t = Math.min(beatTime(song, POSTER_BEAT), src.duration - 1 / song.fps);
+      await poster(input, where.staged, { size, t });
+      await checkCap(where);
+      out.push(await entry('jpg', where, { still: true, posterAt: Math.round(t * 1000) / 1000, extraNotes: [`poster at beat ${POSTER_BEAT} (${t.toFixed(3)} s)`] }));
+    }
+    return out;
   }
-  // Keep the order the presets were asked for.
-  files.sort((a, b) => chosen.indexOf(a.preset) - chosen.indexOf(b.preset));
-  const manifest = { project: path.basename(root), created: new Date().toISOString(), renders, files };
+
+  // Keep the order the presets were asked for (a preset's own files stay in mp4, webm, jpg order).
+  const ordered = files.map((f, i) => [f, i]).sort((a, b) => chosen.indexOf(a[0].preset) - chosen.indexOf(b[0].preset) || a[1] - b[1])
+    .map(([{ staged, final, ...f }]) => f);
+  const manifest = { project: path.basename(root), created: new Date().toISOString(), renders, files: ordered };
   await writeFile(path.join(exportsDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-  for (const f of files) log(summary(f));
+  for (const f of ordered) log(summary(f));
   return manifest;
 }
 
@@ -151,10 +240,12 @@ const round1 = (x) => (Number.isFinite(x) ? Math.round(x * 10) / 10 : null);
 
 // One line per file; the notes and warnings themselves are in the manifest.
 function summary(f) {
-  const audio = f.acodec ? `${f.lufs} LUFS ${f.truePeak} dBTP` : 'no audio';
+  const audio = f.duration == null ? 'still' : f.acodec ? `${f.lufs} LUFS ${f.truePeak} dBTP` : 'no audio';
+  const timing = f.duration == null ? '' : `${f.fps}fps ${f.duration.toFixed(2)}s `;
   const n = (count, word) => (count ? `, ${count} ${word}${count > 1 ? 's' : ''}` : '');
-  return `${f.preset.padEnd(20)} ${f.width}x${f.height} ${f.fps}fps ${f.duration.toFixed(2)}s ${(f.bytes / 1e6).toFixed(2)} MB ${audio}  ${f.path}`
-    + `${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
+  const step = f.stepDown ? `, stepped down from ${f.stepDown.from.join('x')}` : '';
+  return `${f.preset.padEnd(20)} ${f.width}x${f.height} ${timing}${(f.bytes / MB).toFixed(2)} MB ${audio}  ${f.path}`
+    + `${step}${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
 }
 
 const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent]';
@@ -184,7 +275,7 @@ async function main() {
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
   main().catch((e) => {
     console.error(`error: ${e.message}`);
-    if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);
+    if (e instanceof UsageError && !(e instanceof CapError) && !e.message.startsWith('usage:')) console.error(USAGE);
     process.exit(e instanceof UsageError ? 2 : 1);
   });
 }

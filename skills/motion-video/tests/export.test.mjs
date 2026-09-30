@@ -1,16 +1,17 @@
-// export.mjs: stage override, shape grouping, per-preset encodes, loudness, --silent, warnings, manifest.
+// export.mjs: stage override, shape grouping, per-preset encodes, loudness, --silent, warnings, manifest,
+// size caps (two-pass, step-down, errors), web outputs (mp4, webm, poster) and GIF.
 // Tiny test presets (MOTION_PRESETS) and small stages keep the renders and encodes quick.
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
-import { FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
+import { beatTime, FFMPEG, render, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { exportProject, reusableRender } from '../scripts/export.mjs';
-import { loudnessMiss } from '../scripts/media.mjs';
+import { capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
@@ -19,8 +20,9 @@ const preset = (o) => ({ label: o.name, group: 'test', fps: 30, maxSeconds: null
   audio: { codec: 'aac', kbps: 96, lufs: -14, truePeak: -1 }, safe: zero, public: true, source: 'https://example.com/spec', checked: '2026-09-30',
   estimated: ['lufs', 'truePeak'], notes: 'test preset', ...o });
 const PRESETS = path.join(TMP, 'presets.json');
+const SHAPES = { square: [256, 256], vertical: [216, 384], landscape: [384, 216] };
 writeFileSync(PRESETS, JSON.stringify({
-  shapes: { square: [256, 256], vertical: [216, 384], landscape: [384, 216] },
+  shapes: SHAPES,
   presets: {
     reels: preset({ shape: 'vertical', size: [216, 384], video: { codec: 'h264', crf: 26, maxrate: '2M', profile: 'high' } }),
     tiktok: preset({ shape: 'vertical', size: [216, 384] }),
@@ -30,10 +32,22 @@ writeFileSync(PRESETS, JSON.stringify({
     discord: preset({ shape: 'design', fps: 60, maxMB: 20, public: false }),
     // a true-peak ceiling (loudnorm's lowest, -9) far below what -5 LUFS needs: loudnorm cannot meet both, so the export must warn
     tight: preset({ shape: 'design', fps: 60, public: false, audio: { codec: 'aac', kbps: 96, lufs: -5, truePeak: -9 } }),
-    web: preset({ shape: 'design', fps: 60, source: null, estimated: ['crf', 'kbps', 'lufs', 'truePeak'] }),
+    web: preset({ shape: 'design', fps: 60, source: null, estimated: ['crf', 'kbps', 'lufs', 'truePeak'], outputs: ['mp4', 'webm', 'poster'] }),
+    brief: preset({ shape: 'design', maxSeconds: 2, public: false }),
   },
 }));
 process.env.MOTION_PRESETS = PRESETS;
+
+// Run fn with a different presets file (loadPresets reads $MOTION_PRESETS on every export).
+let presetFiles = 0;
+async function withPresets(presets, fn) {
+  const f = path.join(TMP, `presets-${presetFiles++}.json`), old = process.env.MOTION_PRESETS;
+  writeFileSync(f, JSON.stringify({ shapes: SHAPES, presets }));
+  process.env.MOTION_PRESETS = f;
+  try { return await fn(f); } finally { process.env.MOTION_PRESETS = old; }
+}
+const exportCli = (args, presetsFile) => spawnSync('node', [path.join(SKILL, 'scripts', 'export.mjs'), ...args], { encoding: 'utf8',
+  env: { ...process.env, MOTION_PRESETS: presetsFile } });
 
 const streams = (f) => probe(f).streams;
 const video = (f) => streams(f).find((s) => s.codec_type === 'video');
@@ -52,10 +66,12 @@ async function standInStamp(dir, file, stage) {
   const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
   writeFileSync(stampPath(file), JSON.stringify(await renderStamp(dir, { stage, sub: 4, preview: false, song })));
 }
-function standIn(dir, file, seconds) {
+function standIn(dir, file, seconds, { size = '128x128', noise = false } = {}) {
   mkdirSync(path.dirname(file), { recursive: true });
-  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=s=128x128:r=60:d=${seconds}`, '-f', 'lavfi', '-i',
-    'sine=frequency=440:sample_rate=48000', '-t', String(seconds), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
+  // noise makes every frame expensive, so a size cap really binds and two-pass has to spend its whole budget
+  const src = `testsrc2=s=${size}:r=60:d=${seconds}${noise ? ',noise=alls=24:allf=t' : ''}`;
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', src, '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+    '-t', String(seconds), '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file]);
 }
 
 // One project (256x256 design stage, the test square, commercial music) exported once to five presets; most tests read its manifest.
@@ -219,9 +235,12 @@ test('manifest lists every file with bytes, duration, size, fps, LUFS, warnings 
   assert.deepEqual(onDisk, M);
   assert.equal(M.project, path.basename(DIR));
   assert.ok(!Number.isNaN(Date.parse(M.created)));
-  assert.deepEqual(M.files.map((f) => f.preset), ['reels', 'tiktok', 'shorts', 'x', 'discord', 'web']);
+  assert.deepEqual(M.files.map((f) => [f.preset, f.format]), [['reels', 'mp4'], ['tiktok', 'mp4'], ['shorts', 'mp4'], ['x', 'mp4'],
+    ['discord', 'mp4'], ['web', 'mp4'], ['web', 'webm'], ['web', 'jpg']]);
   for (const f of M.files) {
     assert.equal(f.bytes, statSync(abs(f)).size, f.preset);
+    assert.equal(f.stepDown, null, `${f.preset} fits without a step-down`);
+    if (f.format !== 'mp4') continue;
     assert.ok(Math.abs(f.duration - duration(abs(f))) < 1e-3, f.preset);
     assert.equal(f.vcodec, 'h264'); assert.equal(f.acodec, 'aac');
     assert.ok(Number.isFinite(f.lufs) && Number.isFinite(f.truePeak), f.preset);
@@ -237,7 +256,13 @@ test('manifest lists every file with bytes, duration, size, fps, LUFS, warnings 
 
 test('commercial music on a public preset warns', () => {
   for (const n of ['reels', 'tiktok', 'shorts', 'x', 'web']) assert.ok(file(n).warnings.some((w) => /commercial music.*--silent/.test(w)), n);
-  assert.ok(!file('discord').warnings.some((w) => /commercial/.test(w)), 'discord is not public');
+  // discord is not public, so no commercial warning; its one warning is the loudness miss. The fixture's audio is a click
+  // track: about -24.5 LUFS with -2.2 dBTP peaks, a 22 dB peak-to-loudness ratio. Reaching -14 LUFS linearly would put the
+  // peaks near +8 dBTP, so loudnorm falls back to dynamic mode, which cannot limit clicks that hard: it lands near -20 LUFS
+  // with peaks near 0 dBTP (AAC adds overshoot on the clicks). The same audio looped to 22 s misses the same way, so this is
+  // the signal, not the fixture's length; the export reports it honestly rather than shipping a silent miss.
+  assert.equal(file('discord').warnings.length, 1, JSON.stringify(file('discord').warnings));
+  assert.match(file('discord').warnings[0], /^loudness missed its target: integrated -?[\d.]+ LUFS vs target -14; true peak -?[\d.]+ dBTP vs ceiling -1$/);
 });
 
 test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill dir', () => {
@@ -254,4 +279,156 @@ test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill 
   r = cli(DIR, '--for', 'discord', '--silent');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^discord\s+256x256 60fps .* no audio  out\/exports\/discord\.mp4, 2 estimated values\nmanifest: /);
+});
+
+// ---- size caps, web outputs, GIF ----
+
+const psnr = (a, b) => {
+  const r = spawnSync(FFMPEG, ['-hide_banner', '-nostats', '-i', a, '-i', b, '-lavfi', '[0:v][1:v]psnr', '-f', 'null', '-'], { encoding: 'utf8' });
+  const m = r.stderr.match(/average:(inf|[\d.]+)/);
+  return m[1] === 'inf' ? Infinity : Number(m[1]);
+};
+const noStaging = (dir) => readdirSync(dir).filter((n) => n.startsWith('.'));
+const passlogs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('mk-2pass-'));
+
+test('capSizes steps the preset size down to 1080/720/540 short side, never up; fitToCap picks the largest size over its floor', () => {
+  assert.deepEqual(capSizes([1080, 1920]), [[1080, 1920], [720, 1280], [540, 960]]);
+  assert.deepEqual(capSizes([1440, 1440]), [[1440, 1440], [1080, 1080], [720, 720], [540, 540]]);
+  assert.deepEqual(capSizes([720, 720]), [[720, 720], [540, 540]]);
+  assert.deepEqual(capSizes([256, 256]), [[256, 256]]);
+  const sizes = capSizes([1080, 1920]), D = 30, audioKbps = 128;
+  // maxMB is decimal megabytes: the budget is 97% of maxMB x 10^6 bytes over the duration, less the audio.
+  const kbps = (maxMB) => Math.floor(targetBytes(maxMB) * 8 / 1000 / D - audioKbps);
+  assert.equal(targetBytes(10), 9700000);
+  assert.deepEqual(fitToCap({ duration: D, maxMB: 10, audioKbps, sizes }), { size: [1080, 1920], videoKbps: kbps(10) });
+  assert.ok(kbps(10) >= 1500);
+  assert.deepEqual(fitToCap({ duration: D, maxMB: 5, audioKbps, sizes }), { size: [720, 1280], videoKbps: kbps(5) });
+  assert.ok(kbps(5) < 1500 && kbps(5) >= 800);
+  assert.deepEqual(fitToCap({ duration: D, maxMB: 3, audioKbps, sizes }), { size: [540, 960], videoKbps: kbps(3) });
+  const e = fitToCap({ duration: D, maxMB: 1.5, audioKbps, sizes });
+  assert.deepEqual(Object.keys(e), ['error']);
+  assert.match(e.error, /1\.5 MB .*30\.00 s.*540x960 needs at least 450 kbps/);
+  // the retry aims lower
+  assert.equal(fitToCap({ duration: D, maxMB: 10, audioKbps, sizes, headroom: 0.93 }).videoKbps, Math.floor(10e6 * 0.93 * 8 / 1000 / D - audioKbps));
+});
+
+// A 720x720 project whose (stand-in, stamped) render is noise, so the CRF encode is far over the small caps below.
+let capDir;
+async function capProject() {
+  if (capDir) return capDir;
+  capDir = makeProject({ bars: 2, size: '720x720' });
+  const f = path.join(capDir, 'out', 'video.mp4');
+  standIn(capDir, f, loopSec(capDir), { size: '720x720', noise: true });
+  await standInStamp(capDir, f, [720, 720]);
+  return capDir;
+}
+// maxMB that leaves `videoKbps` for video after `audioKbps` of audio over the project's loop.
+const maxMBFor = (dir, videoKbps, audioKbps = 96) => Math.ceil(((videoKbps + audioKbps + 1) * 1000 * loopSec(dir) / 8 / 0.97)) / 1e6;
+
+let capM;
+async function capRun() {
+  if (capM) return capM;
+  const dir = await capProject();
+  capM = await withPresets({
+    fits: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 1200) }),   // 1200 kbps >= the 720 floor (800)
+    steps: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 600) }),   // under 800 at 720, over 450 at 540
+  }, () => exportProject(dir, { for: ['fits', 'steps'], log: () => {} }));
+  return capM;
+}
+
+test('over a cap, two-pass bitrate lands just under maxMB', async () => {
+  const m = await capRun(), f = m.files.find((x) => x.preset === 'fits'), cap = capBytes(maxMBFor(capDir, 1200));
+  assert.ok(f.bytes <= cap && f.bytes >= 0.8 * cap, `${f.bytes} bytes vs cap ${cap}`);
+  assert.equal(f.bytes, statSync(path.join(capDir, f.path)).size);
+  assert.deepEqual([f.width, f.height, f.fps, f.vcodec, f.acodec], [720, 720, 30, 'h264', 'aac']);
+  assert.equal(f.stepDown, null);
+  assert.ok(f.notes.some((n) => /^over [\d.]+ MB at CRF 26 \([\d.]+ MB\): two-pass at \d+ kbps$/.test(n)), JSON.stringify(f.notes));
+  assert.deepEqual(passlogs(), [], 'passlog files cleaned up');
+});
+
+test('when full size cannot meet the floor, resolution steps down and the manifest says so', async () => {
+  const m = await capRun(), f = m.files.find((x) => x.preset === 'steps'), cap = capBytes(maxMBFor(capDir, 600));
+  assert.deepEqual([f.width, f.height], [540, 540]);
+  assert.deepEqual([video(path.join(capDir, f.path)).width, video(path.join(capDir, f.path)).height], [540, 540]);
+  assert.ok(f.bytes <= cap, `${f.bytes} bytes vs cap ${cap}`);
+  assert.deepEqual(f.stepDown, { from: [720, 720], to: [540, 540], videoKbps: 600 });
+  assert.deepEqual(JSON.parse(readFileSync(path.join(capDir, 'out', 'exports', 'manifest.json'), 'utf8')), m, 'manifest on disk');
+});
+
+test('when even the smallest size cannot meet the floor, the export stops with a clear error and writes no file', async () => {
+  const dir = await capProject(), exportsDir = path.join(dir, 'out', 'exports');
+  await capRun();
+  const manifest = readFileSync(path.join(exportsDir, 'manifest.json'));
+  await withPresets({
+    ok: preset({ shape: 'design', public: false }),
+    tiny: preset({ shape: 'design', public: false, maxMB: maxMBFor(dir, 300) }),   // 300 kbps is under 540's floor (450)
+  }, (presetsFile) => {
+    const r = exportCli([dir, '--for', 'ok,tiny'], presetsFile);
+    assert.equal(r.status, 2, r.stderr);
+    assert.match(r.stderr, /^error: tiny: cannot fit [\d.]+ MB in 4\.00 s: .*540x540 needs at least 450 kbps/);
+    assert.doesNotMatch(r.stderr, /usage:/, 'a cap that cannot be met is not a usage error');
+    assert.doesNotMatch(r.stderr, /\n\s+at /, 'no stack trace');
+  });
+  assert.ok(!existsSync(path.join(exportsDir, 'tiny.mp4')), 'no file for the preset that failed');
+  assert.ok(!existsSync(path.join(exportsDir, 'ok.mp4')), 'nothing from a failed export lands in out/exports');
+  assert.deepEqual(noStaging(exportsDir), [], 'staging cleaned up');
+  assert.deepEqual(readFileSync(path.join(exportsDir, 'manifest.json')), manifest, 'the previous manifest is untouched');
+  assert.deepEqual(passlogs(), [], 'passlog files cleaned up');
+});
+
+test('web writes mp4 (faststart), webm (vp9/opus) and a poster jpg from a settled frame', () => {
+  const D = loopSec(DIR), song = JSON.parse(readFileSync(path.join(DIR, 'song.json'), 'utf8'));
+  const [mp4, webm, jpg] = M.files.filter((f) => f.preset === 'web');
+  assert.deepEqual([mp4.path, webm.path, jpg.path], ['mp4', 'webm', 'jpg'].map((e) => path.join('out', 'exports', `web.${e}`)));
+  // faststart: the moov atom comes before the media data
+  const buf = readFileSync(abs(mp4));
+  assert.ok(buf.indexOf('moov') > 0 && buf.indexOf('moov') < buf.indexOf('mdat'), 'moov before mdat');
+  const p = probe(abs(webm)), v = p.streams.find((s) => s.codec_type === 'video');
+  const codecs = execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', abs(webm)], { encoding: 'utf8' });
+  assert.deepEqual(codecs.trim().split('\n'), ['vp9', 'opus']);
+  assert.deepEqual([webm.vcodec, webm.acodec, webm.width, webm.height, webm.fps], ['vp9', 'opus', 256, 256, 60]);
+  assert.deepEqual([v.width, v.height, v.r_frame_rate], [256, 256, '60/1']);
+  assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `webm duration ${p.format.duration}`);
+  assert.ok(Number.isFinite(webm.lufs), 'webm loudness measured');
+  assert.ok(webm.warnings.some((w) => /commercial music/.test(w)), 'webm carries the audio, so the commercial warning');
+  // poster: beat 1 + half a beat, from the song's beat times (cue_t when present)
+  const t = (song.beats[1].cue_t ?? song.beats[1].t) + 0.5 * song.beat_sec;
+  assert.equal(beatTime(song, 1.5), t);
+  assert.deepEqual([jpg.vcodec, jpg.acodec, jpg.width, jpg.height, jpg.fps, jpg.duration, jpg.lufs], ['mjpeg', null, 256, 256, null, null, null]);
+  assert.equal(jpg.posterAt, Math.round(t * 1000) / 1000);
+  assert.deepEqual(jpg.warnings, [], 'a still has no audio or length to warn about');
+  const frame = path.join(TMP, 'frame.png');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-ss', String(t), '-i', path.join(DIR, M.renders[1].path), '-frames:v', '1', '-update', '1', frame]);
+  assert.ok(psnr(abs(jpg), frame) > 30, `poster matches the render at ${t}s`);
+});
+
+test('gif stays under its cap, stepping width down if needed', async () => {
+  const gifPreset = (maxMB) => preset({ shape: 'design', fps: 60, public: false, audio: { codec: null, kbps: 0, lufs: -14, truePeak: -1 },
+    gif: { width: 720, fps: 15, maxMB } });
+  const run = (maxMB, outDir) => withPresets({ gif: gifPreset(maxMB) }, () => exportProject(DIR, { for: ['gif'], outDir, log: () => {} }));
+  // Under a generous cap: the render's own width (never upscaled to 720), 15 fps, no audio.
+  const full = (await run(50, path.join(TMP, 'gif-full'))).files[0];
+  assert.deepEqual([full.format, full.vcodec, full.acodec, full.width, full.height, full.fps, full.stepDown], ['gif', 'gif', null, 256, 256, 15, null]);
+  assert.ok(full.path.endsWith('gif.gif') && existsSync(full.path));
+  assert.ok(Math.abs(full.duration - loopSec(DIR)) <= 0.1, `gif duration ${full.duration}`);
+  // A cap just under the full-size GIF: one step down (width x 0.8) fits.
+  const cap = Math.floor(full.bytes * 0.85) / 1e6;
+  const m = await run(cap, path.join(TMP, 'gif-capped')), g = m.files[0];
+  assert.ok(g.bytes <= capBytes(cap), `${g.bytes} vs ${capBytes(cap)}`);
+  assert.ok(g.width < 256, `width stepped down to ${g.width}`);
+  assert.deepEqual(g.stepDown, { from: [256, 256], to: [g.width, g.height] });
+  assert.equal(video(g.path).width, g.width);
+  // A cap no width in four tries can meet: an error, and no GIF.
+  const outDir = path.join(TMP, 'gif-tiny');
+  await assert.rejects(run(full.bytes * 0.05 / 1e6, outDir), /^Error: gif: GIF still [\d.]+ MB at width \d+ after 4 tries; cap is [\d.]+ MB/);
+  assert.ok(!existsSync(path.join(outDir, 'gif.gif')));
+  assert.deepEqual(noStaging(outDir), []);
+});
+
+test('over maxSeconds warns (not an error)', async () => {
+  const outDir = path.join(TMP, 'brief');
+  const m = await exportProject(DIR, { for: ['brief'], outDir, log: () => {} });
+  const f = m.files[0];
+  assert.ok(existsSync(f.path), 'the file is still written');
+  assert.ok(f.warnings.includes(`over the 2 s maximum length for brief (${f.duration.toFixed(2)} s): the platform may reject or trim it`), JSON.stringify(f.warnings));
 });

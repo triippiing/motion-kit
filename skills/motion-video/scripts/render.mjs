@@ -96,12 +96,17 @@ export async function shoot(page, t) {
   return page.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
 }
 
+// Loop time (seconds) of beat `b` (fractional allowed). Same mapping as the page's beatT: cue_t (else t)
+// of the floor beat plus the fraction of a beat.
+export function beatTime(song, b) {
+  const i = Math.floor(b), fb = song.beats?.[i];
+  return (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (b - i) * song.beat_sec;
+}
+
 function sfxInputs(dir, song, sfx, offset, duration) {
   const inputs = [], filters = [];
   sfx.forEach((c, n) => {
-    // Same mapping as the page's beatT: cue_t of the floor beat plus the fraction.
-    const i = Math.floor(c.beat), fb = song.beats?.[i];
-    const t = (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (c.beat - i) * song.beat_sec;
+    const t = beatTime(song, c.beat);
     const ms = Math.round((t - offset) * 1000);
     if (ms < 0 || ms > duration * 1000) return;
     inputs.push('-i', path.join(dir, c.file));
