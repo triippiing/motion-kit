@@ -5,12 +5,12 @@ export const meta = {
   name: 'line-chart', group: 'data',
   useWhen: 'A value over time: a portfolio, a balance, a weekly total.',
   motion: 'The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere; a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.',
-  props: { points: ['number[]', [4, 6, 5, 8, 7, 10, 9, 13]], label: ['string', 'Portfolio value'], hover: ['number', -1], format: ['object', { prefix: '£', decimals: 0 }] },
+  props: { points: ['number[]', [4, 6, 5, 8, 7, 10, 9, 13]], label: ['string', 'Portfolio value'], hover: ['number', -1], format: ['object', { prefix: '', decimals: 0 }] },
   hotspots: ['point:<i>'],
   hotspotExample: { 'point:<i>': 'point:7' },
   sounds: [],
   example: "{ at: 0, use: 'line-chart', label: 'Portfolio value', points: [4, 6, 5, 8, 7, 10, 9, 13] }",
-  edgeCases: [{ points: [] }, { points: [7], hover: 0 }, { points: [2, 2, 2, 2], hover: 2 }, { label: 'Balance', points: [1200, 900, 1500, 1350, 1800], hover: 4 }],
+  edgeCases: [{ points: [] }, { points: [7], hover: 0 }, { points: [2, 2, 2, 2], hover: 2 }, { label: 'Balance', points: [1200, 900, 1500, 1350, 1800], hover: 4, format: { prefix: '£' } }],
 };
 
 const W = 900, H = 560, PX = 40, PW = 820, PT = 180, PH = 340;

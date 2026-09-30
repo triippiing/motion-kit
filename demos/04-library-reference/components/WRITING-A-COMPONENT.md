@@ -269,6 +269,10 @@ Springs only, through `ctx.Springs` and the helpers; position and size springs h
 ### 10. Props, class names and copy
 
 - Prop names must not be reserved row keys: `at use name w h r fill ink shake badge` (the contract test fails).
+  Every row accepts these whatever its component (the Row keys table at the top of `CATALOG.md`): `at`, `use`,
+  `fill` and `ink` (a theme role or `#rrggbb`, overriding what `geometry` returns), `w`/`h`/`r` (overriding the
+  shape's size), `shake: true` (error shake on arrival) and `badge: <n>` (count bubble); `name` is a custom
+  hand-built state instead of `use`. The engine applies them; your component only sees the result in `ctx.geo`.
 - Prefix class names with a short tag of the component (`tag-bg`, `tg-knob`) and keep them stable; tests select on them.
 - Placeholder copy is neutral and made up: "The Placeholders", "Sam Rivera", "Desk lamp". No real
   artists, brands or people.

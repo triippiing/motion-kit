@@ -52,10 +52,19 @@ const $ = (s) => document.querySelector(s);
 // least 2 beats before END so everything settles by the seam (not needed when
 // project.json has "loop": false, e.g. a launch video that ends on its own end card).
 const states = () => [
-  { at: 0,       use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
-  { at: 2,       use: 'loader', fill: 'ink', ink: 'surface' },
-  { at: 4,       use: 'check' },
-  { at: END - 2, use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
+  { at: 0,  use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
+  { at: 2,  use: 'loader', fill: 'ink', ink: 'surface' },
+  { at: 4,  use: 'check', label: 'Exported' },
+  { at: 6,  use: 'island', text: 'Now playing' },
+  { at: 8,  use: 'player', title: 'Midnight Drive', artist: 'The Placeholders', position: 0.25 },
+  { at: 10, use: 'player', title: 'Midnight Drive', artist: 'The Placeholders', position: 0.25, playing: true },
+  { at: 12, use: 'slider', value: 0.4 },
+  { at: 14, use: 'toggle', on: false, label: 'Notifications' },
+  { at: 16, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' },
+  { at: 18, use: 'line-chart', label: 'Balance', points: [4, 6, 5, 8, 7, 10, 9, 13] },
+  { at: 21, use: 'command', query: 'exp', typeAt: 0.25 },
+  { at: 24, use: 'toast', text: 'Report exported', action: 'Open' },
+  { at: END - 2, use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
 ];
 // CURSOR: where the pointer is from beat `at`. Either x/y in px from the stage
 // centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
@@ -63,10 +72,29 @@ const states = () => [
 // 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.
 // First and last rows must match, the last at least 2 beats before END.
 const cursor = () => [
-  { at: 0,       x: 240, y: 280 },
-  { at: 1.25,    x: 60,  y: 18 },
-  { at: 2,       x: 60,  y: 18, press: true },
-  { at: 3,       x: 200, y: 230 },
+  { at: 0,    x: 240, y: 280 },
+  { at: 1,    target: 'button' },
+  { at: 1.5,  target: 'button', press: true },
+  { at: 3,    x: 200, y: 230 },
+  { at: 5,    x: 260, y: -40 },
+  { at: 7,    target: 'island' },
+  { at: 8.5,  target: 'play' },
+  { at: 9,    target: 'play', press: true },
+  { at: 10,   target: 'thumb' },
+  { at: 10.5, target: 'thumb', press: 'down' },
+  { at: 11.5, target: 'thumb', dx: 200, press: 'up' },
+  { at: 12,   target: 'thumb' },
+  { at: 12.5, target: 'thumb', press: 'down' },
+  { at: 13.5, target: 'thumb', dx: 320, press: 'up' },
+  { at: 14.5, target: 'knob' },
+  { at: 15,   target: 'knob', press: true },
+  { at: 16.5, target: 'tab:Month' },
+  { at: 17,   target: 'tab:Month', press: true },
+  { at: 19,   x: 200, y: 230 },
+  { at: 20,   target: 'point:5' },
+  { at: 22,   target: 'row:0' },
+  { at: 23.5, target: 'row:0', press: true },
+  { at: 25,   target: 'action' },
   { at: END - 2, x: 240, y: 280 },
 ];
 // EXTRA_SFX: any other sound cues, [{ beat, file, gain }], merged into window.SFX.
