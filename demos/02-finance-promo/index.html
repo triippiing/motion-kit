@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>motion</title>
+<title>Finance promo</title>
 <style>
   /* House fallbacks: black and white on warm gray. theme.css (extract_theme.py)
      overrides them. Use --accent in STATES for one accent colour; never
@@ -13,12 +13,41 @@
   #stage { position:relative; overflow:hidden; background:var(--canvas);
            font-family:var(--font); color:var(--ink);
            -webkit-font-smoothing:antialiased; }
-  /* The camera scales about the stage centre. No will-change here or inside:
+  /* The camera scales about the stage centre (its transform is translate-scale-translate, so the origin must be 0 0). No will-change here or inside:
      text under a scaled will-change layer renders blurry. */
-  #camera { position:absolute; inset:0; }
+  #camera { position:absolute; inset:0; transform-origin:0 0; }
   #shape { position:absolute; box-sizing:border-box; overflow:hidden; }
   .layer { position:absolute; inset:0; display:grid; place-items:center; white-space:nowrap; opacity:0; }
-  .label { font-size:34px; font-weight:500; letter-spacing:-0.01em; }
+  .label { font-size:34px; font-weight:600; letter-spacing:-0.01em; }
+  /* Demo 2: the finance app at promo scale (about 2.4x its own px). Soft tones
+     are mixed from theme roles so the piece re-themes with the app: --line is
+     the app's hairline, --track its --panel-2, the -soft pair its tinted fills.
+     One icon stroke (3px) and one hairline (2px) throughout. */
+  :root { --line:color-mix(in srgb, var(--muted) 24%, var(--surface));
+          --track:color-mix(in srgb, var(--muted) 12%, var(--surface));
+          --accent-soft:color-mix(in srgb, var(--accent) 12%, var(--surface));
+          --pos-soft:color-mix(in srgb, var(--pos, var(--accent)) 11%, var(--surface));
+          --pos-ring:color-mix(in srgb, var(--pos, var(--accent)) 26%, var(--surface)); }
+  .box { position:relative; }
+  .abs { position:absolute; }
+  .num { font-variant-numeric:tabular-nums; }
+  svg { display:block; overflow:visible; }
+  .ico { fill:none; stroke:currentColor; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
+  .k { font-size:22px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .fig { font-size:68px; font-weight:600; letter-spacing:-0.025em; line-height:1; }
+  .sub { font-size:25px; font-weight:500; color:var(--muted); }
+  .line { font-size:24px; font-weight:500; color:var(--muted); }
+  .seg { position:absolute; top:0; height:16px; }
+  .file { display:flex; align-items:center; justify-content:center; gap:12px; width:320px; height:72px; box-sizing:border-box;
+          border-radius:16px; background:var(--surface); border:2px solid var(--line); font-size:24px; font-weight:600; color:var(--ink); }
+  .mark { display:grid; place-items:center; border-radius:50%; background:var(--pos, var(--accent)); color:var(--surface); }
+  .day { position:absolute; top:84px; width:106.857px; height:196px; box-sizing:border-box; border-radius:20px;
+         background:var(--canvas); border:2px solid var(--line); }
+  .day .wd { position:absolute; left:16px; top:16px; font-size:17px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); }
+  .day .dn { position:absolute; left:16px; top:42px; font-size:32px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .day .ring { position:absolute; inset:-2px; border-radius:20px; border:2px solid var(--accent); box-shadow:inset 0 0 0 2px var(--accent); opacity:0; }
+  .dock-item { position:absolute; top:0; width:150px; height:150px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+               font-size:21px; font-weight:600; letter-spacing:.02em; }
   #cursor { position:absolute; left:0; top:0; width:44px; height:44px; transform-origin:7px 4px; }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,13 +60,161 @@
   <div id="camera">
     <div id="shape">
       <!-- One .layer per state NAME in STATES. Only content lives in layers; the
-           shape's size, radius and colours come from STATES. -->
-      <div class="layer" data-state="button"><span class="label">Get started</span></div>
-      <div class="layer" data-state="loader">
-        <svg width="44" height="44" viewBox="0 0 44 44" fill="none"><circle id="spin" cx="22" cy="22" r="17" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="70 200"/></svg>
+           shape's size, radius and colours come from STATES. Every figure is made up. -->
+
+      <!-- button 400x112 (accent): the Plan page's btn-primary -->
+      <div class="layer" data-state="button">
+        <div id="btn-hover" class="abs" style="inset:0;background:var(--ink);opacity:0"></div>
+        <div class="label" style="position:relative;display:flex;align-items:center;gap:16px">
+          <svg width="34" height="34" viewBox="0 0 34 34"><path class="ico" d="M17 22 V6 M10 13 L17 6 L24 13 M6 22 V28 H28 V22"/></svg>
+          <span>Import payslip</span>
+        </div>
       </div>
-      <div class="layer" data-state="check">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path id="tick" d="M12 25 L21 34 L37 15" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" pathLength="1" stroke-dasharray="1 1"/></svg>
+
+      <!-- dropzone 660x420 (surface): #payslip-drop, dragover then dropped -->
+      <div class="layer" data-state="dropzone">
+        <div class="box" style="width:660px;height:420px">
+          <div class="abs k" style="left:40px;top:38px">Import a payslip</div>
+          <div id="dz-well" class="abs" style="left:40px;right:40px;top:88px;bottom:40px;box-sizing:border-box;border-radius:20px;border:2px dashed var(--accent);background:var(--track)"></div>
+          <svg id="dz-up" class="abs" style="left:306px;top:148px;color:var(--accent)" width="48" height="48" viewBox="0 0 48 48"><path class="ico" d="M24 31 V9 M14 19 L24 9 L34 19 M8 31 V39 H40 V31"/></svg>
+          <div id="dz-t1" class="abs" style="left:40px;right:40px;top:252px;text-align:center;font-size:28px;font-weight:600">Release to read this payslip</div>
+          <div id="dz-t2" class="abs" style="left:40px;right:40px;top:252px;text-align:center;font-size:28px;font-weight:600;opacity:0">Reading payslip…</div>
+          <div class="abs line" style="left:40px;right:40px;top:298px;text-align:center;font-size:22px">PDF only</div>
+          <div id="dz-file" class="abs file" style="left:0;top:0">
+            <svg width="28" height="28" viewBox="0 0 28 28" style="color:var(--accent)"><path class="ico" d="M7 3 H17 L22 8 V25 H7 Z M17 3 V8 H22"/></svg>
+            <span>payslip-march.pdf</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- chip 660x300 (surface): the dropzone's "read" outcome -->
+      <div class="layer" data-state="chip">
+        <div class="box" style="width:660px;height:300px">
+          <div class="abs k" style="left:40px;top:38px">Import a payslip</div>
+          <div class="abs" style="left:40px;right:40px;top:88px;bottom:40px;box-sizing:border-box;border-radius:20px;border:2px solid var(--pos);background:var(--pos-soft)"></div>
+          <div id="ch-mark" class="abs mark" style="left:74px;top:144px;width:56px;height:56px">
+            <svg width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M7 14.5 L12 19.5 L21 9"/></svg>
+          </div>
+          <div id="ch-t1" class="abs" style="left:156px;top:130px;font-size:28px;font-weight:600">payslip-march.pdf read.</div>
+          <div id="ch-t2" class="abs line num" style="left:156px;top:174px">Net pay £3,200 · imported 28 Mar</div>
+        </div>
+      </div>
+
+      <!-- goal 620x280 (surface): a #pots goal card and its bar -->
+      <div class="layer" data-state="goal">
+        <div class="box" style="width:620px;height:280px">
+          <div class="abs k" style="left:40px;top:38px">Holiday fund</div>
+          <div class="abs" style="left:40px;top:84px;display:flex;align-items:baseline;gap:14px">
+            <span id="g-fig" class="fig num" style="display:inline-block;min-width:196px">£0</span><span class="sub num">of £4,000</span>
+          </div>
+          <div class="abs" style="left:40px;right:40px;top:180px;height:16px;border-radius:8px;background:var(--track);overflow:hidden">
+            <div id="g-bar" class="seg" style="left:0;border-radius:8px;background:var(--accent)"></div>
+          </div>
+          <div id="g-line" class="abs line num" style="left:40px;top:216px">61% · £1,550 to go</div>
+        </div>
+      </div>
+
+      <!-- surplus 700x340 (surface): #tile-surplus and its split bar -->
+      <div class="layer" data-state="surplus">
+        <div class="box" style="width:700px;height:340px">
+          <div class="abs k" style="left:40px;top:38px">Monthly surplus</div>
+          <div class="abs fig num" style="left:40px;top:84px">£900</div>
+          <div class="abs line num" style="left:40px;top:166px">Net pay £3,200 less £2,300 committed</div>
+          <div class="abs" style="left:40px;right:40px;top:214px;height:16px;border-radius:8px;background:var(--track)"></div>
+          <div id="s-goals" class="abs seg" style="left:40px;top:214px;border-radius:8px 0 0 8px;background:var(--accent)"></div>
+          <div id="s-spare" class="abs seg" style="left:415px;top:214px;border-radius:0 8px 8px 0;background:var(--pos)"></div>
+          <div id="s-leg1" class="abs line num" style="left:40px;top:258px;display:flex;align-items:center;gap:12px;color:var(--ink)"><i style="width:14px;height:14px;border-radius:7px;background:var(--accent)"></i>£540 to goals</div>
+          <div id="s-leg2" class="abs line num" style="left:290px;top:258px;display:flex;align-items:center;gap:12px"><i style="width:14px;height:14px;border-radius:7px;background:var(--pos)"></i>£360 spare</div>
+        </div>
+      </div>
+
+      <!-- calendar 900x320 (surface): a week of #calendar-grid -->
+      <div class="layer" data-state="calendar">
+        <div class="box" style="width:900px;height:320px">
+          <div class="abs k" style="left:40px;top:38px">March</div>
+          <div class="abs line num" style="right:40px;top:34px;font-size:22px">26 Mar – 1 Apr</div>
+          <div class="day" style="left:40px"><span class="wd">Mon</span><span class="dn">26</span></div>
+          <div class="day" style="left:158.857px"><span class="wd">Tue</span><span class="dn">27</span></div>
+          <div class="day" style="left:277.714px"><span id="c-pay" class="ring"></span><span class="wd">Wed</span><span class="dn">28</span>
+            <span id="c-badge" class="abs" style="left:14px;top:146px;padding:6px 9px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:14px;font-weight:700;letter-spacing:.04em">PAYDAY</span></div>
+          <div class="day" style="left:396.571px"><span class="wd">Thu</span><span class="dn">29</span></div>
+          <div id="c-fri" class="day" style="left:515.429px"><span id="c-sel" class="abs" style="inset:-2px;border-radius:20px;border:2px solid var(--accent);background:var(--accent-soft);opacity:0"></span>
+            <span id="c-hov" class="ring" style="box-shadow:none"></span><span class="wd" style="z-index:1">Fri</span><span class="dn" style="z-index:1">30</span>
+            <span id="c-rent" class="abs" style="left:10px;right:10px;top:112px;height:68px;border-radius:12px;background:var(--track);opacity:0">
+              <span class="abs" style="left:12px;top:8px;font-size:16px;font-weight:600;color:var(--muted)">Rent</span>
+              <span class="abs num" style="left:12px;top:32px;font-size:22px;font-weight:600">£850</span></span></div>
+          <div class="day" style="left:634.286px;background:var(--track)"><span class="wd">Sat</span><span class="dn">31</span></div>
+          <div class="day" style="left:753.143px;background:var(--track);opacity:.4"><span class="wd">Sun</span><span class="dn">1</span></div>
+        </div>
+      </div>
+
+      <!-- statuspill 112 circle -> 660x112 (surface): #status-pill, working -->
+      <div class="layer" data-state="statuspill" style="display:block">
+        <div class="abs" style="inset:0;box-sizing:border-box;border-radius:56px;border:3px solid var(--pos)"></div>
+        <div id="sp-mark" class="abs mark" style="left:14px;top:14px;width:84px;height:84px">
+          <svg width="40" height="40" viewBox="0 0 40 40"><path class="ico" d="M10 20.5 L17 27.5 L30 13"/></svg>
+        </div>
+        <div id="sp-text" class="abs" style="left:124px;top:0;line-height:112px;font-size:30px;font-weight:500;opacity:0">Connected. Everything is working.</div>
+      </div>
+
+      <!-- dock 780x150 (surface): #dock with its travelling indicator -->
+      <div class="layer" data-state="dock">
+        <div class="box" style="width:780px;height:150px">
+          <div id="d-ind" class="abs" style="top:12px;height:126px;box-sizing:border-box;border-radius:30px;background:var(--accent-soft);border:2px solid var(--accent)"></div>
+          <div class="dock-item" data-i="0" style="left:15px"><svg width="44" height="44" viewBox="0 0 44 44"><path class="ico" d="M6 33 L16 22 L24 28 L37 13 M29 13 H37 V21"/></svg>Today</div>
+          <div class="dock-item" data-i="1" style="left:165px"><svg width="44" height="44" viewBox="0 0 44 44"><circle class="ico" cx="22" cy="22" r="16"/><circle class="ico" cx="22" cy="22" r="7"/></svg>Plan</div>
+          <div class="dock-item" data-i="2" style="left:315px"><svg width="44" height="44" viewBox="0 0 44 44"><rect class="ico" x="7" y="9" width="30" height="28" rx="5"/><path class="ico" d="M7 18 H37 M15 5 V12 M29 5 V12"/></svg>Calendar</div>
+          <div class="dock-item" data-i="3" style="left:465px"><svg width="44" height="44" viewBox="0 0 44 44"><circle class="ico" cx="22" cy="22" r="16"/><path class="ico" d="M22 13 V22 L28 26"/></svg>Retirement</div>
+          <div class="dock-item" data-i="4" style="left:615px"><svg width="44" height="44" viewBox="0 0 44 44"><path class="ico" d="M7 15 H37 M7 29 H37"/><circle class="ico" cx="16" cy="15" r="4.5" style="fill:var(--surface)"/><circle class="ico" cx="28" cy="29" r="4.5" style="fill:var(--surface)"/></svg>Settings</div>
+        </div>
+      </div>
+
+      <!-- spark 700x420 (surface): #curve, a new point lands -->
+      <div class="layer" data-state="spark">
+        <div class="box" style="width:700px;height:420px">
+          <div class="abs k" style="left:40px;top:38px">Portfolio value</div>
+          <div id="k-a" class="abs fig num" style="left:40px;top:84px">£12,240</div>
+          <div id="k-b" class="abs fig num" style="left:40px;top:84px;opacity:0">£12,650</div>
+          <div id="k-d" class="abs num" style="left:320px;top:112px;font-size:24px;font-weight:600;color:var(--pos);opacity:0">+£410 this month</div>
+          <svg class="abs" style="left:40px;top:180px" width="620" height="200" viewBox="0 0 620 200">
+            <path d="M0 40 H620 M0 110 H620 M0 180 H620" stroke="var(--line)" stroke-width="2" fill="none"/>
+            <path id="k-line" class="ico" style="color:var(--accent)" d=""/>
+            <path id="k-last" class="ico" style="color:var(--accent)" pathLength="1" stroke-dasharray="1 1" d=""/>
+            <circle id="k-prev" r="10" fill="var(--accent)" stroke="var(--surface)" stroke-width="3"/>
+            <circle id="k-new" r="10" fill="var(--accent)" stroke="var(--surface)" stroke-width="3"/>
+          </svg>
+          <div id="k-tip" class="abs num" style="height:48px;line-height:48px;padding:0 16px;border-radius:12px;background:var(--ink);color:var(--surface);font-size:24px;font-weight:600;opacity:0">£12,650</div>
+        </div>
+      </div>
+
+      <!-- goalmet 660x360 (surface): a goal reaching its target -->
+      <div class="layer" data-state="goalmet">
+        <div class="box" style="width:660px;height:360px">
+          <div id="m-halo" class="abs" style="inset:0;box-sizing:border-box;border-radius:28px;border:6px solid var(--pos-ring);opacity:0"></div>
+          <div class="abs k" style="left:40px;top:38px">Laptop fund</div>
+          <div class="abs" style="left:40px;top:84px;display:flex;align-items:baseline;gap:14px">
+            <span id="m-fig" class="fig num" style="display:inline-block;min-width:196px">£1,200</span><span class="sub num">of £1,500</span>
+          </div>
+          <div id="m-mark" class="abs mark" style="left:564px;top:82px;width:56px;height:56px">
+            <svg width="28" height="28" viewBox="0 0 28 28"><path class="ico" d="M7 14.5 L12 19.5 L21 9"/></svg>
+          </div>
+          <div class="abs" style="left:40px;right:40px;top:180px;height:16px;border-radius:8px;background:var(--track);overflow:hidden">
+            <div id="m-bar" class="seg" style="left:0;border-radius:8px;background:var(--accent)"></div>
+            <div id="m-bar-pos" class="seg" style="left:0;border-radius:8px;background:var(--pos);opacity:0"></div>
+          </div>
+          <div id="m-l1" class="abs line num" style="left:40px;top:218px">£300 to go</div>
+          <div id="m-l2" class="abs line" style="left:40px;top:218px;color:var(--pos);font-weight:600;opacity:0">Target met, 2 months early</div>
+          <div class="abs" style="left:424px;top:268px;width:196px;height:60px;border-radius:14px;background:var(--accent);color:var(--surface);display:flex;align-items:center;justify-content:center;gap:10px;font-size:24px;font-weight:600">
+            <svg width="22" height="22" viewBox="0 0 22 22"><path class="ico" d="M11 4 V18 M4 11 H18"/></svg>Add goal</div>
+        </div>
+      </div>
+
+      <!-- inflight 400x112 (accent): #form-pot submit, in flight -->
+      <div class="layer" data-state="inflight">
+        <div class="label" style="display:flex;align-items:center;gap:18px">
+          <svg width="34" height="34" viewBox="0 0 34 34"><circle id="spin" class="ico" cx="17" cy="17" r="13" stroke-dasharray="52 200"/></svg>
+          <span>Adding…</span>
+        </div>
       </div>
     </div>
     <svg id="cursor" viewBox="0 0 44 44"><path d="M7 4 L7 33 L14.5 25.5 L20 37 L25 34.8 L19.6 23.6 L30 23.6 Z" fill="#0B0B0B" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"/></svg>
@@ -53,28 +230,206 @@ let song, END, SHAPE, beatT;
 
 // ---------------- the three tables you edit ----------------
 // STATES: what the one shape is from beat `at`; fill/ink: a theme role (canvas,
-// surface, ink, muted, accent) or #rrggbb. The last row must repeat the
+// surface, ink, muted, accent, pos, neg) or #rrggbb. The last row must repeat the
 // first and sit at least 2 beats before END so everything settles by the seam.
+const BUTTON = { name: 'button', w: 400, h: 112, r: 22, fill: 'accent', ink: 'surface' };
+const CARD = { r: 28, fill: 'surface', ink: 'ink' };
 const states = () => [
-  { at: 0,       name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
-  { at: 2,       name: 'loader', w: 112, h: 112, r: 56, fill: 'ink', ink: 'surface' },
-  { at: 4,       name: 'check',  w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
-  { at: END - 2, name: 'button', w: 380, h: 112, r: 56, fill: 'ink', ink: 'surface' },
+  { at: 0,       ...BUTTON },
+  { at: 2,       name: 'dropzone',   w: 660, h: 420, ...CARD },
+  { at: 4,       name: 'chip',       w: 660, h: 300, ...CARD },
+  { at: 6,       name: 'goal',       w: 620, h: 280, ...CARD },
+  { at: 8,       name: 'surplus',    w: 700, h: 340, ...CARD },
+  { at: 11,      name: 'calendar',   w: 900, h: 320, ...CARD },
+  { at: 14,      name: 'statuspill', w: 112, h: 112, r: 56, fill: 'surface', ink: 'ink' },
+  { at: 15,      name: 'statuspill', w: 660, h: 112, r: 56, fill: 'surface', ink: 'ink' },
+  { at: 16,      name: 'dock',       w: 780, h: 150, r: 40, fill: 'surface', ink: 'ink' },
+  { at: 19,      name: 'spark',      w: 700, h: 420, ...CARD },
+  { at: 22,      name: 'goalmet',    w: 660, h: 360, ...CARD },
+  { at: 24,      name: 'inflight',   w: 400, h: 112, r: 22, fill: 'accent', ink: 'surface' },
+  { at: END - 2, ...BUTTON },
 ];
 // CURSOR: where the pointer is from beat `at`, in px from the stage centre.
-// press: true clicks on that beat (and plays sfx/click.wav at the beat's cue).
+// press: true clicks on that beat (dip and release, plays sfx/click.wav at the beat's cue).
+// press: 'down' presses and holds (click sound); press: 'up' releases. Use the pair
+// for drags, moving x/y in between. sound: 'key' plays sfx/key.wav on that row's beat
+// (typing, or any non-click cue); a row may carry both press and sound.
 // First and last rows must match, the last at least 2 beats before END.
+const HOME = { x: 196, y: 238 };
+const DROP = { x: -178, y: -108 };   // puts the dragged file on the well's slot
 const cursor = () => [
-  { at: 0,       x: 240, y: 280 },
-  { at: 1.25,    x: 60,  y: 18 },
-  { at: 2,       x: 60,  y: 18, press: true },
-  { at: 3,       x: 200, y: 230 },
-  { at: END - 2, x: 240, y: 280 },
+  { at: 0,       ...HOME },
+  { at: 0.2,     x: 84,   y: 16 },                    // glide onto Import payslip
+  { at: 2,       x: 84,   y: 16,  press: 'down' },    // press: the button opens into the well, file in hand
+  { at: 2.2,     ...DROP },                           // drag the file over the well
+  { at: 3,       ...DROP,         press: 'up' },      // release: drop it
+  { at: 3.3,     x: 236,  y: 250 },                   // out of the way while it reads
+  { at: 5,       x: 214,  y: 176 },                   // drift toward the next card
+  { at: 9.2,     x: 190,  y: 50 },                    // onto the spare segment
+  { at: 11.2,    x: 150,  y: 80 },                    // onto Fri 30
+  { at: 13,      x: 150,  y: 80,  press: true },      // select the day
+  { at: 13.5,    x: 150,  y: 118 },                   // off the pill
+  { at: 16,      x: 30,   y: -30 },                   // to Calendar in the dock
+  { at: 17,      x: 30,   y: -30, press: true },      // press Calendar
+  { at: 18.2,    x: 262,  y: 6 },                     // hover the newest point
+  { at: 22.6,    x: 260,  y: 130 },                   // onto Add goal
+  { at: 24,      x: 260,  y: 130, press: true },      // press Add goal
+  { at: 24.4,    x: 130,  y: 34 },                    // rest on the button while it works
+  { at: END - 2, ...HOME },
 ];
-// Per-state content animation, given seconds since that state began.
+// EXTRA_SFX: any other sound cues, [{ beat, file, gain }], merged into window.SFX.
+// Fractional beats are fine. (Simple key sounds can use `sound: 'key'` in CURSOR.)
+// The two check chips pop on their own beats.
+const extraSfx = () => [
+  { beat: 4,  file: 'sfx/click.wav', gain: 0.45 },
+  { beat: 23, file: 'sfx/click.wav', gain: 0.45 },
+];
+
+// Helpers for content. once(t, b): 0 -> 1 spring started at beat b (settle in beats).
+const { response } = window.Springs;
+const once = (t, b, settleBeats = 0.5, zeta = 1) => (t < beatT(b) ? 0
+  : 1 + response(t - beatT(b), -1, 0, fromSettle(settleBeats * song.beat_sec, zeta), zeta).e);
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const gbp = (n) => '£' + Math.round(n).toLocaleString('en-GB');
+const zet = () => song.rules?.spring?.zeta ?? 0.85;
+// Text that swaps inside a layer: its own fade + short blur + lift.
+function fade(el, k, lift = 10) {
+  if (!el) return;
+  const o = clamp(k);
+  Object.assign(el.style, { opacity: o, filter: o > 0.999 || o < 0.001 ? 'none' : `blur(${(1 - o) * 6}px)`, transform: `translateY(${(1 - o) * lift}px)` });
+}
+// Two-edge indicator: each edge on its own spring, the leading edge faster.
+function edges(t, from, moves) {
+  const z = zet(), fast = fromSettle(0.4 * song.beat_sec, z), slow = fromSettle(0.85 * song.beat_sec, z);
+  const L = { from: from[0], zeta: z, omega: slow, changes: [] }, R = { from: from[1], zeta: z, omega: slow, changes: [] };
+  let prev = from;
+  for (const m of moves) {
+    const right = m.to[0] > prev[0];
+    L.changes.push({ t: beatT(m.at), to: m.to[0], omega: right ? slow : fast });
+    R.changes.push({ t: beatT(m.at), to: m.to[1], omega: right ? fast : slow });
+    prev = m.to;
+  }
+  return [track(t, L).value, track(t, R).value];
+}
+// Portfolio points (made up), mapped into the 620x200 chart.
+const PORT = [10900, 11050, 10980, 11200, 11320, 11260, 11480, 11610, 11540, 11890, 12240, 12650]
+  .map((val, i) => [i * (560 / 11), 170 - ((val - 10900) / 1750) * 148]);
+const curve = (pts) => pts.map(([x, y], i) => {
+  if (!i) return `M${x.toFixed(1)} ${y.toFixed(1)}`;
+  const [px, py] = pts[i - 1], mx = (px + x) / 2;
+  return `C${mx.toFixed(1)} ${py.toFixed(1)} ${mx.toFixed(1)} ${y.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)}`;
+}).join(' ');
+
+// Per-state content animation. Each function takes ABSOLUTE t (seconds) and runs
+// on EVERY frame, so a layer that is fading out is still a pure function of t.
 const content = {
-  loader: (s) => { $('#spin').style.transform = `rotate(${s * 450}deg)`; $('#spin').style.transformOrigin = '22px 22px'; },
-  check:  (s) => { $('#tick').style.strokeDashoffset = String(1 - Math.min(1, s / (0.8 * song.beat_sec))); },
+  button: (t) => {
+    // hover deepens the fill one step; gone again by the press, so the seam matches
+    const hover = once(t, 1, 0.3) - once(t, 2.2, 0.3);
+    $('#btn-hover')?.style.setProperty('opacity', String(0.12 * hover));
+  },
+  dropzone: (t) => {
+    const f = $('#dz-file'); if (!f) return;
+    const z = zet(), held = t < beatT(3);
+    // direct manipulation: while held the file rides the pointer (box px = shape px + half the box)
+    const at = (tt) => ({ x: v(tracks.cx, tt) + 330 + 18, y: v(tracks.cy, tt) + 210 + 22 });
+    const p = at(Math.min(t, beatT(3)));
+    const land = once(t, 3, 0.5, z);
+    const x = held ? p.x : lerp(p.x, 170, land), y = held ? p.y : lerp(p.y, 136, land);
+    const grab = once(t, 2, 0.25);
+    Object.assign(f.style, { left: `${x}px`, top: `${y}px`, opacity: String(clamp(grab)),
+      transform: `scale(${1 + 0.05 * (grab - clamp(land))})` });
+    const w = $('#dz-well'); if (w) w.style.borderStyle = held ? 'dashed' : 'solid';
+    $('#dz-up')?.style.setProperty('opacity', String(1 - clamp(once(t, 2.6, 0.4))));
+    fade($('#dz-t1'), 1 - once(t, 3, 0.2));
+    fade($('#dz-t2'), once(t, 3.15, 0.45));
+  },
+  chip: (t) => {
+    const m = once(t, 4.1, 0.45, zet());
+    $('#ch-mark')?.style.setProperty('transform', `scale(${m})`);
+    fade($('#ch-t1'), once(t, 4.25, 0.45));
+    fade($('#ch-t2'), once(t, 5, 0.45));
+  },
+  goal: (t) => {
+    const p = once(t, 6.2, 0.8, zet());
+    const bar = $('#g-bar'); if (!bar) return;
+    bar.style.width = `${540 * 0.6125 * p}px`;
+    $('#g-fig').textContent = gbp(Math.round((2450 * Math.min(1, p)) / 10) * 10);
+    fade($('#g-line'), once(t, 7, 0.45));
+  },
+  surplus: (t) => {
+    const z = zet(), g = once(t, 8.15, 0.7, z), s = once(t, 8.55, 0.6, z);
+    const hov = once(t, 10, 0.35, z);
+    const goals = $('#s-goals'), spare = $('#s-spare'); if (!goals || !spare) return;
+    goals.style.width = `${369 * g}px`;
+    const hh = 16 + 8 * hov;
+    Object.assign(spare.style, { width: `${245 * s}px`, height: `${hh}px`, top: `${214 - (hh - 16) / 2}px`,
+      borderRadius: `0 ${hh / 2}px ${hh / 2}px 0` });
+    fade($('#s-leg1'), once(t, 9, 0.45));
+    const l2 = $('#s-leg2'); fade(l2, once(t, 9.15, 0.45));
+    if (l2) Object.assign(l2.style, { color: `color-mix(in srgb, var(--ink) ${Math.round(100 * clamp(hov))}%, var(--muted))`, fontWeight: hov > 0.5 ? '600' : '500' });
+  },
+  calendar: (t) => {
+    const z = zet();
+    $('#c-pay')?.style.setProperty('opacity', String(clamp(once(t, 11.3, 0.5))));
+    const b = $('#c-badge'), bk = once(t, 11.4, 0.45, z);
+    if (b) Object.assign(b.style, { opacity: String(clamp(bk)), transform: `scale(${0.7 + 0.3 * bk})`, transformOrigin: '0 50%' });
+    const hov = once(t, 12, 0.35, z);
+    $('#c-fri')?.style.setProperty('transform', `translateY(${-8 * hov}px)`);
+    $('#c-hov')?.style.setProperty('opacity', String(0.4 * clamp(hov) * (1 - clamp(once(t, 13, 0.3)))));
+    const r = $('#c-rent'), rk = once(t, 12.15, 0.45, z);
+    if (r) Object.assign(r.style, { opacity: String(clamp(rk)), transform: `scale(${0.8 + 0.2 * rk})` });
+    $('#c-sel')?.style.setProperty('opacity', String(clamp(once(t, 13, 0.35))));
+  },
+  statuspill: (t) => {
+    $('#sp-mark')?.style.setProperty('transform', `scale(${once(t, 14.15, 0.45, zet())})`);
+    fade($('#sp-text'), once(t, 15.25, 0.5), 0);
+  },
+  dock: (t) => {
+    const [l, r] = edges(t, [165, 315], [{ at: 17, to: [315, 465] }]);
+    const ind = $('#d-ind'); if (!ind) return;
+    Object.assign(ind.style, { left: `${l}px`, width: `${r - l}px` });
+    for (const it of document.querySelectorAll('.dock-item')) {
+      const x0 = 15 + 150 * Number(it.dataset.i), on = clamp((Math.min(r, x0 + 150) - Math.max(l, x0)) / 150);
+      it.style.color = `color-mix(in srgb, var(--accent) ${Math.round(100 * on)}%, var(--muted))`;
+    }
+  },
+  spark: (t) => {
+    const line = $('#k-line'), last = $('#k-last'); if (!line || !last) return;
+    if (!line.getAttribute('d')) { line.setAttribute('d', curve(PORT.slice(0, 11))); last.setAttribute('d', curve(PORT.slice(10))); }
+    const z = zet();
+    last.style.strokeDashoffset = String(1 - clamp(once(t, 19.2, 0.55)));
+    const [nx, ny] = PORT[11], [px, py] = PORT[10];
+    const dot = once(t, 19.75, 0.4, z);
+    $('#k-new').setAttribute('cx', nx); $('#k-new').setAttribute('cy', ny);
+    $('#k-new').setAttribute('r', String(Math.max(0, 11 * dot)));
+    $('#k-prev').setAttribute('cx', px); $('#k-prev').setAttribute('cy', py);
+    $('#k-prev').setAttribute('r', String(lerp(11, 6, once(t, 21, 0.5, z))));
+    const tip = once(t, 20, 0.45, z), tp = $('#k-tip');
+    Object.assign(tp.style, { left: `${40 + nx}px`, top: `${180 + ny - 24}px`, opacity: String(clamp(tip)),
+      transform: `translate(-50%, -100%) translateY(${10 * (1 - tip)}px) scale(${0.92 + 0.08 * tip})`, transformOrigin: '50% 100%' });
+    fade($('#k-a'), 1 - once(t, 21, 0.25));
+    fade($('#k-b'), once(t, 21.1, 0.45));
+    fade($('#k-d'), once(t, 21.25, 0.45));
+  },
+  goalmet: (t) => {
+    const z = zet(), p = once(t, 22.15, 0.75, z);
+    const bar = $('#m-bar'); if (!bar) return;
+    const w = 580 * lerp(0.8, 1, p);
+    bar.style.width = `${w}px`;
+    Object.assign($('#m-bar-pos').style, { width: `${w}px`, opacity: String(clamp(once(t, 22.75, 0.45))) });
+    $('#m-fig').textContent = gbp(Math.round(lerp(1200, 1500, Math.min(1, p)) / 10) * 10);
+    const m = once(t, 23, 0.45, z);
+    $('#m-mark').style.transform = `scale(${m})`;
+    fade($('#m-l1'), 1 - once(t, 22.85, 0.2));
+    fade($('#m-l2'), once(t, 23.1, 0.45));
+    $('#m-halo').style.opacity = String(clamp(once(t, 23, 0.2) - once(t, 23.3, 1.4)));
+  },
+  inflight: (t) => {
+    const e = $('#spin'); if (!e) return;
+    e.style.transform = `rotate(${since('inflight', t) * 450}deg)`; e.style.transformOrigin = '17px 17px';
+  },
 };
 // ------------------------------------------------------------
 
@@ -87,8 +442,10 @@ function build() {
   SHAPE = { omega: fromSettle(sp.settle_sec, sp.zeta), zeta: sp.zeta };
   const CAM = { omega: fromSettle(song.beat_sec, 1), zeta: 1 };
   const PTR = { omega: fromSettle(0.8 * song.beat_sec, 1), zeta: 1 };
+  const down = (c) => ({ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 });
+  const up = (c, d = 0) => ({ t: beatT(c.at) + d * song.beat_sec, to: 1 });
   const mk = (rows, get, o) => ({ from: get(rows[0]), changes: rows.slice(1).map((r) => ({ t: beatT(r.at), to: get(r) })), ...o });
-  const zoom = (s) => Math.min(2.4, Math.max(1, Math.sqrt((0.5 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h))));
+  const zoom = (s) => Math.min(2.4, Math.max(1, (0.6 * Math.min(STAGE.width, STAGE.height)) / Math.max(s.w, s.h)));
   tracks = {
     w: mk(S, (s) => s.w, SHAPE), h: mk(S, (s) => s.h, SHAPE), r: mk(S, (s) => s.r, SHAPE),
     fill: [0, 1, 2].map((k) => mk(S, (s) => hex(s.fill)[k], SHAPE)),
@@ -96,7 +453,7 @@ function build() {
     zoom: mk(S, zoom, CAM),
     cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
     press: { from: 1, omega: fromSettle(0.15 * song.beat_sec, 1), zeta: 1,
-             changes: C.filter((c) => c.press).flatMap((c) => [{ t: beatT(c.at) - 0.08 * song.beat_sec, to: 0.82 }, { t: beatT(c.at) + 0.1 * song.beat_sec, to: 1 }]) },
+             changes: C.filter((c) => c.press).flatMap((c) => c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)]) },
   };
   // Content swaps: each layer enters a beat-fraction after its state starts (so
   // the container leads) and exits fast when the next state starts.
@@ -112,7 +469,11 @@ function build() {
     });
     return { el, name, tr: { from: S[0].name === name ? 1 : 0, changes, omega: enter, zeta: 1 } };
   });
-  window.SFX = C.filter((c) => c.press).map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 }));
+  window.SFX = [
+    ...C.filter((c) => c.press === true || c.press === 'down').map((c) => ({ beat: c.at, file: 'sfx/click.wav', gain: 0.7 })),
+    ...C.filter((c) => c.sound === 'key').map((c) => ({ beat: c.at, file: 'sfx/key.wav', gain: 0.6 })),
+    ...extraSfx(),
+  ];
 }
 
 const v = (tr, t) => track(t, tr).value;
@@ -122,10 +483,11 @@ function cursorAt(t) {
   return { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z };
 }
 
-function stateAt(t) {
-  let i = 0;
-  while (S[i + 1] && beatT(S[i + 1].at) <= t) i++;
-  return { s: S[i], since: t - beatT(S[i].at) };
+// Seconds since the latest STATES row named `name` began at or before t.
+function since(name, t) {
+  let start = null;
+  for (const s of S) if (s.name === name && beatT(s.at) <= t) start = beatT(s.at);
+  return start === null ? 0 : t - start;
 }
 
 function seek(t) {
@@ -138,8 +500,7 @@ function seek(t) {
     const o = Math.max(0, Math.min(1, v(L.tr, t)));
     Object.assign(L.el.style, { opacity: o, filter: o > 0.999 ? 'none' : `blur(${(1 - o) * 10}px)`, transform: `scale(${0.96 + 0.04 * o})` });
   }
-  const { s, since } = stateAt(t);
-  content[s.name]?.(since);
+  for (const name in content) content[name](t);
   const p = v(tracks.press, t);
   const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
   $('#cursor').style.transform = `translate(${x - 7}px,${y - 4}px) scale(${p / z})`;
@@ -158,7 +519,8 @@ window.ready = (async () => {
     return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
   };
   Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
-  await document.fonts.load(`500 34px ${getComputedStyle(document.documentElement).getPropertyValue('--font')}`).catch(() => {});
+  const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
+  await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
   build();
   seek(0);
