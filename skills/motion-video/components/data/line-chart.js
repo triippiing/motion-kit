@@ -4,7 +4,7 @@ import { el, frame, fmt, prog, drawOn, fade, applyFade, plotLine, morphLine, pat
 export const meta = {
   name: 'line-chart', group: 'data',
   useWhen: 'A value over time: a portfolio, a balance, a weekly total.',
-  motion: 'The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.',
+  motion: 'The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere; a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.',
   props: { points: ['number[]', [4, 6, 5, 8, 7, 10, 9, 13]], label: ['string', 'Portfolio value'], hover: ['number', -1], format: ['object', { prefix: '£', decimals: 0 }] },
   hotspots: ['point:<i>'],
   hotspotExample: { 'point:<i>': 'point:7' },
@@ -49,7 +49,7 @@ const pointOf = (target) => (target && target.startsWith('point:') ? Number(targ
 
 // Which point shows its dot and tooltip at t, how far it has popped (0..1) and the value it reads. In order:
 // the cursor aimed at `point:<i>` (it pops from that cursor row's time and fades out ~0.2 beat after the
-// cursor is aimed elsewhere); the row's `hover` from 1.6 beats in; on a continuation that changes `hover`,
+// cursor is aimed elsewhere; an aim carried over from the continued row is already popped); the row's `hover` from 1.6 beats in; on a continuation that changes `hover`,
 // the previous row's hovered point fading out first.
 function hovered(p, ctx, t, n) {
   const bs = ctx.beat_sec, shown = (i) => i >= 0 && i < n;
@@ -57,7 +57,7 @@ function hovered(p, ctx, t, n) {
   for (const e of ctx.targets) {
     if (e.t > t) break;
     const i = pointOf(e.target);
-    if (shown(i)) { if (!on || on.i !== i) on = { i, t: e.t }; off = null; }
+    if (shown(i)) { if (!on || on.i !== i) on = { i, t: e.carried ? -Infinity : e.t }; off = null; }
     else if (on) { off = { i: on.i, t: e.t }; on = null; }
   }
   if (on) return { i: on.i, k: prog(ctx, t, on.t, 0.5, 0.8), v: p.points[on.i] };

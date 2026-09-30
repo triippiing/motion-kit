@@ -20,6 +20,14 @@ import * as goal from './data/goal.js';
 import * as lineChart from './data/line-chart.js';
 import * as list from './data/list.js';
 import * as sparkline from './data/sparkline.js';
+import * as avatarStack from './chrome/avatar-stack.js';
+import * as banner from './chrome/banner.js';
+import * as chipRow from './chrome/chip-row.js';
+import * as command from './chrome/command.js';
+import * as dock from './chrome/dock.js';
+import * as island from './chrome/island.js';
+import * as player from './chrome/player.js';
+import * as sheet from './chrome/sheet.js';
 export const registry = {
   'button': button,
   'checkbox': checkbox,
@@ -41,4 +49,12 @@ export const registry = {
   'line-chart': lineChart,
   'list': list,
   'sparkline': sparkline,
+  'avatar-stack': avatarStack,
+  'banner': banner,
+  'chip-row': chipRow,
+  'command': command,
+  'dock': dock,
+  'island': island,
+  'player': player,
+  'sheet': sheet,
 };

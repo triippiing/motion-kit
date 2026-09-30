@@ -124,3 +124,13 @@ test('ctx.targets: each row sees the cursor rows aimed at it, and other cursor r
   assert.deepEqual(s.rows[0].ctx.targets, [{ t: 0, target: null, press: null }, { t: 1, target: 'box', press: null }]);
   assert.deepEqual(s.rows[2].ctx.targets, [{ t: 6, target: null, press: null }]);
 });
+
+test('ctx.targets: a continuation starts with the previous row\'s latest aim, re-timed to its t0', () => {
+  const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 8, use: 'b' }, { at: 10, use: 'a' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 5, target: 'item:3' }, { at: 6, target: 'item:3', press: true }, { at: 9, target: 'item:1' }, { at: 12, x: 0, y: 0 }]);
+  assert.deepEqual(s.rows[2].ctx.targets, [{ t: 4, target: 'item:3', press: null, carried: true }, { t: 4.5, target: 'item:1', press: null }]);
+  // Not a continuation: nothing carried.
+  assert.deepEqual(s.rows[1].ctx.targets.filter((e) => e.carried), []);
+  // A continuation whose predecessor saw no cursor row carries nothing.
+  assert.deepEqual(s.rows[4].ctx.targets, [{ t: 6, target: null, press: null }]);
+});

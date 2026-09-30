@@ -364,7 +364,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** Progress towards a target amount: a savings pot, a fundraiser, a budget.
 
-**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it); a changed label crossfades.
+**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it; from or to a zero target it changes at once); a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -387,7 +387,7 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 **Use when:** A value over time: a portfolio, a balance, a weekly total.
 
-**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
+**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere; a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -442,4 +442,180 @@ Any row can also carry `shake: true` (error shake on arrival) and `badge: <n>` (
 
 ```js
 { at: 0, use: 'sparkline', label: 'This week', value: '+£410', points: [3, 4, 3.5, 5, 4.8, 6, 7] }
+```
+
+## App chrome
+
+[avatar-stack](#avatar-stack) · [banner](#banner) · [chip-row](#chip-row) · [command](#command) · [dock](#dock) · [island](#island) · [player](#player) · [sheet](#sheet)
+
+### avatar-stack
+
+![avatar-stack](docs-images/avatar-stack.png)
+
+**Use when:** A few people share something: a goal, a document, a household budget.
+
+**Motion:** The avatars pop in left to right (0.06 beat apart), then the +n chip. While a cursor row is aimed at `avatar:<i>` that avatar lifts 10px and the others spread 8px away from it (no overshoot); aiming elsewhere settles them back. The hover carries into a following avatar-stack row, which pops in only avatars whose initials changed. At most 16 avatars show.
+
+| Prop | Type | Default |
+|---|---|---|
+| `people` | `string[]` | `["JW","AK","MS","LT"]` |
+| `extra` | `number` | `3` |
+
+**Hotspots:** `avatar:<i>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'avatar-stack', people: ['JW', 'AK', 'MS', 'LT'], extra: 3 }
+```
+
+### banner
+
+![banner](docs-images/banner.png)
+
+**Use when:** Something arrives from outside the app: payday, a reminder, a shared goal, a sign-in.
+
+**Motion:** The content slides down 16px and unblurs as it fades in after the shape arrives (icon first, then the text). A press on the banner dips it. A following banner row slides changed content in the same way while the old content fades out.
+
+| Prop | Type | Default |
+|---|---|---|
+| `app` | `string` | `"Personal Finance"` |
+| `title` | `string` | `"Payday"` |
+| `body` | `string` | `"£3,200 landed in Current account"` |
+| `icon` | `enum:bell\|wallet\|info\|sparkle` | `"bell"` |
+
+**Hotspots:** `banner`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'banner', title: 'Payday', body: '£3,200 landed in Current account', icon: 'wallet' }
+```
+
+### chip-row
+
+![chip-row](docs-images/chip-row.png)
+
+**Use when:** A list is filtered by category: all, bills, savings, fun.
+
+**Motion:** A press on a chip selects it: single-select moves the selection there, `multi` toggles the pressed chip. Selected chips fill with the accent and their text turns surface with a quick colour spring; the pressed chip dips with the cursor. A following chip-row row continues from the selection after the presses (write it as its `selected`) and blends to its own `selected` on arrival if it differs.
+
+| Prop | Type | Default |
+|---|---|---|
+| `chips` | `string[]` | `["All","Bills","Savings","Fun"]` |
+| `selected` | `string[]` | `["All"]` |
+| `multi` | `boolean` | `false` |
+
+**Hotspots:** `chip:<label>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'chip-row', chips: ['All', 'Bills', 'Savings', 'Fun'], selected: ['All'] }
+```
+
+### command
+
+![command](docs-images/command.png)
+
+**Use when:** An app is driven from the keyboard: jump to a page, run an action, find a setting.
+
+**Motion:** The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on) and the selected row (write it as its `selected`). At most 5 items show.
+
+| Prop | Type | Default |
+|---|---|---|
+| `items` | `string[]` | `["Export report","Export CSV","Invite teammate","New goal","Settings"]` |
+| `query` | `string` | `""` |
+| `typeAt` | `number` | `-1` |
+| `perChar` | `number` | `0.25` |
+| `selected` | `number` | `0` |
+
+**Hotspots:** `field`, `row:<i>`  
+**Sounds:** key
+
+```js
+{ at: 0, use: 'command', query: 'exp', typeAt: 0.25 }
+```
+
+### dock
+
+![dock](docs-images/dock.png)
+
+**Use when:** An app's main sections sit in a bottom bar: today, plan, calendar, settings.
+
+**Motion:** A press on an item sends the pill there with two edges (settling in 0.22 s, no overshoot): the leading edge moves first, so the pill stretches and settles, and quick reversals stay inside the dock. The active item turns ink, the others muted. A following dock row continues from the last pressed item (write it as its `active`) and travels on arrival if `active` differs.
+
+| Prop | Type | Default |
+|---|---|---|
+| `items` | `string[]` | `["Today","Plan","Calendar","Retirement","Settings"]` |
+| `active` | `string` | `"Plan"` |
+| `icons` | `string[]` | `["home","trend","calendar","wallet","settings"]` |
+
+**Hotspots:** `item:<label>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'dock', active: 'Plan' }
+```
+
+### island
+
+![island](docs-images/island.png)
+
+**Use when:** Something runs in the background and stays glanceable: music playing, a timer, a call.
+
+**Motion:** Four waveform bars on the right bounce continuously, each at its own rate (about 0.5 to 0.8 s a bounce, trimmed so whole bounces fit the loop), off the clock, so they run on unbroken through a following island row. The content fades in after the shape arrives; a following island row crossfades a changed icon or text while the shape resizes.
+
+| Prop | Type | Default |
+|---|---|---|
+| `text` | `string` | `"Now playing"` |
+| `icon` | `enum:music\|timer\|none` | `"music"` |
+
+**Hotspots:** `island`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'island', text: 'Now playing' }
+```
+
+### player
+
+![player](docs-images/player.png)
+
+**Use when:** Media is playing or about to: a song, a podcast, a voice note.
+
+**Motion:** A press on `play` swaps the play and pause icons (crossfade with a small scale) and starts or stops playback; while playing the position runs on with the clock (duration in seconds). Between a press 'down' on `thumb` and the next 'up' the thumb follows the cursor, and playback resumes from the release. A following player row carries on from where playback got to; if it writes a different `position` from the row before, it seeks there on arrival (the thumb glides). It plays or pauses on arrival if `playing` differs and crossfades a changed title or artist.
+
+| Prop | Type | Default |
+|---|---|---|
+| `title` | `string` | `"Tints"` |
+| `artist` | `string` | `"Artist"` |
+| `playing` | `boolean` | `false` |
+| `position` | `number` | `0.25` |
+| `duration` | `number` | `214` |
+
+**Hotspots:** `play`, `thumb`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'player', title: 'Tints', artist: 'Anderson .Paak', position: 0.4 }
+```
+
+### sheet
+
+![sheet](docs-images/sheet.png)
+
+**Use when:** The app asks before doing something: delete, discard, sign out, confirm a payment.
+
+**Motion:** The title, body and actions rise in one after another once the shape arrives. A press on an action dips it. A following sheet row crossfades changed content the same way.
+
+| Prop | Type | Default |
+|---|---|---|
+| `title` | `string` | `"Delete goal?"` |
+| `body` | `string` | `"This removes Holiday fund and its history."` |
+| `actions` | `string[]` | `["Cancel","Delete"]` |
+| `primary` | `string` | `"Delete"` |
+
+**Hotspots:** `action:<label>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'sheet', title: 'Delete goal?', body: 'This removes Holiday fund and its history.' }
 ```

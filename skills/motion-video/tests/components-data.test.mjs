@@ -199,6 +199,40 @@ test('goal: a continuation that changes the target eases the text with the bar',
   });
 });
 
+// Follow-up: the engine carries the cursor's aim across a continuation, so a hovered point stays hovered.
+test('line-chart: a point hovered before a continuation keeps its tooltip across the new row', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }, { at: 4, use: 'line-chart', label: 'Balance' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:7' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    const ops = await s.page.evaluate(([a, b, bs]) => {
+      const out = [];
+      for (let beat = a; beat <= b + 1e-9; beat += 0.01) {
+        window.seek(beat * bs);
+        const tip = [...document.querySelectorAll('.c-line-chart .lc-tip')].find((e) => Number(e.closest('.layer').style.opacity) > 0.5);
+        out.push([beat.toFixed(2), Number(tip.style.opacity), tip.textContent]);
+      }
+      return out;
+    }, [3.9, 4.4, bs]);
+    for (const [beat, o, txt] of ops) assert.ok(o > 0.95 && txt === '£13', `tooltip kept at beat ${beat}: ${o} ${txt}`);
+  });
+});
+
+test('goal: a continuation from a zero target never shows a runaway percentage', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2450, target: 0 }, { at: 4, use: 'goal', saved: 2450, target: 4000 }${BACK}]`, cursor: STILL }, async (s, at, bs) => {
+    const texts = await s.page.evaluate(([a, b, bs]) => {
+      const out = [];
+      for (let beat = a; beat <= b + 1e-9; beat += 0.02) { window.seek(beat * bs); out.push(document.querySelector('.c-goal[data-row="2"] .gl-text').textContent); }
+      return out;
+    }, [4, 5.9, bs]);
+    for (const t of texts) {
+      const m = /of £([\d,]+) · (\d+)%$/.exec(t);
+      assert.ok(m, `reads saved of target: ${t}`);
+      assert.equal(m[1], '4,000', `the new target shows at once: ${t}`);
+      assert.ok(Number(m[2]) <= 100, `percentage stays sane: ${t}`);
+    }
+    assert.equal(texts.at(-1), '£2,450 of £4,000 · 61%');
+  });
+});
+
 // A press in row A, then a continuation row B that states the pressed result, must not flash back.
 async function noFlash({ use, a, b, press, read }) {
   await scene({ bars: 2,

@@ -16,7 +16,9 @@
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
 //   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
 //   press } (the cursor moved elsewhere), in time order. A component that reacts to where the cursor is aimed
-//   (a chart point's hover) reads the latest entry at or before t.
+//   (a chart point's hover) reads the latest entry at or before t. A continuation's list starts with the
+//   continued row's latest entry at or before t0, re-timed to t0 as { t: t0, target, press: null, carried: true }:
+//   treat a carried aim as already settled so the hover holds across the row change.
 //   loop_sec: the loop's length in seconds when the piece loops, else null. Periodic motion (spinners,
 //   pulses) takes its period from helpers' loopPeriod(ctx, sec) so a whole number of cycles fits the loop.
 // Continuations: a component row directly after a row with the same `use` continues it.
@@ -66,6 +68,9 @@ export function createScene(o) {
     r.geo = { w: r.row.w ?? g.w, h: r.row.h ?? g.h, r: r.row.r ?? g.r, fill: r.row.fill ?? g.fill ?? 'surface', ink: r.row.ink ?? g.ink ?? 'ink' };
   }
 
+  // A component row continues the one before it when both use the same component.
+  const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;
+
   // ---- presses: routed by target name alone, so every row knows its presses before any hotspot resolves
   for (const r of rows) r.presses = [];
   for (const c of cursor) {
@@ -84,6 +89,13 @@ export function createScene(o) {
     }
   }
   for (const r of rows) r.targets.sort((a, b) => a.t - b.t);
+  // A continuation starts where the cursor was aimed in the row it continues: that row's latest entry at or
+  // before t0, re-timed to t0 and marked carried (no press), so a hover holds across the row change.
+  rows.forEach((r, i) => {
+    if (!continues(i)) return;
+    const last = rows[i - 1].targets.filter((e) => e.t <= r.t0).at(-1);
+    if (last) r.targets.unshift({ t: r.t0, target: last.target, press: null, carried: true });
+  });
 
   // ---- row contexts, built in order on first use: a continuation's prev is the previous row's end state,
   // which may depend on the cursor (a slider's release point), so the pointer is read from the cursor
@@ -95,8 +107,6 @@ export function createScene(o) {
     const src = ptr ?? (C.length ? { cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR) } : null);
     return src ? { x: v(src.cx, t), y: v(src.cy, t) } : { x: 0, y: 0 };
   };
-  // A component row continues the one before it when both use the same component.
-  const continues = (i) => i > 0 && !!rows[i].comp && rows[i].row.use === rows[i - 1].row.use;
   const endOf = (j) => { const r = rows[j]; return r.comp.endState ? r.comp.endState(r.props, ctxOf(j)) : r.props; };
   function ctxOf(i) {
     const r = rows[i];

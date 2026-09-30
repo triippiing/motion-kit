@@ -98,6 +98,7 @@ export const ICONS = {
   music: 'M9 18V6l11-2v12M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3zM20 16a3 3 0 1 1-3-3 3 3 0 0 1 3 3z', volume: 'M4 9h4l5-4v14l-5-4H4zM16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z', user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0', file: 'M6 3h8l4 4v14H6zM14 3v4h4',
   command: 'M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z', wallet: 'M4 7h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4zM4 7V5h12M16 13h.01',
+  timer: 'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 2.5M10 2.5h4',
 };
 export function icon(parent, name, size = 32) {
   if (!Object.hasOwn(ICONS, name)) throw new Error(`unknown icon "${name}" (icons: ${Object.keys(ICONS).join(', ')})`);
