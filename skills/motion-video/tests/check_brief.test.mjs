@@ -233,3 +233,11 @@ test('an Exports line runs the safe-zone check on the brief\'s own tables (not i
   assert.deepEqual(r.errors, []);
   assert.ok(r.warnings.some((w) => /^beats 4\.5-\d+(\.5)?: shape extends \d+ px into the Instagram Reels bottom zone$/.test(w)), r.warnings.join('\n'));
 });
+
+test('a one-off brief (--no-loop) with Exports is safe-zone checked as a one-off too', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(oneOff), '**Exports:** reels'));
+  const r = await checkBrief(dir, { loop: false });
+  assert.deepEqual(r.errors, []);
+  assert.ok(!r.warnings.some((w) => /did not run/.test(w)), r.warnings.join('\n'));
+});

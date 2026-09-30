@@ -54,9 +54,10 @@ export function spliceTables(html, code) {
   return `${html.slice(0, a)}${START_MARK}\n${code}\n${rest}${html.slice(b)}`;
 }
 
-// `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in; `tables` serves index.html
-// with those tables spliced in (spliceTables). Nothing is written. `tablesSpliced` says whether the splice took.
-export function serve(dir, port = 0, { stage, tables } = {}) {
+// `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in, `loop` (a boolean) with that
+// "loop"; `tables` serves index.html with those tables spliced in (spliceTables). Nothing is written.
+// `tablesSpliced` says whether the splice took.
+export function serve(dir, port = 0, { stage, loop, tables } = {}) {
   const root = path.resolve(dir);
   const state = { tablesSpliced: false };
   return new Promise((resolve) => {
@@ -65,7 +66,7 @@ export function serve(dir, port = 0, { stage, tables } = {}) {
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
       if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
       try {
-        let body = stage && rel === '/project.json' ? await stagedProject(file, stage) : await readFile(file);
+        let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
         if (tables != null && (rel === '/' || rel === '/index.html')) {
           const spliced = spliceTables(body.toString('utf8'), tables);
           if (spliced != null) { body = spliced; state.tablesSpliced = true; }
@@ -79,10 +80,12 @@ export function serve(dir, port = 0, { stage, tables } = {}) {
   });
 }
 
-async function stagedProject(file, [width, height]) {
+async function stagedProject(file, { stage, loop }) {
   let proj = {};
   try { proj = JSON.parse(await readFile(file, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  return JSON.stringify({ ...proj, stage: { width, height } });
+  if (stage) proj.stage = { width: stage[0], height: stage[1] };
+  if (loop != null) proj.loop = loop;
+  return JSON.stringify(proj);
 }
 
 async function openPage(browser, url, viewport, errors) {
@@ -104,10 +107,10 @@ async function openPage(browser, url, viewport, errors) {
   return page;
 }
 
-export async function openProject(dir, { workers = 4, stage: stageOverride, tables } = {}) {
+export async function openProject(dir, { workers = 4, stage: stageOverride, loop, tables } = {}) {
   const root = path.resolve(dir);
   const song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8'));
-  const served = await serve(root, 0, { stage: stageOverride, tables });
+  const served = await serve(root, 0, { stage: stageOverride, loop, tables });
   const { server, url } = served;
   const browser = await chromium.launch();
   const errors = [];

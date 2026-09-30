@@ -111,7 +111,7 @@ export async function checkBrief(dir, opts = {}) {
   // The page runs the same tables, so it would only fail on what the errors already say.
   if (errors.length) return { errors, warnings };
   try {
-    const { issues, notes = [] } = await (opts.safeZones ?? checkSafeZones)(dir, { presets: names, samples: 'half', tables: code });
+    const { issues, notes = [] } = await (opts.safeZones ?? checkSafeZones)(dir, { presets: names, samples: 'half', tables: code, loop });
     warnings.push(...notes, ...issues.map((i) => issueText(i, P)));
   } catch (e) { warnings.push(`the safe-zone check did not run: ${e.message.split('\n')[0]}`); }
   return { errors, warnings };

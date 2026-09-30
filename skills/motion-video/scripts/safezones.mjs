@@ -83,7 +83,8 @@ function measure(t) {
 // { issues: [{ preset, beat, through, t, part, edge, px }], notes } -- `beat` is where a run of samples in the zone
 // starts, `through` where it ends, px the deepest it reaches. `tables` (a brief's states()/cursor() code) is
 // spliced into index.html as served, so a brief is checked before it is built; notes say when that was not possible.
-export async function checkSafeZones(dir, { presets, samples = 'half', tables } = {}) {
+// `loop` (a boolean) overrides project.json's "loop" as served (check_brief --no-loop).
+export async function checkSafeZones(dir, { presets, samples = 'half', tables, loop } = {}) {
   const root = path.resolve(dir);
   if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
   if (!['beats', 'half'].includes(samples)) throw new UsageError(`samples must be "beats" or "half", got "${samples}"`);
@@ -107,7 +108,7 @@ export async function checkSafeZones(dir, { presets, samples = 'half', tables } 
 
   const issues = [], notes = [];
   for (const { stage, checks } of groups.values()) {
-    const proj = await openProject(root, { workers: 1, stage, tables });
+    const proj = await openProject(root, { workers: 1, stage, tables, loop });
     try {
       if (tables && !proj.tablesSpliced && !notes.length) notes.push("index.html has no table markers, so the safe-zone check used index.html's own tables, not the brief's");
       const [W, H] = stage, page = proj.pages[0];
