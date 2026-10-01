@@ -45,7 +45,8 @@ let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
 // ---------------- the three tables you edit ----------------
-// STATES: what the one shape is from beat `at`. `use` names a component from
+// STATES: what the one shape is from beat `at` (a number, or a marker's name from the sync page, `at: 'drop'`,
+// optionally with `offset` in beats: { at: 'drop', offset: -0.5, ... }). `use` names a component from
 // components/CATALOG.md (its other keys are that component's props); a row with
 // `name` + w/h/r is a custom state (add a matching .layer in #shape and animate it
 // in `content`). fill/ink override colours with a theme role (canvas, surface, ink,
@@ -58,7 +59,8 @@ const states = () => [
   { at: 4,       use: 'check' },
   { at: END - 2, use: 'button', label: 'Get started', fill: 'accent', ink: 'surface' },
 ];
-// CURSOR: where the pointer is from beat `at`. Either x/y in px from the stage
+// CURSOR: where the pointer is from beat `at` (a number, or a marker name with optional `offset`, as in
+// STATES). Either x/y in px from the stage
 // centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
 // optionally with dx/dy. press: true clicks (click sound); 'down' presses and holds,
 // 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.

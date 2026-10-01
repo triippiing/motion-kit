@@ -43,19 +43,26 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
 1  route the request, ask the open questions one at a time (including where it will be posted), run doctor.sh
 2  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N]
      -> analyze_song.py: song.json (BPM, downbeat, beats[] with t/cue_t/accent, loop window, rules) + clip.wav
+        + .source.json (the song's absolute path, for the sync page's Save; local and git-ignored)
      -> extract_theme.py: theme.css/theme.json from the project's :root CSS vars (roles below)
      -> copies template/index.html, springs.js and components/, synthesises sfx/click.wav and sfx/key.wav, writes project.json
-3  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
+3  node $S/sync.mjs DIR  -> the sync page (run it in the background; it prints the URL and opens the browser).
+     The USER listens: clicks over the song beside the live animation, nudges or taps the tempo, presses
+     Sounds right, marks moments (M: drop, vocal...), saves. Claude cannot hear: never claim the sync is right.
+     Needed when song.json bpm_confidence < 0.5 and sync.checked_by_ear is absent; always ask about moments to hit
+4  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
      (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
-     (its Decisions list the destinations as **Exports:** reels, x, discord, web)
-4  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
+     (its Decisions list the destinations as **Exports:** reels, x, discord, web, and the ear check as
+     **Sync:** checked by ear 2026-10-01; markers: drop  or  **Sync:** not checked (confidence 0.39);
+     a row on a marked moment is { at: 'drop', ... }, optionally with offset in beats)
+5  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
      (with an Exports line it also checks the safe zones; it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts))
-5  show the brief and STOP until the user approves it
+6  show the brief and STOP until the user approves it
    -- motion-video --
-6  paste the brief's states()/cursor() block into DIR/index.html
-7  node $S/beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
-8  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
-9  node $S/export.mjs DIR --for reels,x,discord,web [--silent]
+7  paste the brief's states()/cursor() block into DIR/index.html
+8  node $S/beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
+9  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
+10 node $S/export.mjs DIR --for reels,x,discord,web [--silent]
      -> out/exports/<preset>.<ext> + manifest.json, one native render per shape in out/shapes/<W>x<H>/video.mp4
 ```
 
@@ -88,7 +95,10 @@ Details worth knowing:
   right zones; rest nearer the centre, e.g. `x: 140, y: 100`.
 - The loop window: unless you pass `--start-bar N`, `analyze_song.py` picks the loudest N-bar window,
   preferring one that starts on a detected section boundary (listed in `song.json` `sections`). To move
-  it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json and clip.wav).
+  it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json, clip.wav
+  and .source.json; song.json's `sync` section is kept, see Syncing).
+- Re-timing to a different song: delete `sync` from song.json first (its nudge, tempo and markers were set
+  by ear against the old song; the analyser keeps and applies it whatever the song).
 - Loop length vs states: each state holds at least `rules.min_hold_beats`, so `max_states` = beats / min hold.
   The template's 4 states exactly fill a 2-bar loop at ~120 BPM; use 7 bars for a 12-state piece.
 - The template's button uses the `accent` role; the house accent is black, so a new project looks black and
@@ -102,6 +112,35 @@ No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 ```bash
 python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
 ```
+
+## Syncing
+
+Only a person can confirm that the beat grid sits on the music, so the kit has a page for it and Claude
+never claims the sync is right. `node $S/sync.mjs DIR [--port N] [--no-open] [--song PATH]` serves the
+project on 127.0.0.1 and opens `/__sync`: the project's own animation on the left, a waveform with the
+grid and marker flags on the right, beat clicks scheduled on the audio clock. The user nudges the grid
+(← / →, 5 ms, Shift 20 ms), taps the tempo (T, then Enter), sets meter and swing, drops named markers
+(M), presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)
+is the Sync section of `skills/motion-video/SKILL.md`.
+
+- **Save** writes song.json's `sync` section (`nudge_ms`, `bpm`, `meter`, `swing`, `markers` in song
+  seconds, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
+  original song (path from `DIR/.source.json`) with the project's bars and fps and `--start-near` the loop
+  start, re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
+  naming `sync.mjs DIR --song PATH`.
+- **The ear wins:** once a nudge or tempo is set, beats sit on the even grid (`cue_t` equals `t`, no
+  snapping to detected hits). A nudge, tempo or meter change clears `checked_by_ear`; swing does not.
+- **Markers in tables:** `{ at: 'drop', ... }` or `{ at: 'drop', offset: -0.5, ... }` (offset in beats) lands
+  on the marker's exact time. The analyser lists the loop's markers as top-level song.json `markers`
+  (`name`, `song_t`, `t`, `in_loop`); one outside the loop is an error. check_brief warns
+  `beat grid not checked by ear (confidence N): open it with sync.mjs DIR and press Sounds right` when
+  `bpm_confidence` < 0.5 and `sync.checked_by_ear` is absent.
+- **Limits:** a loop window that ends at the song's end cannot be nudged (Save refuses it; move the window
+  with `--start-bar` first). Markers outside the loop are listed but not drawn, so edit `sync.markers` or
+  move the window. Save does not pass `--states`. Older projects get the kit's timing module from
+  `/__sync/timing.js` and, lacking `window.rebuild`, a reload after Save; their old `components/` copy does
+  not know markers. Every script's page server refuses files symlinked from outside the project
+  (`new_project.sh` copies, so its projects are fine).
 
 ## The planner
 
@@ -186,7 +225,8 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Page contract:** `window.ready` (promise), `window.STAGE = {width, height}` set by the time
   ready resolves, `window.seek(t)`, `window.inspect(t) -> {cursor: {x, y}}`, `window.SFX = [{beat, file, gain}]`.
 - **Loop seam:** last STATES/CURSOR row repeats the first, at least 2 beats before the end.
-- **Timing comes from the song:** `beatT(beat)` (uses measured `cue_t`), never hard-coded seconds.
+- **Timing comes from the song:** `beatT(beat)` (uses measured `cue_t`, and swing from `sync`; one definition in
+  `components/core/timing.js`), never hard-coded seconds. A moment the user marked is `at: 'name'`, not a guessed beat.
   Springs: `Springs.fromSettle(seconds, zeta)`; house spring is `song.rules.spring` (zeta 0.85, settle 0.6 beat).
 - **Colours are theme roles, not hex:** `canvas surface ink muted accent` (+ optional `pos neg`),
   used as `'accent'` in tables and `var(--accent)` in CSS. An unknown role throws on purpose.
@@ -195,8 +235,8 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
   No `will-change` under the camera (blurry text).
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
-- **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs) and renders (`out/`)
-  are git-ignored and must never be committed. Commercial tracks: local viewing only (or `export.mjs --silent`).
+- **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and
+  `.source.json` (a local path to the song) are git-ignored and must never be committed. Commercial tracks: local viewing only (or `export.mjs --silent`).
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;
   put maths in a pure function of `(from, changes, t)` and unit-test it; reduced motion jumps.
 
@@ -229,14 +269,20 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   Exports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
                                   (every component in one project; --stills), export.mjs (ready-to-post files per
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
-                                  safezones.mjs (safe-zone check, guides overlay, shared preset helpers)
+                                  safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
+                                  sync.mjs (the sync page's server: GET /__sync, POST /__sync/save; reuses render.mjs serve(),
+                                  which refuses files symlinked from outside the project)
+skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
+                                  nudge, tap tempo, meter, swing, markers, Save); tested by tests/sync-page.test.mjs
 skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
 skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from (reads project.json:
-                                  stage, optional loop and designScale)
+                                  stage, optional loop and designScale; window.rebuild(song) is for the sync page only)
 skills/motion-video/components/   the component library: core/engine.js (runs the tables; its header is the
                                   contract), core/validate.js (table rules, shared with check_brief),
-                                  core/timing.js (beatTime/beatAt: the one beat-to-seconds mapping, used by the
-                                  page, render, beat_stills, export, safezones and gallery),
+                                  core/timing.js (beatTime/beatAt: the one beat-to-seconds mapping with swing,
+                                  plus markerBeat/resolveRows for `at: 'name'` rows; used by the page, the engine,
+                                  the validator, render, beat_stills, export, safezones, gallery and the sync page,
+                                  which falls back to the kit's copy at /__sync/timing.js for older projects),
                                   core/helpers.js (pure building blocks), modifiers.js (shake, badge),
                                   controls/ feedback/ data/ chrome/ (one file per component),
                                   CATALOG.md + index.js (generated), docs-images/ (thumbnails),
@@ -248,6 +294,8 @@ demos/                            worked examples (see "Demos" below)
 docs/superpowers/                 the design spec and implementation plan this was built from (historical: the
                                   code and CLAUDE.md are current; the plan records how it was first built)
 tests/, skills/*/tests/           node:test + python unittest
+DIR/.source.json                  per project, written by analyze_song.py: {"path": the song's absolute path}, read by
+                                  sync.mjs Save. Local only and git-ignored: never commit it
 ```
 
 ## Testing

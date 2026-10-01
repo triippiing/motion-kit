@@ -66,11 +66,35 @@ trigger on their own in any project, e.g. "make a 15 second promo of this app to
 S=~/.claude/skills/motion-video/scripts
 $S/new_project.sh ~/promo ~/Music/song.mp3 --bars 7 --theme ./app/style.css   # measure the song, scaffold
 # edit ~/promo/index.html: the states() and cursor() tables (start from a recipe)
+node $S/sync.mjs ~/promo             # check the beat grid by ear, mark moments (see Syncing); Ctrl+C when done
 node $S/check_brief.mjs ~/promo      # if you wrote a MOTION-BRIEF.md: check its tables
 node $S/beat_stills.mjs ~/promo      # contact sheet + loop-seam check
 node $S/render.mjs ~/promo           # -> ~/promo/out/video.mp4
 node $S/export.mjs ~/promo --for reels,x,discord,web   # -> ~/promo/out/exports/ (see Exporting)
 ```
+
+## Syncing
+
+The kit measures a song's beat grid, but only your ear can confirm it. Open the sync page:
+
+```bash
+node ~/.claude/skills/motion-video/scripts/sync.mjs ~/promo
+```
+
+It plays the loop with a click on every beat next to the live animation. If the clicks drift, nudge
+the grid with the arrow keys (5 ms, Shift for 20 ms) or tap the tempo (T, then Enter). Set the meter
+and swing if the song needs them. Press **M** to mark a moment (a drop, a vocal) and name it, then
+**Sounds right** and **Save** (Ctrl/Cmd+S). Save writes the `sync` section of `song.json` (keeping a
+`song.json.bak`) and re-cuts the clip from your original song.
+
+A row in the animation can then hit the moment by name, even between beats:
+
+```js
+{ at: 'drop', use: 'check', label: 'Done' },                 // states(): on the drop
+{ at: 'drop', offset: -0.5, target: 'button', press: true }, // cursor(): half a beat before
+```
+
+Keys, limits and errors: the Sync section of [the motion-video skill](skills/motion-video/SKILL.md).
 
 ## Exporting
 
@@ -95,6 +119,7 @@ of [the motion-video skill](skills/motion-video/SKILL.md).
 song ──analyze_song.py──▶ song.json (BPM, downbeat, beat grid, loop window, rules) + clip.wav
 project CSS ──extract_theme.py──▶ theme.css / theme.json (canvas, surface, ink, muted, accent, font, pos?, neg?)
 new_project.sh DIR SONG [--size square|vertical|landscape|WxH] [--theme app.css]
+sync.mjs DIR ──▶ hear the grid by ear, nudge / tap tempo / mark moments ─▶ song.json sync + re-cut clip.wav
 index.html: window.seek(t) computes every style from t (closed-form springs, shared/springs.js)
 beat_stills.mjs DIR ──▶ one still per beat + contact sheet + loop-seam check
 render.mjs DIR ──▶ Playwright frames ─▶ ffmpeg tmix motion blur + audio + UI sounds ─▶ out/video.mp4

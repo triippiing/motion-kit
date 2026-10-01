@@ -11,7 +11,7 @@ rendered to MP4. This skill plans; `motion-video` builds from its approved MOTIO
 
 **Read `references/planner.md` and follow it exactly; each step is a todo.** In short: say the route,
 ask the open questions one per message (including where it will be posted: the destinations become the brief's
-`**Exports:**` line), assess (tooling, song, length in bars, theme, safe zones), write
+`**Exports:**` line), assess (tooling, song, length in bars, the user's ear check on the sync page and moments to hit, theme, safe zones), write
 MOTION-BRIEF.md with real `use:`/`target:` tables (format: `references/state-plan.md`), run
 `node ~/.claude/skills/motion-video/scripts/check_brief.mjs PROJECT` until it passes, then stop for approval.
 A launch video that does not loop gets `"loop": false` in `PROJECT/project.json` first.
@@ -35,6 +35,8 @@ Five complete sequences to start from: `~/.claude/skills/motion-video/components
 | "They said Discord first, so it's square" | The design shape follows the platform they call primary; with none named, any Reels/TikTok/Shorts means vertical. Confirm it in the write-back. |
 | "Just use a CSS animation / GSAP" | Every frame must be computed in `seek(t)`. |
 | "120 BPM is close enough" | Use the measured grid in song.json. |
+| "The grid looks right, the sync is fine" | Claude cannot hear. Under 0.5 confidence the user checks it by ear on the sync page (`sync.mjs DIR`); never claim it is in sync. |
+| "The drop is around beat 20" | Ask the user to mark it on the sync page (M) and use `at: 'drop'`; never guess a moment's time. |
 
 Credits: the look and rules adapt the open prompt template by zero (@twoclipping); the
 transitions.dev catalog is by Jakub Antalik.
