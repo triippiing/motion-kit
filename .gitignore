@@ -4,3 +4,4 @@ demos/*/out/
 demos/*/clip.wav
 .DS_Store
 .superpowers/
+.source.json
