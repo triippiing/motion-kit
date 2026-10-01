@@ -33,11 +33,12 @@ test('swing is read from song.sync and moves only off-beats', () => {
 
 test('beatAt inverts beatTime, swing included', () => {
   const song = { beat_sec: 0.5, beats: [{ t: 0, cue_t: 0.01 }, { t: 0.5 }, { t: 1.1 }], sync: { swing: 0.6 } };
-  for (const b of [0, 0.3, 1.5, 1.9]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
+  for (const b of [0, 0.3, 1, 1.5, 1.9]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
   // Beat 0 runs from its cue (0.01) for a whole grid beat, to 0.51, so 0.5 (beat 1) is also reached by beat 0:
-  // the earlier beat wins.
-  assert.ok(Math.abs(beatTime(song, beatAt(song, 0.5)) - 0.5) < 1e-12);
-  assert.ok(beatAt(song, 0.5) < 1);
+  // the later beat wins, so a time on a beat's own cue is that whole beat.
+  assert.equal(beatAt(song, 0.5), 1);
+  assert.ok(Math.abs(beatTime(song, beatAt(song, 0.505)) - 0.505) < 1e-12);
+  assert.ok(beatAt(song, 0.505) > 1);
 });
 
 // Each beat i covers [start(i), start(i) + span(i)): its cue, for one grid beat. Cue offsets that vary leave
@@ -63,9 +64,9 @@ for (const demo of ['01-reference', '02-finance-promo', '04-library-reference'])
       assert.ok(worst <= gap + 1e-9, `worst ${worst} > largest gap ${gap}`);
       for (let b = 0; b <= N + 2; b = Math.round((b + 0.01) * 100) / 100) {
         const t = beatTime(song, b);
-        let earlier = false;
-        for (let i = -2; i < Math.floor(b); i++) if (covers(song, i, t)) earlier = true;
-        if (!earlier) assert.ok(Math.abs(beatAt(song, t) - b) < 1e-9, `beat ${b}`);
+        let later = false;
+        for (let i = Math.floor(b) + 1; i <= N + 4; i++) if (covers(song, i, t)) later = true;
+        if (!later) assert.ok(Math.abs(beatAt(song, t) - b) < 1e-9, `beat ${b}`);
       }
     });
   }
