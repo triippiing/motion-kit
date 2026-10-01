@@ -160,6 +160,7 @@ export async function projectLoops(root) {
 
 // Newest mtime (ms) of the project's own files (everything outside out/ and dotfiles).
 export async function newestSource(root) {
+  root = path.resolve(root);
   let newest = 0;
   const walk = async (d) => {
     for (const e of await readdir(d, { withFileTypes: true })) {
@@ -169,7 +170,7 @@ export async function newestSource(root) {
       else newest = Math.max(newest, (await stat(p)).mtimeMs);
     }
   };
-  await walk(path.resolve(root));
+  await walk(root);
   return newest;
 }
 

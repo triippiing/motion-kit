@@ -18,7 +18,7 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
    | Choice | Presets | Shape |
    |---|---|---|
    | Reels / TikTok / Shorts | `reels`, `tiktok`, `shorts` | vertical 1080x1920 |
-   | X / LinkedIn feed | `x` (square, exported at 1200, X's maximum), `linkedin` (square 1440); `x-landscape`, `linkedin-landscape` (1920x1080) | square, or landscape if asked |
+   | X / LinkedIn feed | `x` (square, exported at 1200, the largest square inside X's 1920x1200 maximum), `linkedin` (square 1440); `x-landscape`, `linkedin-landscape` (1920x1080) | square, or landscape if asked |
    | Discord / chat | `discord` (20 MB free), `discord-nitro` (1 GB) | the design shape |
    | Web / wiki / GitHub | `web` (MP4 + WebM + poster), `gif` (README GIF) | the design shape |
 
