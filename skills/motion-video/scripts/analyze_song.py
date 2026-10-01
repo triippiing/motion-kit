@@ -39,7 +39,7 @@ SETTLE_BEATS = 0.6
 MIN_HOLD_SEC = 1.0
 UMASK = os.umask(0); os.umask(UMASK)
 METERS = {"4/4": 4, "3/4": 3, "6/8": 2}
-SYNC_BPM = (30.0, 300.0)
+SYNC_BPM = (40.0, 240.0)
 SWING = (0.5, 0.75)
 MARKER_NAME = re.compile(r"[a-z][a-z0-9-]*")
 
@@ -225,7 +225,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     duration = total * beat_sec
     if start_bar is not None:
         if not 0 <= start_bar <= last_start:
-            raise SongError(f"--start-bar must be between 0 and {last_start}")
+            raise SongError(f"--start-bar must be between 0 and {last_start} (or pick the bar by time with --start-near SEC)")
         start = start_bar
     elif start_near is not None:
         start = min(range(last_start + 1), key=lambda b: abs(times[j + b * bpb] - start_near))
@@ -244,11 +244,13 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     first = j + start * bpb
     start_sec = float(times[first])
     if start_sec < 0:
-        raise SongError("the loop window would start before the song (move it with --start-bar)")
+        raise SongError("the loop window would start before the song (move it with --start-bar); "
+                        "--start-near SEC also moves the loop window")
     # the detected grid's last bar may end a little past the audio (the clip is then short), as it always
     # has; a user grid is held to the song
     if user_grid and start_sec + duration > song_sec:
-        raise SongError("the loop window would end past the end of the song (move it with --start-bar)")
+        raise SongError("the loop window would end past the end of the song (move it with --start-bar); "
+                        "--start-near SEC also moves the loop window")
     beats = []
     for i in range(total):
         abs_t = start_sec + i * beat_sec
@@ -323,13 +325,16 @@ def read_sync(out):
     try:
         old = json.loads(path.read_text())
     except (OSError, ValueError):
+        old = None
+    if not isinstance(old, dict):
         print("warning: could not read the existing song.json; its sync section is not kept", file=sys.stderr)
         return None
-    return old.get("sync") if isinstance(old, dict) else None
+    return old.get("sync")
 
 
 def write_atomic(out, files):
     """Write each {name: writer(tmp_path)} to a temp file in out, then rename them all into place."""
+    # atomic per file, not as a set: Save (sync.mjs) keeps song.json.bak and restores it if a run fails
     tmps = {}
     try:
         for name, writer in files.items():
@@ -344,6 +349,16 @@ def write_atomic(out, files):
         for tmp in tmps.values():
             if os.path.exists(tmp):
                 os.remove(tmp)
+
+
+def finite_float(text):
+    try:
+        v = float(text)
+    except ValueError:
+        v = math.nan
+    if not math.isfinite(v):
+        raise argparse.ArgumentTypeError(f"must be a number of seconds, got {text!r}")
+    return v
 
 
 def positive_int(text):
@@ -363,7 +378,7 @@ def main(argv=None):
     ap.add_argument("--bars", type=positive_int, default=7)
     where = ap.add_mutually_exclusive_group()
     where.add_argument("--start-bar", type=int)
-    where.add_argument("--start-near", type=float, metavar="SEC",
+    where.add_argument("--start-near", type=finite_float, metavar="SEC",
                        help="start the loop on the bar nearest this time in the song")
     ap.add_argument("--fps", type=positive_int, default=60)
     ap.add_argument("--states", type=int)

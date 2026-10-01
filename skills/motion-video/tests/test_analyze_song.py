@@ -272,6 +272,8 @@ class SyncTests(unittest.TestCase):
             ({"markers": [{"name": "drop", "t": True}]}, "drop"),
             ({"markers": "drop"}, "markers"),
             ({"bpm": 500}, "bpm"),
+            ({"bpm": 30}, "bpm"),
+            ({"bpm": 250}, "bpm"),
             ({"bpm": "fast"}, "bpm"),
             ({"nudge_ms": "x"}, "nudge_ms"),
             ([1, 2], "sync"),
@@ -315,6 +317,21 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("warning: could not read the existing song.json; its sync section is not kept", err)
         self.assertNotIn("sync", self.song())
+
+    def test_song_json_that_is_not_an_object_warns_and_continues(self):
+        (self.d / "song.json").write_text("[]")
+        code, err = self.run_main("--bars", "2")
+        self.assertEqual(code, 0, err)
+        self.assertIn("warning: could not read the existing song.json; its sync section is not kept", err)
+        self.assertNotIn("sync", self.song())
+
+    def test_start_near_must_be_finite(self):
+        for bad in ("nan", "inf", "-inf", "soon"):
+            with self.subTest(bad=bad):
+                code, err = self.run_main("--bars", "2", "--start-near", bad)
+                self.assertEqual(code, 2, err)
+                self.assertIn("error:", err)
+                self.assertNotIn("Traceback", err)
 
     def test_no_sync_means_no_change(self):
         none = A.analyze(self.wav, bars=2)
