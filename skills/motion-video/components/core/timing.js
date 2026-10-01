@@ -46,24 +46,27 @@ export function beatAt(song, t) {
 
 // Markers: named moments from song.json's derived top-level `markers` ([{ name, song_t, t, in_loop }], t in loop
 // seconds; no key means none). A table row's `at` may name one. This module never words a message: a bad marker
-// throws a MarkerError and validate.js's markerMessage turns it into text (did-you-mean included).
+// throws a MarkerError ({ markerName, known, reason, marker, offset }) and validate.js's markerMessage turns it into text (did-you-mean included).
 // reason: 'unknown' (no such marker), 'outside' (marker.in_loop is false), 'not-a-name' (does not start with a
 // letter, e.g. at: '4'), 'offset' (the row's offset is not a finite number; offset holds it).
 export class MarkerError extends Error {
-  constructor({ name, known, reason, marker = null, offset }) {
-    super(`marker ${JSON.stringify(name)}: ${reason}`);
-    Object.assign(this, { name, known, reason, marker, offset });
+  constructor({ markerName, known, reason, marker = null, offset }) {
+    super(`marker ${JSON.stringify(markerName)}: ${reason}`);
+    this.name = 'MarkerError';
+    Object.assign(this, { markerName, known, reason, marker, offset });
   }
 }
 
 // The exact (fractional) beat of marker `name`: beatAt of its loop time, so beatTime(markerBeat) is the marker.
 export function markerBeat(song, name) {
-  const list = Array.isArray(song?.markers) ? song.markers : [];
+  // Entries that are not { name: string, t: finite } are ignored, so naming one is an unknown marker.
+  const list = (Array.isArray(song?.markers) ? song.markers : [])
+    .filter((m) => m && typeof m === 'object' && typeof m.name === 'string' && Number.isFinite(m.t));
   const known = list.map((m) => m.name);
-  if (typeof name !== 'string' || !/^[a-z]/i.test(name)) throw new MarkerError({ name, known, reason: 'not-a-name' });
+  if (typeof name !== 'string' || !/^[a-z]/i.test(name)) throw new MarkerError({ markerName: name, known, reason: 'not-a-name' });
   const marker = list.find((m) => m.name === name);
-  if (!marker) throw new MarkerError({ name, known, reason: 'unknown' });
-  if (marker.in_loop === false) throw new MarkerError({ name, known, reason: 'outside', marker });
+  if (!marker) throw new MarkerError({ markerName: name, known, reason: 'unknown' });
+  if (marker.in_loop === false) throw new MarkerError({ markerName: name, known, reason: 'outside', marker });
   return beatAt(song, marker.t);
 }
 
@@ -78,7 +81,7 @@ export function resolveRows(rows, song) {
     const { offset = 0, ...rest } = row;
     try {
       const b = markerBeat(song, row.at);
-      if (!Number.isFinite(offset)) throw new MarkerError({ name: row.at, known: [], reason: 'offset', offset });
+      if (!Number.isFinite(offset)) throw new MarkerError({ markerName: row.at, known: [], reason: 'offset', offset });
       return { ...rest, at: b + offset, marker: row.at };
     } catch (error) {
       if (!(error instanceof MarkerError)) throw error;

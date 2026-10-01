@@ -339,3 +339,10 @@ test('marker names and hotspot names are separate: a target named like a marker 
   const r = mrun(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'drop' }, { at: 14, x: 0, y: 0 }]);
   assert.match(r.errors.join('\n'), /hotspot "drop" is not on button/);
 });
+
+test('messages round a marker row\'s beat and name the marker', () => {
+  // drop + 0.1 resolves to 9.469999999999999 in floating point; the message prints 9.47 ('drop').
+  const r = mrun(loopOk([{ at: 0, use: 'button' }, { at: 'drop', offset: 0.1, use: 'toast', w: -1 }]),
+    [{ at: 0, x: 0, y: 0 }, { at: 'drop', offset: 0.1, press: 'sideways', x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(r.errors, ["w at beat 9.47 ('drop') should be a number >= 0, got -1", "press at beat 9.47 ('drop') should be true, 'down' or 'up'"]);
+});

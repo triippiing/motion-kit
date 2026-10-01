@@ -90,7 +90,11 @@ test('markerBeat is beatAt of the marker\'s loop time, swing included', () => {
 test('markerBeat throws a MarkerError with the name, the known names and why', () => {
   const e = thrown(() => markerBeat(msong, 'drp'));
   assert.ok(e instanceof MarkerError);
-  assert.deepEqual({ name: e.name, known: e.known, reason: e.reason }, { name: 'drp', known: ['drop', 'outro'], reason: 'unknown' });
+  assert.deepEqual({ markerName: e.markerName, known: e.known, reason: e.reason }, { markerName: 'drp', known: ['drop', 'outro'], reason: 'unknown' });
+  // An ordinary Error otherwise: its name, String(e) and stack read MarkerError.
+  assert.equal(e.name, 'MarkerError');
+  assert.match(String(e), /^MarkerError: /);
+  assert.match(e.stack, /^MarkerError: /);
   const o = thrown(() => markerBeat(msong, 'outro'));
   assert.equal(o.reason, 'outside');
   assert.equal(o.marker.song_t, 72.31);
@@ -114,4 +118,13 @@ test('resolveRows: marker rows become exact beats plus offset; errors are collec
   assert.equal(1 in resolveRows(holes, msong).rows, false);
   assert.deepEqual(resolveRows(undefined, msong), { rows: undefined, errors: [] });
   assert.deepEqual(resolveRows([{ at: 2 }], undefined).rows, [{ at: 2 }]);
+});
+
+test('malformed derived markers are ignored, so naming one is an unknown marker', () => {
+  const base = { beat_sec: 0.5, beats: [{ t: 0 }, { t: 0.5 }] };
+  const e = thrown(() => markerBeat({ ...base, markers: [null] }, 'drop'));
+  assert.deepEqual([e.reason, e.known], ['unknown', []]);
+  const m = thrown(() => markerBeat({ ...base, markers: [{ name: 'drop', in_loop: true }, { name: 'up', t: 0.5, in_loop: true }] }, 'drop'));
+  assert.deepEqual([m.reason, m.known], ['unknown', ['up']]);
+  assert.equal(markerBeat({ ...base, markers: [7, { name: 'up', t: 0.5, in_loop: true }] }, 'up'), 1);
 });
