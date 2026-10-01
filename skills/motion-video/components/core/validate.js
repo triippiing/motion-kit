@@ -1,6 +1,8 @@
 // validate.js -- one set of rules for runtime errors (engine) and brief checks (check_brief.mjs).
-export const RESERVED = new Set(['at', 'use', 'name', 'w', 'h', 'r', 'fill', 'ink', 'shake', 'badge']);
-const CURSOR_KEYS = new Set(['at', 'x', 'y', 'target', 'dx', 'dy', 'press', 'sound']);
+import { resolveRows } from './timing.js';
+// `offset` goes with a marker `at` and is gone once resolved; `marker` is the name a resolved row came from.
+export const RESERVED = new Set(['at', 'offset', 'marker', 'use', 'name', 'w', 'h', 'r', 'fill', 'ink', 'shake', 'badge']);
+const CURSOR_KEYS = new Set(['at', 'offset', 'marker', 'x', 'y', 'target', 'dx', 'dy', 'press', 'sound']);
 
 export function lev(a, b) {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
@@ -14,6 +16,25 @@ export function didYouMean(x, list) {
   let best = null, bestD = Math.max(2, Math.ceil(String(x).length / 3)) + 1;
   for (const c of list) { const k = lev(String(x), c); if (k < bestD) { bestD = k; best = c; } }
   return best;
+}
+
+// m:ss of a time in seconds, for messages.
+const mss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+// The words for one resolveRows error ({ index, error: MarkerError }) in table `what` ('states()' or 'cursor()').
+// The engine and validate both use this, so the wording lives here only.
+export function markerMessage({ index, error: e }, what) {
+  const name = typeof e.name === 'string' ? `'${e.name}'` : describe(e.name);
+  let text;
+  if (e.reason === 'outside') text = `marker ${name} is outside the loop (at ${mss(e.marker.song_t ?? e.marker.t)} in the song)`;
+  else if (e.reason === 'not-a-name') {
+    const n = typeof e.name === 'string' && e.name.trim() !== '' ? Number(e.name) : NaN;
+    text = `at: ${name} is not a marker: markers start with a letter${Number.isFinite(n) ? ` (for beat ${n} write at: ${n})` : ''}`;
+  } else if (e.reason === 'offset') text = `offset for marker ${name} should be a number of beats, got ${describe(e.offset)}`;
+  else {
+    const s = didYouMean(e.name, e.known);
+    text = `unknown marker ${name} (${s ? `did you mean '${s}'?` : e.known.length ? `markers: ${e.known.join(', ')}` : 'song.json has no markers; mark them with sync.mjs DIR'})`;
+  }
+  return `${what} row ${index + 1}: ${text}`;
 }
 
 export function typeOk(spec, v) {
@@ -135,39 +156,51 @@ const withDefaults = (row, registry) => {
 };
 // Where a cursor row points: target/x/y plus its offset (an omitted dx/dy is 0).
 const spot = (c) => canon({ target: c.target ?? null, x: c.x ?? null, y: c.y ?? null, dx: c.dx ?? 0, dy: c.dy ?? 0 });
-const same = (a, b, registry) => canon({ ...withDefaults(a, registry), at: 0 }) === canon({ ...withDefaults(b, registry), at: 0 });
+// The marker a row was placed by is where it sits, not what it is, so it is left out like `at`.
+const bare = ({ marker, ...row }) => row;
+const same = (a, b, registry) => canon({ ...withDefaults(bare(a), registry), at: 0 }) === canon({ ...withDefaults(bare(b), registry), at: 0 });
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const describe = (v) => (v === undefined ? 'nothing' : typeof v === 'number' ? String(v) : JSON.stringify(v));
+// A beat for messages: a marker's beat is fractional, so round it (whole beats print as before).
+const num = (b) => +b.toFixed(3);
 
 // Holes, non-object rows and rows without a finite `at` stop the check: nothing else can be read safely.
+// A string `at` left after resolveRows is a marker that did not resolve, already reported.
 function shapeErrors(list, what) {
   const errors = [];
   for (let i = 0; i < list.length; i++) {
     const after = i && Number.isFinite(list[i - 1]?.at) ? ` (after beat ${list[i - 1].at})` : '';
     if (!(i in list)) errors.push(`${what} row ${i + 1}${after} is empty (a stray comma?)`);
     else if (!list[i] || typeof list[i] !== 'object' || Array.isArray(list[i])) errors.push(`${what} row ${i + 1}${after} should be an object like { at: 4, ... }, got ${describe(list[i])}`);
-    else if (!Number.isFinite(list[i].at)) errors.push(`${what} row ${i + 1}${after} needs a numeric \`at\` (a beat), got ${describe(list[i].at)}`);
+    else if (typeof list[i].at !== 'string' && !Number.isFinite(list[i].at)) errors.push(`${what} row ${i + 1}${after} needs a numeric \`at\` (a beat), got ${describe(list[i].at)}`);
   }
   return errors;
 }
 
 // theme: the colour roles ({ role: '#rrggbb', ... }); when given, fill/ink must name one of them or be #rrggbb.
-export function validate({ states, cursor, registry, song, theme, loop = true, strict = false }) {
+// Rows whose `at` names a marker are resolved first (resolveRows), so every rule below sees beat numbers.
+export function validate({ states: S, cursor: Cu, registry, song, theme, loop = true, strict = false }) {
   const errors = [], warnings = [];
   const done = () => ({ errors: [...new Set(errors)], warnings: [...new Set(warnings)] });
   const END = song?.beats?.length;
-  if (!Array.isArray(states) || !states.length) return { errors: ['states() must return at least one row'], warnings };
+  if (!Array.isArray(S) || !S.length) return { errors: ['states() must return at least one row'], warnings };
+  const rs = resolveRows(S, song), rc = resolveRows(Cu, song);
+  const states = rs.rows, cursor = rc.rows;
+  errors.push(...rs.errors.map((e) => markerMessage(e, 'states()')), ...rc.errors.map((e) => markerMessage(e, 'cursor()')));
   errors.push(...shapeErrors(states, 'states()'));
   if (Array.isArray(cursor)) errors.push(...shapeErrors(cursor, 'cursor()'));
   if (errors.length) return done();
+  // A resolved row has no offset left: one still there sits on a numeric beat.
+  for (const row of [...states, ...(cursor ?? [])]) if (Object.hasOwn(row, 'offset'))
+    errors.push(`offset at beat ${row.at} only goes with a marker, e.g. { at: 'drop', offset: -0.5 }`);
   const roles = theme ? Object.keys(theme).filter((k) => typeof theme[k] === 'string' && HEX.test(theme[k])) : null;
   // One entry per row, filled in as the rows are checked: props/geo for hotspots; bad when already reported.
   const rows = states.map((row) => ({ row, comp: row.use ? lookup(registry, row.use) : null, bad: false }));
   if (states[0].at !== 0) errors.push('first row must be at beat 0');
   states.forEach((row, i) => {
     const r = rows[i];
-    if (i && !(row.at > states[i - 1].at)) errors.push(`rows must be in ascending beat order (beat ${row.at} after ${states[i - 1].at})`);
+    if (i && !(row.at > states[i - 1].at)) errors.push(`rows must be in ascending beat order (beat ${num(row.at)} after ${num(states[i - 1].at)})`);
     for (const k of ['w', 'h', 'r']) if (Object.hasOwn(row, k) && !(Number.isFinite(row[k]) && row[k] >= 0)) { errors.push(`${k} at beat ${row.at} should be a number >= 0, got ${describe(row[k])}`); r.bad = true; }
     for (const k of ['fill', 'ink']) {
       if (!Object.hasOwn(row, k)) continue;
@@ -213,7 +246,7 @@ export function validate({ states, cursor, registry, song, theme, loop = true, s
   });
   if (loop && END != null && states.length > 1) {
     const last = states.at(-1);
-    if (last.at > END - 2) errors.push(`the last row (beat ${last.at}) must sit at least 2 beats before the end (beat ${END}) so the loop settles`);
+    if (last.at > END - 2) errors.push(`the last row (beat ${num(last.at)}) must sit at least 2 beats before the end (beat ${END}) so the loop settles`);
     if (!same(last, states[0], registry)) errors.push('the last row must repeat the first (same component and props) so the loop is seamless');
   }
   const unknown = (r) => r.row.use && !r.comp;
@@ -224,7 +257,7 @@ export function validate({ states, cursor, registry, song, theme, loop = true, s
     const isDrag = (c) => { const r = c.target && targetRow(rows, c); return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target); };
     let open = null, openRow = -1, openIdx = -1, openDrag = false;
     cursor.forEach((c, i) => {
-      if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${c.at})`);
+      if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${num(c.at)})`);
       for (const k of Object.keys(c)) if (!CURSOR_KEYS.has(k)) errors.push(`unknown cursor key "${k}" at beat ${c.at} (keys: ${[...CURSOR_KEYS].join(', ')})`);
       if (!c.target && !(Number.isFinite(c.x) && Number.isFinite(c.y))) errors.push(`cursor row at beat ${c.at} needs target or x and y`);
       if (c.target !== undefined && typeof c.target !== 'string') errors.push(`cursor target at beat ${c.at} should be a hotspot name (a string), got ${describe(c.target)}`);
@@ -274,7 +307,8 @@ export function validate({ states, cursor, registry, song, theme, loop = true, s
     const hold = song.rules.min_hold_beats ?? 1;
     states.forEach((row, i) => {
       const next = states[i + 1]?.at ?? END;
-      if (next != null && next - row.at < hold) errors.push(`row at beat ${row.at} (${row.use ?? row.name}) holds ${next - row.at} beat${next - row.at === 1 ? '' : 's'}; min_hold_beats is ${hold}`);
+      const held = num(next - row.at);
+      if (next != null && next - row.at < hold) errors.push(`row at beat ${num(row.at)} (${row.use ?? row.name}) holds ${held} beat${held === 1 ? '' : 's'}; min_hold_beats is ${hold}`);
     });
     if (song.rules.max_states && states.length - 1 > song.rules.max_states) warnings.push(`${states.length - 1} states exceeds the song's max_states (${song.rules.max_states})`);
     if (END != null) {

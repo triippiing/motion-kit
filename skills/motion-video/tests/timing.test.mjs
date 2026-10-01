@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { warp, unwarp, beatTime, beatAt } from '../components/core/timing.js';
+import { warp, unwarp, beatTime, beatAt, markerBeat, resolveRows, MarkerError } from '../components/core/timing.js';
 
 const old = (song, b) => { const i = Math.floor(b), fb = song.beats?.[i];
   return (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (b - i) * song.beat_sec; };
@@ -75,4 +75,43 @@ for (const demo of ['01-reference', '02-finance-promo', '04-library-reference'])
 test('beatAt extrapolates past the last beat with whole beats', () => {
   const song = { beat_sec: 0.5, beats: [{ t: 0, cue_t: 0.01 }, { t: 0.5, cue_t: 0.49 }, { t: 1 }] };
   for (const b of [3, 3.5, 4.25, 10.75]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
+});
+
+// Markers: song.json's derived top-level list, t in loop seconds (no markers key means none).
+const msong = { beat_sec: 0.5, beats: Array.from({ length: 16 }, (_, i) => ({ t: i * 0.5 })), sync: { swing: 0.6 },
+  markers: [{ name: 'drop', song_t: 46.81, t: 4.685, in_loop: true }, { name: 'outro', song_t: 72.31, t: 30.5, in_loop: false }] };
+const thrown = (f) => { try { f(); } catch (e) { return e; } assert.fail('expected a throw'); };
+
+test('markerBeat is beatAt of the marker\'s loop time, swing included', () => {
+  assert.equal(markerBeat(msong, 'drop'), beatAt(msong, 4.685));
+  assert.ok(Math.abs(beatTime(msong, markerBeat(msong, 'drop')) - 4.685) < 1e-9);
+});
+
+test('markerBeat throws a MarkerError with the name, the known names and why', () => {
+  const e = thrown(() => markerBeat(msong, 'drp'));
+  assert.ok(e instanceof MarkerError);
+  assert.deepEqual({ name: e.name, known: e.known, reason: e.reason }, { name: 'drp', known: ['drop', 'outro'], reason: 'unknown' });
+  const o = thrown(() => markerBeat(msong, 'outro'));
+  assert.equal(o.reason, 'outside');
+  assert.equal(o.marker.song_t, 72.31);
+  for (const n of ['4', '-drop', '']) assert.equal(thrown(() => markerBeat(msong, n)).reason, 'not-a-name', n);
+  // No markers key (no sync section): an empty list.
+  assert.deepEqual(thrown(() => markerBeat({ beat_sec: 0.5, beats: [] }, 'drop')).known, []);
+});
+
+test('resolveRows: marker rows become exact beats plus offset; errors are collected with their row index', () => {
+  const rows = [{ at: 0, use: 'a' }, { at: 'drop', use: 'b' }, { at: 'drop', offset: -0.5, x: 1, y: 2 }, { at: 'drp' }, { at: 'outro' }];
+  const r = resolveRows(rows, msong);
+  const b = markerBeat(msong, 'drop');
+  assert.deepEqual(r.rows.slice(0, 3), [{ at: 0, use: 'a' }, { at: b, use: 'b', marker: 'drop' }, { at: b - 0.5, x: 1, y: 2, marker: 'drop' }]);
+  assert.deepEqual(r.rows.slice(3), rows.slice(3), 'rows that fail are left as written');
+  assert.deepEqual(r.errors.map((e) => [e.index, e.error.reason]), [[3, 'unknown'], [4, 'outside']]);
+  assert.ok(r.errors.every((e) => e.error instanceof MarkerError));
+  const bad = resolveRows([{ at: 'drop', offset: 'x' }], msong).errors[0];
+  assert.deepEqual([bad.index, bad.error.reason, bad.error.offset], [0, 'offset', 'x']);
+  // Holes, non-objects and non-arrays pass through untouched (the validator reports them).
+  const holes = [{ at: 0 }, , null];
+  assert.equal(1 in resolveRows(holes, msong).rows, false);
+  assert.deepEqual(resolveRows(undefined, msong), { rows: undefined, errors: [] });
+  assert.deepEqual(resolveRows([{ at: 2 }], undefined).rows, [{ at: 2 }]);
 });

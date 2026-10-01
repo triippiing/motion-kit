@@ -2,6 +2,10 @@
 // Rows with `use` are library components; rows with `name` are custom states whose
 // content lives in `.layer[data-state=name]` and the page's `content` functions,
 // exactly as before the library existed.
+// Markers: a row's `at` may name a marker from song.json's top-level `markers` (`at: 'drop'`, optionally
+// `offset` in beats, e.g. `{ at: 'drop', offset: -0.5 }`). createScene resolves both tables first (timing.js
+// resolveRows), so everything after, components included, sees a numeric `at` (the marker's exact beat plus the
+// offset) and `row.marker` holding the name; `offset` is gone. A bad marker throws like any validation error.
 // createScene options beyond the tables: loop (default true; false for a one-off piece whose last row need not
 // repeat the first) and designScale (the camera scale K; default min(W, H) / 1440, never below 1). The template
 // reads both from project.json.
@@ -39,12 +43,18 @@
 // entrance. Otherwise prev is null and continues false. The shape's geometry still morphs
 // between the rows as usual.
 // A drag (press 'down' ... 'up') must not span a row change; validate rejects it.
-import { validate, targetRow, pressRow, lookup, rowProps, rowGeo } from './validate.js';
+import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage } from './validate.js';
+import { resolveRows } from './timing.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
 export function createScene(o) {
-  const { states, cursor, extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
+  const { extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
+  // Marker rows become beat numbers before anything else reads the tables.
+  const rs = resolveRows(o.states, song), rc = resolveRows(o.cursor, song);
+  const bad = [...rs.errors.map((e) => markerMessage(e, 'states()')), ...rc.errors.map((e) => markerMessage(e, 'cursor()'))];
+  if (bad.length) throw new Error('motion-kit: ' + bad.join('\n  - '));
+  const states = rs.rows, cursor = rc.rows;
   const { errors } = validate({ states, cursor, registry, song, theme, loop });
   if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
   const { track, fromSettle } = Springs;

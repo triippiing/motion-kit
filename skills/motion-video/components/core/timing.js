@@ -43,3 +43,48 @@ export function beatAt(song, t) {
   }
   return hit ?? near;
 }
+
+// Markers: named moments from song.json's derived top-level `markers` ([{ name, song_t, t, in_loop }], t in loop
+// seconds; no key means none). A table row's `at` may name one. This module never words a message: a bad marker
+// throws a MarkerError and validate.js's markerMessage turns it into text (did-you-mean included).
+// reason: 'unknown' (no such marker), 'outside' (marker.in_loop is false), 'not-a-name' (does not start with a
+// letter, e.g. at: '4'), 'offset' (the row's offset is not a finite number; offset holds it).
+export class MarkerError extends Error {
+  constructor({ name, known, reason, marker = null, offset }) {
+    super(`marker ${JSON.stringify(name)}: ${reason}`);
+    Object.assign(this, { name, known, reason, marker, offset });
+  }
+}
+
+// The exact (fractional) beat of marker `name`: beatAt of its loop time, so beatTime(markerBeat) is the marker.
+export function markerBeat(song, name) {
+  const list = Array.isArray(song?.markers) ? song.markers : [];
+  const known = list.map((m) => m.name);
+  if (typeof name !== 'string' || !/^[a-z]/i.test(name)) throw new MarkerError({ name, known, reason: 'not-a-name' });
+  const marker = list.find((m) => m.name === name);
+  if (!marker) throw new MarkerError({ name, known, reason: 'unknown' });
+  if (marker.in_loop === false) throw new MarkerError({ name, known, reason: 'outside', marker });
+  return beatAt(song, marker.t);
+}
+
+// A table with every `at: 'name'` (plus optional `offset` in beats) turned into its beat number:
+// { ...row, at: markerBeat + offset, marker: name } without `offset`. Rows that fail stay as written and each
+// failure is collected as { index, error: MarkerError }. Numeric rows, holes and non-objects pass through.
+export function resolveRows(rows, song) {
+  const errors = [];
+  if (!Array.isArray(rows)) return { rows, errors };
+  const out = rows.map((row, index) => {
+    if (!row || typeof row !== 'object' || typeof row.at !== 'string') return row;
+    const { offset = 0, ...rest } = row;
+    try {
+      const b = markerBeat(song, row.at);
+      if (!Number.isFinite(offset)) throw new MarkerError({ name: row.at, known: [], reason: 'offset', offset });
+      return { ...rest, at: b + offset, marker: row.at };
+    } catch (error) {
+      if (!(error instanceof MarkerError)) throw error;
+      errors.push({ index, error });
+      return row;
+    }
+  });
+  return { rows: out, errors };
+}

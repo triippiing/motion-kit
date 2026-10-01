@@ -304,3 +304,32 @@ test('a one-off brief (--no-loop) with Exports is safe-zone checked as a one-off
   assert.deepEqual(r.errors, []);
   assert.ok(!r.warnings.some((w) => /did not run/.test(w)), r.warnings.join('\n'));
 });
+
+test('a low-confidence beat grid not yet checked by ear is a warning, not an error', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  const f = path.join(dir, 'song.json'), song = JSON.parse(readFileSync(f, 'utf8'));
+  const WARN = 'beat grid not checked by ear (confidence 0.39): open it with sync.mjs DIR and press Sounds right';
+  assert.ok(!(await checkBrief(dir)).warnings.some((w) => /checked by ear/.test(w)), 'the click track is confident');
+  writeFileSync(f, JSON.stringify({ ...song, bpm_confidence: 0.39 }));
+  const r = await checkBrief(dir);
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.includes(WARN), r.warnings.join('\n'));
+  const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(cli.status, 0);
+  assert.match(cli.stdout, new RegExp(`warning: ${WARN.replace(/[()]/g, '\\$&')}`));
+  writeFileSync(f, JSON.stringify({ ...song, bpm_confidence: 0.39, sync: { checked_by_ear: '2026-10-01' } }));
+  assert.ok(!(await checkBrief(dir)).warnings.some((w) => /checked by ear/.test(w)));
+});
+
+test('a brief may place rows on the song\'s markers; a marker song.json lacks is an error', async () => {
+  const dir = makeProject({ bars: 4 });
+  const f = path.join(dir, 'song.json'), song = JSON.parse(readFileSync(f, 'utf8'));
+  const t = song.beats[6].cue_t ?? song.beats[6].t;
+  writeFileSync(f, JSON.stringify({ ...song, markers: [{ name: 'drop', song_t: t + 10, t, in_loop: true }] }));
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'drop', offset: -2, use: 'check' }")));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'chorus', use: 'check' }")));
+  assert.deepEqual((await checkBrief(dir)).errors, ["states() row 2: unknown marker 'chorus' (markers: drop)"]);
+  assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
+});

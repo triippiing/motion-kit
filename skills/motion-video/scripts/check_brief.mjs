@@ -8,6 +8,8 @@
 // the brief's tables are then checked against each preset's safe zones (safezones.mjs, in a browser; only when there
 // is such a line), each issue a warning, and a commercial track (a **Song:** or **Music:** line calling it
 // commercial) with public presets is a warning too.
+// Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
+// is an error. A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -109,6 +111,9 @@ export async function checkBrief(dir, opts = {}) {
   if (!code.trim()) return { errors: [...errors, 'no ```js block with states() and cursor() under "## Beat table"'], warnings };
   const song = readJson(dir, 'song.json');
   if (!Array.isArray(song?.beats)) throw new Error('song.json has no beats list (re-run analyze_song.py)');
+  const conf = song.bpm_confidence;
+  if (typeof conf === 'number' && conf < 0.5 && !song.sync?.checked_by_ear)
+    warnings.push(`beat grid not checked by ear (confidence ${conf.toFixed(2)}): open it with sync.mjs DIR and press Sounds right`);
   const theme = projectTheme(dir);
   let states, cursor;
   try {
