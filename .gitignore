@@ -3,3 +3,4 @@ __pycache__/
 demos/*/out/
 demos/*/clip.wav
 .DS_Store
+.superpowers/
