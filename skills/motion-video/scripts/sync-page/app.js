@@ -52,6 +52,7 @@ const S = window.syncState = {
   dirty: false, saving: false, saves: 0, error: null, warning: null, lastSaved: null,
   rebuilds: 0, iframeReloads: 0,
   clockT: () => clockT(),
+  scheduled: () => [playWhen, scheduledUntil], // the audio-clock span the scheduler has covered since Play
 };
 
 // ---------------- the sync section: saved, pending, previews ----------------
@@ -536,7 +537,7 @@ function applyTap() {
 }
 
 async function save() {
-  if (S.saving) return;
+  if (S.saving || !S.pending) return;
   if (draft) commitDraft(flags.querySelector('.namebox')?.value.trim() ?? '');
   S.saving = true; S.error = null;
   renderControls();

@@ -64,7 +64,7 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   const live = await page.evaluate(() => {
     const s = window.syncState, f = document.querySelector('iframe').contentWindow;
     return { got: f.__got.slice(), t: s.t, clock: s.clockT(), clicks: s.clicks.slice(), grid: s.clickTimes.map((c) => c.t),
-      startedAt: s.startedAt, L: s.loopSec };
+      startedAt: s.startedAt, L: s.loopSec, span: s.scheduled() };
   });
   assert.ok(live.got.length > 10, `seek called ${live.got.length} times while playing`);
   assert.ok(live.got.at(-1) > 0.3, `t moved with the audio clock: ${live.got.at(-1)}`);
@@ -75,6 +75,13 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
     const at = mod(c.when - live.startedAt, live.L);
     assert.ok(live.grid.some((g) => Math.abs(mod(g, live.L) - at) < 1e-6), `click at loop ${at} is on the grid`);
   }
+  // and no beat was dropped: one click per grid time in the span the scheduler covered
+  const [from, until] = live.span;
+  let expected = 0;
+  for (let k = Math.floor((from - live.startedAt) / live.L) - 1; live.startedAt + k * live.L < until; k++) {
+    for (const g of live.grid) { const w = live.startedAt + k * live.L + mod(g, live.L); if (w >= from && w < until) expected++; }
+  }
+  assert.equal(live.clicks.length, expected, 'every beat in the scheduled span got a click');
   await page.keyboard.press('Space');
   assert.equal(await state(() => window.syncState.playing), false);
   await frames();
@@ -141,15 +148,20 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   await page.mouse.click(...await page.locator('#wave').boundingBox().then((b) => [b.x + b.width * 0.6, b.y + b.height * 0.7]));
   await frames();
   const check = await page.evaluate(() => {
-    const f = document.querySelector('iframe').contentWindow, t = window.syncState.t;
-    const shown = f.document.querySelector('#stage').outerHTML;
+    const f = document.querySelector('iframe').contentWindow, t = window.syncState.t, d = f.document;
+    const shown = d.querySelector('#stage').outerHTML;
+    // where the frame drew the cursor tip: the cursor's translate (x - 7, y - 4) under the camera's scale z about the centre
+    const [X, Y] = /translate\(([-\d.e]+)px,\s*([-\d.e]+)px\)/.exec(d.querySelector('#cursor').style.transform).slice(1).map(Number);
+    const z = Number(/scale\(([-\d.e]+)\)/.exec(d.querySelector('#camera').style.transform)[1]);
+    const CX = f.STAGE.width / 2, CY = f.STAGE.height / 2;
+    const drawn = { x: CX + (X + 7 - CX) * z, y: CY + (Y + 4 - CY) * z };
     f.seek(t);
-    return { t, got: f.__got?.at(-1), last: window.syncState.lastSeek, same: f.document.querySelector('#stage').outerHTML === shown,
-      cursor: f.inspect(t).cursor };
+    return { t, last: window.syncState.lastSeek, same: d.querySelector('#stage').outerHTML === shown, drawn, cursor: f.inspect(t).cursor };
   });
   assert.equal(check.last, check.t);
   assert.ok(check.same, 'seek(t) at the playhead is what the frame already showed');
-  assert.ok(Number.isFinite(check.cursor.x) && Number.isFinite(check.cursor.y));
+  assert.ok(Math.abs(check.drawn.x - check.cursor.x) < 0.01 && Math.abs(check.drawn.y - check.cursor.y) < 0.01,
+    `inspect(t) ${JSON.stringify(check.cursor)} is where seek(t) drew the cursor ${JSON.stringify(check.drawn)}`);
   assert.deepEqual(errors, []);
 });
 
