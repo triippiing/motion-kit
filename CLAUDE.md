@@ -138,7 +138,8 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   `bpm_confidence` < 0.5 and `sync.checked_by_ear` is absent.
 - **Limits:** a loop window that ends at the song's end cannot be nudged (Save refuses it; move the window
   with `--start-bar` first). Markers outside the loop are listed but not drawn, so edit `sync.markers` with
-  the page closed, then open it and Save, or move the window (`--start-near SEC` a bar or two before the moment). Save does not pass `--states`. Older projects get the kit's timing module from
+  the page closed, then open it and Save, or move the window (`--start-near SEC` a bar or two before the
+  moment). Save does not pass `--states`. Older projects get the kit's timing module from
   `/__sync/timing.js` and, lacking `window.rebuild`, a reload after Save; their old `components/` copy does
   not know markers. Every script's page server refuses files symlinked from outside the project
   (`new_project.sh` copies, so its projects are fine).
