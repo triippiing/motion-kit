@@ -40,11 +40,13 @@
 <script src="springs.js"></script>
 <script type="module">
 import { createScene, registry } from './components/index.js';
+import { beatTime } from './components/core/timing.js';
 let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
 // ---------------- the three tables you edit ----------------
-// STATES: what the one shape is from beat `at`. `use` names a component from
+// STATES: what the one shape is from beat `at` (a number, or a marker's name from the sync page, `at: 'drop'`,
+// optionally with `offset` in beats: { at: 'drop', offset: -0.5, ... }). `use` names a component from
 // components/CATALOG.md (its other keys are that component's props); a row with
 // `name` + w/h/r is a custom state (add a matching .layer in #shape and animate it
 // in `content`). fill/ink override colours with a theme role (canvas, surface, ink,
@@ -66,7 +68,8 @@ const states = () => [
   { at: 24, use: 'toast', text: 'Report exported', action: 'Open' },
   { at: END - 2, use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
 ];
-// CURSOR: where the pointer is from beat `at`. Either x/y in px from the stage
+// CURSOR: where the pointer is from beat `at` (a number, or a marker name with optional `offset`, as in
+// STATES). Either x/y in px from the stage
 // centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
 // optionally with dx/dy. press: true clicks (click sound); 'down' presses and holds,
 // 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.
@@ -119,22 +122,40 @@ window.ready = (async () => {
     .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
   window.STAGE = STAGE;
   END = song.beats.length;
-  beatT = (b) => {
-    const i = Math.floor(b), beat = song.beats[i];
-    return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
-  };
+  beatT = (b) => beatTime(song, b);
   Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
   const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
   await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
-  scene = createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
-    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+  scene = build();
   since = scene.since;
   window.SFX = scene.sfx;
   seek(0);
 })();
 window.seek = seek;
 window.inspect = (t) => scene.inspect(t);
+
+function build() {
+  return createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
+    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+}
+
+// For the sync page only (scripts/sync-page): rebuild the scene for another song (a nudge or swing preview, or the
+// grid Save wrote). Renders never call it, and seek(t) stays a pure function of t. If the tables do not fit the new
+// song (a marker they name is gone) it throws and the previous scene stays.
+window.rebuild = (next) => {
+  const old = [...document.querySelectorAll('#shape > .layer[data-row], #camera > .mk-badge')];
+  const was = { song, END };
+  song = next; END = next.beats.length; beatT = (b) => beatTime(song, b);
+  let made;
+  try { made = build(); } catch (e) {
+    for (const n of document.querySelectorAll('#shape > .layer[data-row], #camera > .mk-badge')) if (!old.includes(n)) n.remove();
+    ({ song, END } = was);
+    throw e;
+  }
+  for (const n of old) n.remove();
+  scene = made; since = scene.since; window.SFX = scene.sfx;
+};
 
 // ?play: watch it live in a browser with the audio (click to start).
 if (location.search.includes('play')) {

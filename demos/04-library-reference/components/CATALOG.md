@@ -15,7 +15,8 @@ Every row accepts these keys whatever its component (they are never component pr
 
 | Key | What it does |
 |---|---|
-| `at` | the beat the row starts on (required) |
+| `at` | the beat the row starts on, or a marker name from the sync page (required) |
+| `offset` | beats added to a marker `at` (`{ at: 'drop', offset: 0.5 }`); only with a marker |
 | `use` | the component, by the name of its heading below |
 | `fill` | the shape's background: a theme role (`canvas`, `surface`, `ink`, `muted`, `accent`; `pos`, `neg` (when the theme defines them)) or `#rrggbb`; overrides the component's own |
 | `ink` | the shape's text colour: a theme role or `#rrggbb`; overrides the component's own |
