@@ -88,11 +88,11 @@ const states = () => [
   { at: END - 2, use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
 ];
 const cursor = () => [
-  { at: 0,    x: 240, y: 280 },
+  { at: 0,    x: 140, y: 100 },
   { at: 1,    target: 'button' },
   { at: 1.5,  target: 'button', press: true },
-  { at: 3,    x: 200, y: 230 },
-  { at: 5,    x: 260, y: -40 },
+  { at: 3,    x: 110, y: 60 },
+  { at: 5,    x: 140, y: -40 },
   { at: 7,    target: 'island' },
   { at: 8.5,  target: 'play' },
   { at: 9,    target: 'play', press: true },
@@ -113,6 +113,6 @@ const cursor = () => [
   { at: 22,   target: 'row:0' },
   { at: 23.5, target: 'row:0', press: true },
   { at: 25,   target: 'action' },
-  { at: END - 2, x: 240, y: 280 },
+  { at: END - 2, x: 140, y: 100 },
 ];
 ```

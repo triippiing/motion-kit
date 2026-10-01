@@ -44,20 +44,22 @@ each preset from its shape (X scales the 1440 square down to 1200x1200, X's docu
 |---|---|---|---|---|---|---|---|---|---|
 | reels | reels.mp4 | 1080x1920 | 30 | 0.68 | 15.43 | -14.1 / -1.2 dBTP | aac, fast coder | commercial track | |
 | x | x.mp4 | 1200x1200 | 30 | 0.80 | 15.43 | -14.1 / -2.2 dBTP | aac, fast coder | commercial track | |
-| discord | discord.mp4 | 1440x1440 | 60 | 0.88 | 15.42 | -14.1 / -1.9 dBTP | aac, fast coder | none | |
+| discord | discord.mp4 | 1440x1440 | 60 | 0.87 | 15.42 | -14.1 / -1.9 dBTP | aac, fast coder | none | |
 | web | web.mp4 | 1440x1440 | 60 | 0.71 | 15.42 | -14.1 / -1.2 dBTP | aac, fast coder | commercial track | |
 | web | web.webm | 1440x1440 | 60 | 0.96 | 15.42 | -14.0 / -1.5 dBTP | Opus | commercial track | |
 | web | web.jpg | 1440x1440 | still | 0.03 | | | | none | poster at beat 1.5 |
-| gif | gif.gif | 720x720 | 15 | 1.35 | 15.40 | no audio | | none | |
+| gif | gif.gif | 720x720 | 15 | 1.33 | 15.40 | no audio | | none | |
 
 Every file is within its preset's size cap and length limit, and every file with audio is within 1 LU of
 -14 LUFS and under the -1 dBTP ceiling. The true peak needed the AAC coder ladder: ffmpeg's default AAC
 coder adds about 3.6 dB of true-peak overshoot on this piece's click and key transients (loudnorm's output
 peaks at -2.4 dBTP, the default coder's files at +0.9 to +1.2), so export re-encoded the audio with
 `aac -aac_coder fast`, which met the ceiling on every MP4 (the manifest's `audioCoder`). The Opus WebM
-never needed it. The commercial track warning is accepted in the brief. `check_brief.mjs` also reports
-the cursor and, for half a beat, the line chart entering the Reels safe zones; those still wait for Jack's
-decision, and the brief is unchanged.
+never needed it. The commercial track warning is accepted in the brief. The cursor's resting
+and parking spots were moved toward the centre (`x: 140, y: 100` at rest) to clear the Reels safe
+zones. `check_brief.mjs` still reports four small Reels hits, each lasting a beat or less: the cursor on
+the volume knob at beat 14 (19 px) and the line chart opening at beat 18.5 (12 to 17 px). They are
+left as they are.
 
 ## Compared with demo 1
 
