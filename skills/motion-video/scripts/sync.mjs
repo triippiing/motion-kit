@@ -83,6 +83,7 @@ async function doSave(root, sync, python) {
   if (!loop || !(loop.bars > 0) || !Number.isFinite(loop.start_sec) || !(fps > 0)) {
     throw new UsageError(`${songFile} has no loop window (loop.bars, loop.start_sec, fps); run analyze_song.py for this project first`);
   }
+  sync = staleCheck(current.sync, sync);
   await copyFile(songFile, bakTmp);
   try {
     await writeJsonAtomic(songFile, { ...current, sync });
@@ -93,13 +94,28 @@ async function doSave(root, sync, python) {
       await rename(bakTmp, songFile);
       throw r.code === 2 ? new UsageError(analyserMessage(r)) : new SaveError(analyserMessage(r));
     }
-    await rename(bakTmp, `${songFile}.bak`);
-    return { song: JSON.parse(await readFile(songFile, 'utf8')) };
   } catch (e) {
     // a failure of our own (not the analyser's) also puts the previous song.json back
     if (await stat(bakTmp).then(() => true, () => false)) await rename(bakTmp, songFile);
     throw e instanceof UsageError || e instanceof SaveError ? e : new SaveError(e.message);
   }
+  // the analyser succeeded: the new song.json and clip.wav stay, whatever happens to the backup
+  try { await rename(bakTmp, `${songFile}.bak`); } catch (e) {
+    await rm(bakTmp, { force: true });
+    throw new SaveError(`saved, but the previous song.json could not be kept as song.json.bak: ${e.message}`);
+  }
+  return { song: JSON.parse(await readFile(songFile, 'utf8')) };
+}
+
+// A backstop for the page: a grid change (nudge_ms, bpm or meter) that carries over the stored checked_by_ear
+// unchanged drops it, since the old check was of the old grid. A new date (a fresh "Sounds right") is kept.
+function staleCheck(stored, posted) {
+  const was = stored && typeof stored === 'object' ? stored : {};
+  const grid = (s) => [s.nudge_ms ?? 0, s.bpm ?? null, s.meter ?? '4/4'];
+  const changed = grid(was).some((v, i) => v !== grid(posted)[i]);
+  if (!changed || !('checked_by_ear' in posted) || posted.checked_by_ear !== was.checked_by_ear) return posted;
+  const { checked_by_ear, ...rest } = posted;
+  return rest;
 }
 
 // One save at a time per project: each waits for the one before it, whatever its outcome.
@@ -117,20 +133,26 @@ export function saveSync(dir, sync, { python = 'python3' } = {}) {
   return next;
 }
 
+// The body as text, or TOO_LARGE once it passes MAX_BODY (the rest is drained and dropped, not kept).
+const TOO_LARGE = Symbol('too large');
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []; let size = 0;
-    req.on('data', (c) => {
+    const onData = (c) => {
       size += c.length;
-      if (size > MAX_BODY) { reject(new UsageError('request body is too large')); req.destroy(); } else chunks.push(c);
-    });
+      if (size <= MAX_BODY) return chunks.push(c);
+      req.off('data', onData);
+      req.resume();
+      resolve(TOO_LARGE);
+    };
+    req.on('data', onData);
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
 
-function sendJson(res, status, value) {
-  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+function sendJson(res, status, value, headers = {}) {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
   res.end(JSON.stringify(value));
 }
 
@@ -146,9 +168,16 @@ async function servePage(req, res) {
 }
 
 async function saveRoute(req, res, root) {
+  // JSON only: a cross-site form or text/plain post cannot send it without a CORS preflight, which this server fails
+  if (!/^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')) {
+    req.resume();
+    return sendJson(res, 415, { error: 'the body must be sent as content-type: application/json' });
+  }
+  const text = await readBody(req);
+  if (text === TOO_LARGE) return sendJson(res, 413, { error: `the body is over ${MAX_BODY} bytes` }, { connection: 'close' });
   let body;
-  try { body = JSON.parse(await readBody(req)); } catch (e) {
-    return sendJson(res, e instanceof UsageError ? 413 : 400, { error: e instanceof UsageError ? e.message : 'the body must be JSON: {"sync": {...}}' });
+  try { body = JSON.parse(text); } catch {
+    return sendJson(res, 400, { error: 'the body must be JSON: {"sync": {...}}' });
   }
   const sync = body?.sync;
   if (sync === null || typeof sync !== 'object' || Array.isArray(sync)) return sendJson(res, 400, { error: 'the body must be {"sync": {...}} with sync an object' });

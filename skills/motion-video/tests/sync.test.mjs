@@ -1,7 +1,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
@@ -36,10 +36,10 @@ async function serveProject(dir) {
 }
 
 // A raw request: the path goes out exactly as given (fetch would normalise "..").
-function raw(url, method, reqPath, body) {
+function raw(url, method, reqPath, body, headers = {}) {
   const { port } = new URL(url);
   return new Promise((resolve, reject) => {
-    const req = request({ host: '127.0.0.1', port, method, path: reqPath, headers: { 'content-type': 'application/json' } }, (res) => {
+    const req = request({ host: '127.0.0.1', port, method, path: reqPath, headers: { 'content-type': 'application/json', ...headers } }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -232,4 +232,86 @@ test('CLI: prints the sync page URL and serves it', async () => {
     const r = await raw(line, 'GET', '/__sync');
     assert.equal(r.status, 200);
   } finally { child.kill(); }
+});
+
+test('path safety: symlinks inside DIR that point outside it are refused', async () => {
+  const dir = project(), outside = path.join(path.dirname(dir), 'outside');
+  mkdirSync(outside);
+  writeFileSync(path.join(outside, 'secret.txt'), 'secret');
+  symlinkSync(path.join(outside, 'secret.txt'), path.join(dir, 'link.txt'));
+  symlinkSync(outside, path.join(dir, 'linkdir'));
+  const { url } = await serveProject(dir);
+  assert.equal((await raw(url, 'GET', '/link.txt')).status, 403);
+  assert.equal((await raw(url, 'GET', '/linkdir/secret.txt')).status, 403);
+  assert.equal((await raw(url, 'GET', '/song.json')).status, 200);
+  assert.equal((await raw(url, 'GET', '/nope.json')).status, 404);
+});
+
+test('cross-site requests are refused: Host, Origin and content type', async () => {
+  const dir = project();
+  const { url } = await serveProject(dir);
+  const { port } = new URL(url);
+  const before = read(dir, 'song.json'), clip = read(dir, 'clip.wav');
+  const body = JSON.stringify({ sync: { nudge_ms: -10 } });
+  let r = await raw(url, 'POST', '/__sync/save', body, { host: `evil.example:${port}` });
+  assert.equal(r.status, 403, 'rebound Host');
+  r = await raw(url, 'GET', '/__sync', null, { host: `evil.example:${port}` });
+  assert.equal(r.status, 403, 'rebound Host on a GET');
+  r = await raw(url, 'POST', '/__sync/save', body, { origin: 'https://evil.example' });
+  assert.equal(r.status, 403, 'foreign Origin');
+  r = await raw(url, 'POST', '/__sync/save', body, { 'content-type': 'text/plain' });
+  assert.equal(r.status, 415, 'text/plain');
+  assert.match(r.json.error, /application\/json/);
+  r = await raw(url, 'POST', '/__sync/save', body, { 'content-type': 'application/x-www-form-urlencoded' });
+  assert.equal(r.status, 415, 'form');
+  assert.deepEqual(read(dir, 'song.json'), before);
+  assert.deepEqual(read(dir, 'clip.wav'), clip);
+  // the page's own requests: same origin, by either name
+  r = await raw(url, 'GET', '/__sync', null, { host: `localhost:${port}`, origin: `http://localhost:${port}` });
+  assert.equal(r.status, 200);
+  r = await raw(url, 'HEAD', '/__sync');
+  assert.equal(r.status, 200, 'HEAD answers like GET');
+  r = await raw(url, 'POST', '/__sync/save', body, { origin: `http://127.0.0.1:${port}`, 'content-type': 'application/json; charset=utf-8' });
+  assert.equal(r.status, 200, r.text);
+});
+
+test('an oversized body gets a 413', async () => {
+  const dir = project();
+  const { url } = await serveProject(dir);
+  const big = JSON.stringify({ sync: { pad: 'x'.repeat(2 << 20) } });
+  const r = await raw(url, 'POST', '/__sync/save', big);
+  assert.equal(r.status, 413);
+  assert.match(r.json.error, /over/);
+  assert.ok(!existsSync(path.join(dir, 'song.json.bak')));
+});
+
+test('a save whose backup cannot be kept keeps the new song and says so', async () => {
+  const dir = project();
+  mkdirSync(path.join(dir, 'song.json.bak'));
+  writeFileSync(path.join(dir, 'song.json.bak', 'x'), 'x');
+  const clipMtime = statSync(path.join(dir, 'clip.wav')).mtimeMs;
+  const e = await saveSync(dir, { nudge_ms: -10 }).catch((x) => x);
+  assert.ok(e instanceof SaveError, String(e));
+  assert.match(e.message, /song\.json\.bak/);
+  assert.equal(song(dir).sync.nudge_ms, -10);
+  assert.notEqual(statSync(path.join(dir, 'clip.wav')).mtimeMs, clipMtime);
+  assert.ok(!existsSync(path.join(dir, 'song.json.bak.tmp')));
+});
+
+test('checked_by_ear: a carried-over date is dropped when the grid changes; a new date is kept', async () => {
+  const dir = project();
+  let r = await saveSync(dir, { checked_by_ear: '2026-09-30' });
+  assert.equal(r.song.sync.checked_by_ear, '2026-09-30');
+  // markers or swing alone are not the grid: the check stays
+  r = await saveSync(dir, { swing: 0.6, checked_by_ear: '2026-09-30' });
+  assert.equal(r.song.sync.checked_by_ear, '2026-09-30');
+  // a nudge with the old date carried over: dropped
+  r = await saveSync(dir, { swing: 0.6, nudge_ms: -10, checked_by_ear: '2026-09-30' });
+  assert.ok(!('checked_by_ear' in r.song.sync), JSON.stringify(r.song.sync));
+  // a nudge pressed "Sounds right" again (a new date): kept
+  r = await saveSync(dir, { swing: 0.6, nudge_ms: -20, checked_by_ear: '2026-10-01' });
+  assert.equal(r.song.sync.checked_by_ear, '2026-10-01');
+  // a meter or bpm change with the stored date: dropped
+  r = await saveSync(dir, { swing: 0.6, nudge_ms: -20, meter: '3/4', checked_by_ear: '2026-10-01' });
+  assert.ok(!('checked_by_ear' in r.song.sync));
 });

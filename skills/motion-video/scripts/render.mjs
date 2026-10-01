@@ -17,7 +17,7 @@ import { chromium } from 'playwright';
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readFile, readdir, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, mkdir, rename, rm, realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
@@ -60,15 +60,20 @@ export function spliceTables(html, code) {
 // "loop"; `tables` serves index.html with those tables spliced in (spliceTables). Nothing is written.
 // `tablesSpliced` says whether the splice took.
 // `routes` maps 'METHOD /path' to a handler(req, res, root), checked before static files; a key ending in '/'
-// also answers every path under it. With routes, any other method than GET or HEAD that no route takes is a 404.
-// A path with a ".." segment, or one that resolves outside DIR, is a 403.
+// also answers every path under it (HEAD falls back to the GET route). With routes, any other method than GET or
+// HEAD that no route takes is a 404, and a request whose Host is not 127.0.0.1:PORT or localhost:PORT, or whose
+// Origin (when sent) is not http:// one of those, is a 403 (no cross-site requests, no DNS rebinding).
+// A path with a ".." segment, or one that resolves outside DIR (symlinks followed), is a 403.
 export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
   const root = path.resolve(dir);
+  let realRoot = root;
+  try { realRoot = realpathSync(root); } catch {}
   const state = { tablesSpliced: false };
   return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
       if (escapes(req.url)) { res.writeHead(403); return res.end(); }
       const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (routes && !sameOrigin(req, server.address().port)) { res.writeHead(403); return res.end(); }
       if (routes) {
         const handler = routeFor(routes, req.method, rel);
         if (handler) {
@@ -81,6 +86,9 @@ export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
       }
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
       if (!inside(root, file)) { res.writeHead(403); return res.end(); }
+      // a symlink inside DIR must not reach outside it; a missing file falls through (404, or a staged project.json)
+      const real = await realpath(file).catch(() => null);
+      if (real && !inside(realRoot, real)) { res.writeHead(403); return res.end(); }
       try {
         let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
         if (tables != null && (rel === '/' || rel === '/index.html')) {
@@ -110,7 +118,20 @@ function escapes(url) {
   return p.split(/[\\/]/).includes('..');
 }
 
+// Only this machine's own pages: Host names the server itself, and Origin, when the browser sends one, is it too.
+function sameOrigin(req, port) {
+  const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+  if (!hosts.includes(req.headers.host)) return false;
+  const origin = req.headers.origin;
+  return origin == null || hosts.some((h) => origin === `http://${h}`);
+}
+
 function routeFor(routes, method, rel) {
+  if (method === 'HEAD') return lookupRoute(routes, 'HEAD', rel) || lookupRoute(routes, 'GET', rel);
+  return lookupRoute(routes, method, rel);
+}
+
+function lookupRoute(routes, method, rel) {
   if (routes[`${method} ${rel}`]) return routes[`${method} ${rel}`];
   const key = Object.keys(routes).find((k) => k.endsWith('/') && k.startsWith(`${method} `) && rel.startsWith(k.slice(method.length + 1)));
   return key && routes[key];
