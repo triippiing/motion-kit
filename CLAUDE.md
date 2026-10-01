@@ -40,19 +40,23 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
 
 ```
    -- motion-design (the planner, skills/motion-design/references/planner.md) --
-1  route the request, ask the open questions one at a time, run doctor.sh
+1  route the request, ask the open questions one at a time (including where it will be posted), run doctor.sh
 2  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N]
      -> analyze_song.py: song.json (BPM, downbeat, beats[] with t/cue_t/accent, loop window, rules) + clip.wav
      -> extract_theme.py: theme.css/theme.json from the project's :root CSS vars (roles below)
      -> copies template/index.html, springs.js and components/, synthesises sfx/click.wav and sfx/key.wav, writes project.json
 3  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
      (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
+     (its Decisions list the destinations as **Exports:** reels, x, discord, web)
 4  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
+     (with an Exports line it also checks the safe zones; it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts))
 5  show the brief and STOP until the user approves it
    -- motion-video --
 6  paste the brief's states()/cursor() block into DIR/index.html
 7  node $S/beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
 8  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
+9  node $S/export.mjs DIR --for reels,x,discord,web [--silent]
+     -> out/exports/<preset>.<ext> + manifest.json, one native render per shape in out/shapes/<W>x<H>/video.mp4
 ```
 
 Scripts are in `<clone>/skills/motion-video/scripts/`; after `install.sh` the same files are at
@@ -62,6 +66,26 @@ Scripts are in `<clone>/skills/motion-video/scripts/`; after `install.sh` the sa
 Details worth knowing:
 - `--preview` renders **half size** with 1 subframe (fast); the final render is full size with 4.
 - `node render.mjs DIR --serve` serves the page; open the printed `?play` URL and click to watch it live with sound.
+- Export (the full guide is the Export section of `skills/motion-video/SKILL.md`): the presets and their
+  sourced platform limits are in `skills/motion-video/presets.json` (`source`, `checked`, and an `estimated`
+  list the manifest copies). Discord is 20 MB free and 1 GB with Nitro. Export never overwrites
+  `out/video.mp4`; it reuses it (or a shape render) only when its `.render.json` stamp matches exactly, it
+  lasts the loop, and no project file changed after that render started (the stamp's `sources`; the stamp's
+  renderer id covers render.mjs, the engine, ffmpeg's version and Playwright's Chromium). Over a size cap it re-encodes two-pass and, if that
+  bitrate is too low, steps the short side down (1080, 720, 540); if the cap still cannot be met it stops with `error: ...`,
+  exit 2 when the numbers rule it out and exit 1 when an encode missed it, and writes nothing to
+  `out/exports`. Every preset with audio aims at -14 LUFS / -1 dBTP and warns when a file misses by more
+  than 1 LU, or its true peak ceiling by 0.5 dB. AAC adds true-peak overshoot on sharp transients (the click
+  and key sounds), so the audio is encoded alone and, on a miss, re-encoded down a coder ladder (`aac`, `aac
+  -aac_coder fast`, then `aac_at` when ffmpeg lists it) before muxing; the manifest's `audioCoder` names the one
+  used, and only a miss on every coder (or very peaky audio, like a click track) warns. `--silent` drops
+  the audio. A commercial track (`**Song:** ..., a commercial track` or `**Music:** commercial` in the
+  brief's Decisions, or `"music": "commercial"` in project.json) warns on every public preset that carries
+  audio. `export.mjs DIR --for reels,tiktok --guides` renders previews with translucent
+  bands over each safe zone (`out/shapes/<W>x<H>/preview-guides-<preset>.mp4`); guides never reach an
+  export. `safezones.mjs DIR --for reels,tiktok` checks the zones on their own.
+- Vertical pieces: the template's cursor rest `x: 240, y: 280` sits in the Reels/TikTok/Shorts bottom and
+  right zones; rest nearer the centre, e.g. `x: 140, y: 100`.
 - The loop window: unless you pass `--start-bar N`, `analyze_song.py` picks the loudest N-bar window,
   preferring one that starts on a detected section boundary (listed in `song.json` `sections`). To move
   it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json and clip.wav).
@@ -172,7 +196,7 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs) and renders (`out/`)
-  are git-ignored and must never be committed. Commercial tracks: local viewing only.
+  are git-ignored and must never be committed. Commercial tracks: local viewing only (or `export.mjs --silent`).
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;
   put maths in a pure function of `(from, changes, t)` and unit-test it; reduced motion jumps.
 
@@ -200,9 +224,13 @@ shared/springs.js                 closed-form springs: response, spring, track, 
                                   globalThis.Springs + module.exports; works in browser, Node, JavaScriptCore)
 skills/*/assets/springs.js        symlinks to it; projects get a copy (cp -L)
 skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only), new_project.sh,
-                                  render.mjs (Playwright + ffmpeg), beat_stills.mjs, doctor.sh,
-                                  check_brief.mjs (validates MOTION-BRIEF.md), build_catalog.mjs (index.js +
-                                  CATALOG.md from each meta), gallery.mjs (every component in one project; --stills)
+                                  render.mjs (Playwright + ffmpeg; --stage WxH, --guides PRESET), beat_stills.mjs,
+                                  doctor.sh, check_brief.mjs (validates MOTION-BRIEF.md, and safe zones for its
+                                  Exports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
+                                  (every component in one project; --stills), export.mjs (ready-to-post files per
+                                  preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
+                                  safezones.mjs (safe-zone check, guides overlay, shared preset helpers)
+skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
 skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from (reads project.json:
                                   stage, optional loop and designScale)
 skills/motion-video/components/   the component library: core/engine.js (runs the tables; its header is the
@@ -238,6 +266,8 @@ template's Google Fonts request.
   that app's CSS, which is not in this repo. Still renders from a clone: `theme.json` is committed.
 - `03-finance-inapp`: capture of `motion-ui` applied to that private app; `capture.mjs` needs the
   app's repo, so it will not run from a clone. The pattern it demonstrates is `motion-ui` pattern 2.
+- `04-library-reference`: demo 1's sequence rebuilt from library components only, and the export proof
+  (every preset it exports, with the results table, in its README).
 
 The songs are not in the repo. To render 01 or 02 from a fresh clone, give it any song you have
 the rights to (the plan re-times automatically, though a different song's accents differ):

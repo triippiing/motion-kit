@@ -32,8 +32,10 @@ export function probe(file) {
     'stream=codec_type,nb_read_frames,width,height,r_frame_rate:format=duration', '-of', 'json', file], { encoding: 'utf8' }));
 }
 
-export function grayFrame(file, n) {
-  const buf = execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-vf', `select=eq(n\\,${n})`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-']);
+// Mean gray of frame n, or of the box { x, y, w, h } in it.
+export function grayFrame(file, n, box = null) {
+  const crop = box ? `,crop=${box.w}:${box.h}:${box.x}:${box.y}` : '';
+  const buf = execFileSync(FFMPEG, ['-v', 'error', '-i', file, '-vf', `select=eq(n\\,${n})${crop}`, '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-']);
   return buf.reduce((a, b) => a + b, 0) / buf.length;
 }
 

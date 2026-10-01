@@ -1,0 +1,220 @@
+{
+  "project": "04-library-reference",
+  "created": "2026-10-01T06:47:09.886Z",
+  "renders": [
+    {
+      "size": "1080x1920",
+      "shapes": [
+        "vertical"
+      ],
+      "path": "out/shapes/1080x1920/video.mp4",
+      "reused": false
+    },
+    {
+      "size": "1440x1440",
+      "shapes": [
+        "square",
+        "design"
+      ],
+      "path": "out/shapes/1440x1440/video.mp4",
+      "reused": false
+    }
+  ],
+  "files": [
+    {
+      "preset": "reels",
+      "format": "mp4",
+      "path": "out/exports/reels.mp4",
+      "bytes": 680573,
+      "duration": 15.433333,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30,
+      "vcodec": "h264",
+      "acodec": "aac",
+      "audioCoder": "aac -aac_coder fast",
+      "lufs": -14.1,
+      "truePeak": -1.2,
+      "stepDown": null,
+      "notes": [
+        "audio coder aac -aac_coder fast: the default aac coder overshot the -1 dBTP ceiling"
+      ],
+      "warnings": [
+        "commercial music on a public platform (Instagram Reels) risks a mute or takedown: export with --silent or use a licensed track"
+      ],
+      "source": "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-user/media/",
+      "checked": "2026-09-30",
+      "estimated": [
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "x",
+      "format": "mp4",
+      "path": "out/exports/x.mp4",
+      "bytes": 801025,
+      "duration": 15.433333,
+      "width": 1200,
+      "height": 1200,
+      "fps": 30,
+      "vcodec": "h264",
+      "acodec": "aac",
+      "audioCoder": "aac -aac_coder fast",
+      "lufs": -14.1,
+      "truePeak": -2.2,
+      "stepDown": null,
+      "notes": [
+        "audio coder aac -aac_coder fast: the default aac coder overshot the -1 dBTP ceiling"
+      ],
+      "warnings": [
+        "commercial music on a public platform (X (square)) risks a mute or takedown: export with --silent or use a licensed track"
+      ],
+      "source": "https://help.x.com/en/using-x/x-videos",
+      "checked": "2026-10-01",
+      "estimated": [
+        "size",
+        "safe",
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "discord",
+      "format": "mp4",
+      "path": "out/exports/discord.mp4",
+      "bytes": 872066,
+      "duration": 15.416667,
+      "width": 1440,
+      "height": 1440,
+      "fps": 60,
+      "vcodec": "h264",
+      "acodec": "aac",
+      "audioCoder": "aac -aac_coder fast",
+      "lufs": -14.1,
+      "truePeak": -1.9,
+      "stepDown": null,
+      "notes": [
+        "audio coder aac -aac_coder fast: the default aac coder overshot the -1 dBTP ceiling"
+      ],
+      "warnings": [],
+      "source": "https://support.discord.com/hc/en-us/articles/25444343291031-File-Attachments-FAQ",
+      "checked": "2026-09-30",
+      "estimated": [
+        "safe",
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "web",
+      "format": "mp4",
+      "path": "out/exports/web.mp4",
+      "bytes": 711192,
+      "duration": 15.416667,
+      "width": 1440,
+      "height": 1440,
+      "fps": 60,
+      "vcodec": "h264",
+      "acodec": "aac",
+      "audioCoder": "aac -aac_coder fast",
+      "lufs": -14.1,
+      "truePeak": -1.2,
+      "stepDown": null,
+      "notes": [
+        "audio coder aac -aac_coder fast: the default aac coder overshot the -1 dBTP ceiling"
+      ],
+      "warnings": [
+        "commercial music on a public platform (Web / wiki / GitHub) risks a mute or takedown: export with --silent or use a licensed track"
+      ],
+      "source": null,
+      "checked": "2026-09-30",
+      "estimated": [
+        "crf",
+        "kbps",
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "web",
+      "format": "webm",
+      "path": "out/exports/web.webm",
+      "bytes": 959143,
+      "duration": 15.42,
+      "width": 1440,
+      "height": 1440,
+      "fps": 60,
+      "vcodec": "vp9",
+      "acodec": "opus",
+      "audioCoder": "libopus",
+      "lufs": -14,
+      "truePeak": -1.5,
+      "stepDown": null,
+      "notes": [],
+      "warnings": [
+        "commercial music on a public platform (Web / wiki / GitHub) risks a mute or takedown: export with --silent or use a licensed track"
+      ],
+      "source": null,
+      "checked": "2026-09-30",
+      "estimated": [
+        "crf",
+        "kbps",
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "web",
+      "format": "jpg",
+      "path": "out/exports/web.jpg",
+      "bytes": 26465,
+      "duration": null,
+      "width": 1440,
+      "height": 1440,
+      "fps": null,
+      "vcodec": "mjpeg",
+      "acodec": null,
+      "audioCoder": null,
+      "lufs": null,
+      "truePeak": null,
+      "posterAt": 0.815,
+      "stepDown": null,
+      "notes": [
+        "poster at beat 1.5 (0.815 s)"
+      ],
+      "warnings": [],
+      "source": null,
+      "checked": "2026-09-30",
+      "estimated": [
+        "crf",
+        "kbps",
+        "lufs",
+        "truePeak"
+      ]
+    },
+    {
+      "preset": "gif",
+      "format": "gif",
+      "path": "out/exports/gif.gif",
+      "bytes": 1334796,
+      "duration": 15.4,
+      "width": 720,
+      "height": 720,
+      "fps": 15,
+      "vcodec": "gif",
+      "acodec": null,
+      "audioCoder": null,
+      "lufs": null,
+      "truePeak": null,
+      "stepDown": null,
+      "notes": [],
+      "warnings": [],
+      "source": null,
+      "checked": "2026-09-30",
+      "estimated": [
+        "gif"
+      ]
+    }
+  ]
+}

@@ -4,7 +4,9 @@ import { readFileSync, writeFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
-import { checkBrief } from '../scripts/check_brief.mjs';   // async
+import { briefCommercial, briefExports, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
+import { pathToFileURL } from 'node:url';
+import nodeModule from 'node:module';   // registerHooks is Node >= 22.15 (a named import would fail to link on the 20.11 floor)
 
 const SCRIPT = path.resolve(import.meta.dirname, '../scripts/check_brief.mjs');
 const brief = (tables, sections = true) => `# Motion brief\n\n${sections ? '## Request\nA promo.\n\n## Decisions\n- square\n\n## Moments\n1. Import -> button\n\n' : ''}## Beat table\n\n| # | bar.beat | t | component | what changes | sound |\n|---|---|---|---|---|---|\n\n\`\`\`js\n${tables}\n\`\`\`\n`;
@@ -161,4 +163,144 @@ test('the CLI turns a crash into one error line, exit 2 (malformed song.json, ma
   r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^error: song\.json has no beats list/);
+});
+
+// ---- Exports and music decisions (safe zones via safezones.mjs) ----
+
+const decide = (md, ...lines) => md.replace('## Decisions\n- square\n', `## Decisions\n- square\n${lines.map((l) => `- ${l}\n`).join('')}`);
+// A stand-in for checkSafeZones that records what it was asked and never opens a browser.
+const stub = (issues = []) => {
+  const calls = [];
+  return { calls, fn: async (dir, opts) => { calls.push(opts); return { issues }; } };
+};
+
+test('without an Exports line no safe-zone check runs (no browser)', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  const s = stub();
+  assert.deepEqual((await checkBrief(dir, { safeZones: s.fn })).errors, []);
+  assert.equal(s.calls.length, 0);
+  // The CLI too: with Playwright pointed at an empty browsers dir any launch would fail, and it still passes.
+  const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
+  const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /safe-zone/);
+  // ...whereas with an Exports line that environment does reach for a browser (so the check above is real).
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reels'));
+  const w = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
+  assert.match(w.stdout, /warning: the safe-zone check did not run: /);
+});
+
+test('the state-plan worked example and every recipe still pass the CLI with no Exports line, and no browser', () => {
+  // The planner's docs and recipes are briefs without an **Exports:** line: they must pass exactly as before, without
+  // Playwright (pointed at an empty browsers dir, any launch would fail with "Executable doesn't exist").
+  const read = (rel) => readFileSync(path.resolve(import.meta.dirname, rel), 'utf8');
+  const plan = [...read('../../motion-design/references/state-plan.md').matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const recipes = [...read('../components/RECIPES.md').matchAll(/^### (.+)\n[\s\S]*?```js\n([\s\S]*?)```/gm)].map((m) => [m[1], m[2]]);
+  assert.equal(plan.length, 1);
+  assert.equal(recipes.length, 5);
+  const dir = makeProject({ bars: 7, bpm: 120 });
+  const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
+  for (const [name, code] of [['state-plan.md', plan[0]], ...recipes]) {
+    const md = brief(code);
+    assert.equal(briefExports(md), null, name);
+    writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), md);
+    const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, `${name}: ${r.stdout}${r.stderr}`);
+    assert.equal(r.stdout, 'brief OK\n', `${name}: no warnings at all (so no safe-zone or browser warning)`);
+    assert.equal(r.stderr, '', name);
+  }
+});
+
+test('the Exports line names presets: each issue becomes a warning; unknown names are errors', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reels, tiktok, web.').replace(/\n/g, '\r\n'));
+  const s = stub([{ preset: 'reels', beat: 12, through: 12, t: 6, part: 'shape', edge: 'bottom', px: 40 },
+    { preset: 'tiktok', beat: 3, through: 5.5, t: 1.5, part: 'cursor', edge: 'right', px: 7 }]);
+  const r = await checkBrief(dir, { safeZones: s.fn });
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(s.calls.map((c) => c.presets), [['reels', 'tiktok', 'web']]);
+  assert.ok(r.warnings.includes('beat 12: shape extends 40 px into the Instagram Reels bottom zone'), r.warnings.join('\n'));
+  assert.ok(r.warnings.includes('beats 3-5.5: cursor is 7 px into the TikTok right zone'), r.warnings.join('\n'));
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reelz, web'));
+  const bad = await checkBrief(dir, { safeZones: stub().fn });
+  assert.match(bad.errors.join('\n'), /Exports: unknown preset "reelz" \(did you mean "reels"\?\)/);
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:**'));
+  assert.match((await checkBrief(dir, { safeZones: stub().fn })).errors.join('\n'), /Exports: names no presets/);
+});
+
+test('a commercial track with public Exports is a warning; private-only or a licensed track is not', async () => {
+  const dir = makeProject({ bars: 4 });
+  const song = '**Song:** "Tints", my own copy: a commercial track, so social platforms would likely mute it.';
+  const run = async (...lines) => {
+    writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), ...lines));
+    return (await checkBrief(dir, { safeZones: stub().fn })).warnings.filter((w) => /commercial/.test(w));
+  };
+  assert.deepEqual(await run(song, '**Exports:** reels, discord, web'),
+    ['commercial music with public exports (Instagram Reels, Web / wiki / GitHub) risks a mute or takedown: export those with --silent or use a licensed track']);
+  assert.deepEqual(await run('**Music:** commercial', '**Exports:** x'), [
+    'commercial music with public exports (X (square)) risks a mute or takedown: export those with --silent or use a licensed track']);
+  assert.deepEqual(await run(song, '**Exports:** discord'), []);
+  assert.deepEqual(await run('**Song:** a licensed stock track, not a commercial track.', '**Exports:** reels'), []);
+  assert.deepEqual(await run('**Music:** non-commercial library track', '**Exports:** reels'), []);
+  assert.deepEqual(await run(song), [], 'no Exports line, nothing to warn about');
+});
+
+test('briefCommercial: a commercial track, song or release is commercial; licensed or negated wording is not', () => {
+  const md = (line) => `## Decisions\n- ${line}\n\n## Moments\n`;
+  // demo 04's real Song line (the planner's wording) must match.
+  const demo = readFileSync(path.resolve(import.meta.dirname, '../../../demos/04-library-reference/MOTION-BRIEF.md'), 'utf8');
+  assert.equal(briefCommercial(demo), true, 'demo 04');
+  for (const line of ['**Song:** "Tints", a commercial track', '**Music:** commercial', '**Music:** Commercial.', '**Song:** a commercial song I own',
+    '**Song:** commercial release (Tints)', '**Music:** a commercial recording', '**Song:** my copy of commercial music'])
+    assert.equal(briefCommercial(md(line)), true, line);
+  for (const line of ['**Music:** licensed for commercial use', '**Music:** cleared for commercial use, royalty-free',
+    '**Music:** no commercial restrictions', '**Music:** non commercial library', '**Music:** non-commercial library track',
+    '**Song:** not-commercial', "**Song:** this isn't commercial", '**Song:** isn’t a commercial track', '**Song:** is not a commercial track',
+    '**Song:** not  commercial', '**Song:** not a commercial track', '**Music:** stock track with a commercial licence',
+    '**Music:** commercial-free library', '**Music:** we hold commercial rights', '**Music:** commercial license included'])
+    assert.equal(briefCommercial(md(line)), false, line);
+  assert.equal(briefCommercial('## Request\na commercial track\n\n## Decisions\n- **Song:** licensed\n'), false, 'only Decisions counts');
+});
+
+test('an Exports typo is reported even when the beat table code does not run', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief('const states = () => { throw new Error("boom"); };\nconst cursor = () => [];'), '**Exports:** reelz'));
+  const r = await checkBrief(dir, { safeZones: stub().fn });
+  assert.match(r.errors.join('\n'), /beat table code does not run: boom/);
+  assert.match(r.errors.join('\n'), /Exports: unknown preset "reelz"/);
+});
+
+test('without an Exports line check_brief loads neither render.mjs nor Playwright',
+  { skip: typeof nodeModule.registerHooks === 'function' ? false : 'needs Node >= 22.15' }, () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  const code = `import { registerHooks } from 'node:module';
+const seen = [];
+registerHooks({ resolve(s, c, next) { const r = next(s, c); seen.push(r.url); return r; } });
+const { checkBrief } = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});
+const r = await checkBrief(${JSON.stringify(dir)});
+console.log(JSON.stringify({ errors: r.errors, loaded: seen.filter((u) => /playwright|render\.mjs|safezones\.mjs/.test(u)) }));`;
+  const out = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' });
+  assert.equal(out.status, 0, out.stderr);
+  assert.deepEqual(JSON.parse(out.stdout), { errors: [], loaded: [] });
+});
+
+test('an Exports line runs the safe-zone check on the brief\'s own tables (not index.html\'s)', async () => {
+  const dir = makeProject({ bars: 4 });
+  // The template's index.html still has its default rows; the brief makes the check row 700 px tall.
+  const tall = good.replace("{ at: 4, use: 'check' }", "{ at: 4, use: 'check', w: 300, h: 700 }")
+    .replace(/x: 240, y: 280/g, 'x: 0, y: 0');
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(tall), '**Exports:** reels'));
+  const r = await checkBrief(dir);
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.some((w) => /^beats 4\.5-\d+(\.5)?: shape extends \d+ px into the Instagram Reels bottom zone$/.test(w)), r.warnings.join('\n'));
+});
+
+test('a one-off brief (--no-loop) with Exports is safe-zone checked as a one-off too', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(oneOff), '**Exports:** reels'));
+  const r = await checkBrief(dir, { loop: false });
+  assert.deepEqual(r.errors, []);
+  assert.ok(!r.warnings.some((w) => /did not run/.test(w)), r.warnings.join('\n'));
 });

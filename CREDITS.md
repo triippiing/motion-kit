@@ -40,6 +40,7 @@ motion-kit stands on other people's work. Thank you to all of them.
 
 - [Playwright](https://playwright.dev) by Microsoft (Apache 2.0): drives Chromium to capture frames.
 - [FFmpeg](https://ffmpeg.org) (LGPL/GPL): motion blur, encoding and audio mixing.
+- Apple AudioToolbox AAC, used through FFmpeg's `aac_at` encoder when available (macOS).
 - [NumPy](https://numpy.org) (BSD): beat analysis.
 - [Homebrew](https://brew.sh) and [Node.js](https://nodejs.org) for installation.
 - [Claude Code](https://claude.com/claude-code) by Anthropic: the kit is a set of Claude Code skills,

@@ -44,3 +44,9 @@ test('beat_stills through a symlink prints usage without a DIR', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /usage: beat_stills\.mjs DIR/);
 });
+
+test('safezones through a symlink prints usage without a DIR', () => {
+  const r = run('safezones.mjs', []);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /usage: safezones\.mjs DIR/);
+});
