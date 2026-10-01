@@ -4,9 +4,10 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
 import { beatTime, FFMPEG, newestSource, render, rendererId, renderStamp, serve, stampPath } from '../scripts/render.mjs';
@@ -229,6 +230,18 @@ test('the renderer id changes with ffmpeg or Chromium, so their renders are not 
   assert.notEqual(await rendererId(dir, { ffmpeg: 'ffmpeg version 8.1', chromiumPath: '/x/chromium-1200/chrome' }), base);
   assert.notEqual(await rendererId(dir, { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1201/chrome' }), base);
   assert.notEqual(await rendererId(dir), base, 'the real ffmpeg line and Chromium path are hashed');
+  // The project's timing.js (beatT) and the skill's (sound cues, poster time) are hashed.
+  const opts = { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1200/chrome' };
+  appendFileSync(path.join(dir, 'components', 'core', 'timing.js'), '\n// edited\n');
+  assert.notEqual(await rendererId(dir, opts), base, "the project's timing.js is hashed");
+  const skill = mkdtempSync(path.join(tmpdir(), 'mk-skill-')); temps.push(skill);
+  cpSync(path.join(SKILL, 'scripts'), path.join(skill, 'scripts'), { recursive: true });
+  cpSync(path.join(SKILL, 'components', 'core'), path.join(skill, 'components', 'core'), { recursive: true });
+  symlinkSync(path.join(SKILL, 'node_modules'), path.join(skill, 'node_modules'));
+  const copy = await import(pathToFileURL(path.join(skill, 'scripts', 'render.mjs')).href);
+  const before = await copy.rendererId(dir, opts);
+  appendFileSync(path.join(skill, 'components', 'core', 'timing.js'), '\n// edited\n');
+  assert.notEqual(await copy.rendererId(dir, opts), before, "the skill's timing.js is hashed");
   // A stamp from another renderer id is not reused.
   const f = path.join(dir, 'out', 'video.mp4');
   standIn(dir, f, loopSec(dir));

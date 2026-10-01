@@ -33,5 +33,45 @@ test('swing is read from song.sync and moves only off-beats', () => {
 
 test('beatAt inverts beatTime, swing included', () => {
   const song = { beat_sec: 0.5, beats: [{ t: 0, cue_t: 0.01 }, { t: 0.5 }, { t: 1.1 }], sync: { swing: 0.6 } };
-  for (const b of [0, 0.3, 1, 1.5, 1.9]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
+  for (const b of [0, 0.3, 1.5, 1.9]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
+  // Beat 0 runs from its cue (0.01) for a whole grid beat, to 0.51, so 0.5 (beat 1) is also reached by beat 0:
+  // the earlier beat wins.
+  assert.ok(Math.abs(beatTime(song, beatAt(song, 0.5)) - 0.5) < 1e-12);
+  assert.ok(beatAt(song, 0.5) < 1);
+});
+
+// Each beat i covers [start(i), start(i) + span(i)): its cue, for one grid beat. Cue offsets that vary leave
+// gaps (times no beat reaches) and overlaps (times two beats reach).
+const sp = (song, i) => { const n = song.beats.length - 1, g = (k) => (k < 0 ? song.beats[0].t + k * song.beat_sec
+  : k > n ? song.beats[n].t + (k - n) * song.beat_sec : song.beats[k].t); return g(i + 1) - g(i); };
+const covers = (song, i, t) => { const s = beatTime(song, i); return s <= t && t < s + sp(song, i); };
+
+for (const demo of ['01-reference', '02-finance-promo', '04-library-reference']) {
+  for (const swing of [0.5, 0.62]) {
+    test(`beatAt on ${demo} (swing ${swing}): exact where reachable, within the largest gap elsewhere`, () => {
+      const song = { ...JSON.parse(readFileSync(new URL(`../../../demos/${demo}/song.json`, import.meta.url))), sync: { swing } };
+      const N = song.beats.length;
+      let gap = 0;
+      for (let i = -1; i <= N; i++) gap = Math.max(gap, beatTime(song, i + 1) - (beatTime(song, i) + sp(song, i)));
+      const reachable = (t) => { for (let i = -2; i <= N + 4; i++) if (covers(song, i, t)) return true; return false; };
+      let worst = 0;
+      for (let t = 0; t <= beatTime(song, N + 2); t += 0.005) {
+        const err = Math.abs(beatTime(song, beatAt(song, t)) - t);
+        if (reachable(t)) assert.ok(err < 1e-9, `t ${t}: reachable but off by ${err}`);
+        worst = Math.max(worst, err);
+      }
+      assert.ok(worst <= gap + 1e-9, `worst ${worst} > largest gap ${gap}`);
+      for (let b = 0; b <= N + 2; b = Math.round((b + 0.01) * 100) / 100) {
+        const t = beatTime(song, b);
+        let earlier = false;
+        for (let i = -2; i < Math.floor(b); i++) if (covers(song, i, t)) earlier = true;
+        if (!earlier) assert.ok(Math.abs(beatAt(song, t) - b) < 1e-9, `beat ${b}`);
+      }
+    });
+  }
+}
+
+test('beatAt extrapolates past the last beat with whole beats', () => {
+  const song = { beat_sec: 0.5, beats: [{ t: 0, cue_t: 0.01 }, { t: 0.5, cue_t: 0.49 }, { t: 1 }] };
+  for (const b of [3, 3.5, 4.25, 10.75]) assert.ok(Math.abs(beatAt(song, beatTime(song, b)) - b) < 1e-9, `beat ${b}`);
 });

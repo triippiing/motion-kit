@@ -179,12 +179,16 @@ const ffmpegLine = () => (ffmpegVersion ??= promisify(execFile)(FFMPEG, ['-versi
 
 // What produced a render, written beside it as <out>.render.json so export.mjs can tell a full-quality,
 // full-loop render made by this renderer from a preview, a section or a stale one. `renderer` hashes this
-// file, the project's components/core/engine.js (the code that turns the tables into frames), the ffmpeg
-// version line and Playwright's Chromium path (which names its revision; reading it launches nothing).
+// file and the skill's components/core/timing.js (it places the sounds), the project's components/core/engine.js
+// and timing.js (the code that turns the tables into frames), the ffmpeg version line and Playwright's
+// Chromium path (which names its revision; reading it launches nothing).
 // The options override the ffmpeg line or the Chromium path (tests).
 export async function rendererId(root, { ffmpeg, chromiumPath } = {}) {
   const h = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url)));
-  try { h.update(await readFile(path.join(root, 'components', 'core', 'engine.js'))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  h.update(await readFile(fileURLToPath(new URL('../components/core/timing.js', import.meta.url))));
+  for (const f of ['engine.js', 'timing.js']) {
+    try { h.update(await readFile(path.join(root, 'components', 'core', f))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
   h.update(`\0${ffmpeg ?? await ffmpegLine()}\0${chromiumPath ?? chromium.executablePath()}`);
   return h.digest('hex').slice(0, 16);
 }

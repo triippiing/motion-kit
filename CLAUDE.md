@@ -236,7 +236,7 @@ skills/motion-video/template/     index.html: the seek(t) scaffold every project
 skills/motion-video/components/   the component library: core/engine.js (runs the tables; its header is the
                                   contract), core/validate.js (table rules, shared with check_brief),
                                   core/timing.js (beatTime/beatAt: the one beat-to-seconds mapping, used by the
-                                  page, render, beat_stills, export and gallery),
+                                  page, render, beat_stills, export, safezones and gallery),
                                   core/helpers.js (pure building blocks), modifiers.js (shake, badge),
                                   controls/ feedback/ data/ chrome/ (one file per component),
                                   CATALOG.md + index.js (generated), docs-images/ (thumbnails),

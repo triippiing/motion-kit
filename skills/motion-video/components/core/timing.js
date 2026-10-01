@@ -24,12 +24,21 @@ export function beatTime(song, b) {
   return f === 0 ? t0 : t0 + warp(f, song.sync?.swing ?? 0.5) * (grid(song, i + 1) - grid(song, i));
 }
 
-// Fractional beat at loop time t: the inverse of beatTime.
+// Fractional beat at loop time t: the inverse of beatTime. Beat i covers [start(i), start(i) + span) with
+// span = grid(i+1) - grid(i), so cue offsets that vary leave gaps (times no beat reaches) and overlaps
+// (times two beats reach). The rule: when one or more beats cover t, the earliest one, exactly
+// (beatTime(beatAt(t)) === t); in a gap, the whole beat whose time is nearest t. Before beat 0 and past the
+// last beat the grid extends by whole beats, so beatAt inverts beatTime there too.
 export function beatAt(song, t) {
   if (!song.beats?.length) return t / song.beat_sec;
-  let i = 0;
-  while (i < last(song) && start(song, i + 1) <= t) i++;
-  if (t < start(song, 0)) i = Math.floor((t - start(song, 0)) / song.beat_sec);
-  const span = grid(song, i + 1) - grid(song, i);
-  return i + unwarp(Math.min(1, Math.max(0, (t - start(song, i)) / span)), song.sync?.swing ?? 0.5);
+  const n = last(song), bs = song.beat_sec, swing = song.sync?.swing ?? 0.5;
+  const lo = Math.min(0, Math.floor((t - grid(song, 0)) / bs)) - 1;
+  const hi = n + Math.max(0, Math.floor((t - grid(song, n)) / bs)) + 1;
+  let near = lo;
+  for (let i = lo; i <= hi; i++) {
+    const s = start(song, i), span = grid(song, i + 1) - grid(song, i);
+    if (s <= t && t < s + span) return i + unwarp((t - s) / span, swing);
+    if (Math.abs(s - t) < Math.abs(start(song, near) - t)) near = i;
+  }
+  return near;
 }
