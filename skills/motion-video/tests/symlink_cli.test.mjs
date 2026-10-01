@@ -50,3 +50,9 @@ test('safezones through a symlink prints usage without a DIR', () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /usage: safezones\.mjs DIR/);
 });
+
+test('sync through a symlink prints usage without a DIR', () => {
+  const r = run('sync.mjs', []);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /usage: sync\.mjs DIR/);
+});

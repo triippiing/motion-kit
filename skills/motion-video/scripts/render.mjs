@@ -30,7 +30,7 @@ export class UsageError extends Error {}
 
 export const FFMPEG = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((p) => existsSync(p)) || 'ffmpeg';
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+export const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
@@ -59,14 +59,28 @@ export function spliceTables(html, code) {
 // `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in, `loop` (a boolean) with that
 // "loop"; `tables` serves index.html with those tables spliced in (spliceTables). Nothing is written.
 // `tablesSpliced` says whether the splice took.
-export function serve(dir, port = 0, { stage, loop, tables } = {}) {
+// `routes` maps 'METHOD /path' to a handler(req, res, root), checked before static files; a key ending in '/'
+// also answers every path under it. With routes, any other method than GET or HEAD that no route takes is a 404.
+// A path with a ".." segment, or one that resolves outside DIR, is a 403.
+export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
   const root = path.resolve(dir);
   const state = { tablesSpliced: false };
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
+      if (escapes(req.url)) { res.writeHead(403); return res.end(); }
       const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (routes) {
+        const handler = routeFor(routes, req.method, rel);
+        if (handler) {
+          try { return await handler(req, res, root); } catch (e) {
+            if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+          }
+        }
+        if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(404); return res.end(); }
+      }
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
-      if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
+      if (!inside(root, file)) { res.writeHead(403); return res.end(); }
       try {
         let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
         if (tables != null && (rel === '/' || rel === '/index.html')) {
@@ -77,9 +91,29 @@ export function serve(dir, port = 0, { stage, loop, tables } = {}) {
         res.end(body);
       } catch { res.writeHead(404); res.end(); }
     });
+    server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}/`,
       get tablesSpliced() { return state.tablesSpliced; } }));
   });
+}
+
+// True when `file` is `root` or under it (a sibling such as root + "2" is not).
+export function inside(root, file) {
+  return file === root || file.startsWith(root + path.sep);
+}
+
+// A raw request path with a ".." segment (encoded or not, either slash) is never a browser's: URL parsing would
+// fold it away and serve some other file, so it is refused instead.
+function escapes(url) {
+  let p = url.split(/[?#]/)[0];
+  try { p = decodeURIComponent(p); } catch { return true; }
+  return p.split(/[\\/]/).includes('..');
+}
+
+function routeFor(routes, method, rel) {
+  if (routes[`${method} ${rel}`]) return routes[`${method} ${rel}`];
+  const key = Object.keys(routes).find((k) => k.endsWith('/') && k.startsWith(`${method} `) && rel.startsWith(k.slice(method.length + 1)));
+  return key && routes[key];
 }
 
 async function stagedProject(file, { stage, loop }) {
