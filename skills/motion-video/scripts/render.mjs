@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { beatTime } from '../components/core/timing.js';
 
 // A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
 export class UsageError extends Error {}
@@ -133,12 +134,9 @@ export async function shoot(page, t) {
   return page.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
 }
 
-// Loop time (seconds) of beat `b` (fractional allowed). Same mapping as the page's beatT: cue_t (else t)
-// of the floor beat plus the fraction of a beat.
-export function beatTime(song, b) {
-  const i = Math.floor(b), fb = song.beats?.[i];
-  return (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (b - i) * song.beat_sec;
-}
+// Loop time (seconds) of beat `b`: the shared definition (the page's beatT uses the same one), re-exported
+// for export.mjs and safezones.mjs.
+export { beatTime };
 
 function sfxInputs(dir, song, sfx, offset, duration) {
   const inputs = [], filters = [];

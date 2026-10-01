@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { collect } from './build_catalog.mjs';
 import { makeProject } from '../tests/harness.mjs';
 import { openProject, shoot, FFMPEG } from './render.mjs';
+import { beatTime } from '../components/core/timing.js';
 
 const COMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'components');
 const REST = "name: 'rest', w: 160, h: 160, r: 80";
@@ -66,7 +67,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
     // Thumbnails show the component alone; the gallery's resting cursor would sit clipped at the edge.
     await proj.pages[0].evaluate(() => { document.querySelector('#cursor').style.display = 'none'; });
     for (const p of plays.filter((p) => p.kind === 'example')) {
-      const t = (song.beats[p.at + 1] ?? song.beats.at(-1)).t + 0.4 * song.beat_sec;
+      const t = beatTime(song, p.at + 1 + 0.4);
       const png = await shoot(proj.pages[0], t);
       const f = path.join(COMP, 'docs-images', `${p.name}.png`);
       writeFileSync(f + '.full.png', png);

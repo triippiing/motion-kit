@@ -495,9 +495,10 @@ test('web writes mp4 (faststart), webm (vp9/opus) and a poster jpg from a settle
   assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `webm duration ${p.format.duration}`);
   assert.ok(Number.isFinite(webm.lufs), 'webm loudness measured');
   assert.ok(webm.warnings.some((w) => /commercial music/.test(w)), 'webm carries the audio, so the commercial warning');
-  // poster: beat 1 + half a beat, from the song's beat times (cue_t when present)
-  const t = (song.beats[1].cue_t ?? song.beats[1].t) + 0.5 * song.beat_sec;
-  assert.equal(beatTime(song, 1.5), t);
+  // poster: beat 1 + half a beat, from the song's beat times (cue_t when present); the half beat now spans the
+  // stored grid, which matches beat_sec to within the 6-decimal rounding of beat times
+  const t = beatTime(song, 1.5);
+  assert.ok(Math.abs(t - ((song.beats[1].cue_t ?? song.beats[1].t) + 0.5 * song.beat_sec)) < 1e-6, `poster beat time ${t}`);
   assert.deepEqual([jpg.vcodec, jpg.acodec, jpg.width, jpg.height, jpg.fps, jpg.duration, jpg.lufs], ['mjpeg', null, 256, 256, null, null, null]);
   assert.equal(jpg.posterAt, Math.round(t * 1000) / 1000);
   assert.deepEqual(jpg.warnings, [], 'a still has no audio or length to warn about');

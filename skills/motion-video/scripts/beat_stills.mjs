@@ -8,6 +8,7 @@ import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { openProject, shoot, FFMPEG } from './render.mjs';
+import { beatTime } from '../components/core/timing.js';
 
 const PSNR_MIN = 45;       // dB; identical frames report inf
 const CURSOR_POS_MAX = 0.5; // px
@@ -25,7 +26,7 @@ export async function beatStills(dir, { outDir } = {}) {
     const stills = [];
     for (let b = 0; b < song.beats.length; b += pages.length) {
       const batch = song.beats.slice(b, b + pages.length);
-      const shots = await Promise.all(batch.map((beat, k) => shoot(pages[k], beat.t)));
+      const shots = await Promise.all(batch.map((_, k) => shoot(pages[k], beatTime(song, b + k))));
       if (errors.length) throw errors[0];
       for (let k = 0; k < shots.length; k++) {
         const f = path.join(out, `beat_${String(b + k).padStart(3, '0')}.png`);

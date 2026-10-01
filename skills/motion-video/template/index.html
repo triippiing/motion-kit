@@ -40,6 +40,7 @@
 <script src="springs.js"></script>
 <script type="module">
 import { createScene, registry } from './components/index.js';
+import { beatTime } from './components/core/timing.js';
 let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
 const $ = (s) => document.querySelector(s);
 
@@ -89,10 +90,7 @@ window.ready = (async () => {
     .map((r) => [r, getComputedStyle(document.documentElement).getPropertyValue(`--${r}`).trim()]));
   window.STAGE = STAGE;
   END = song.beats.length;
-  beatT = (b) => {
-    const i = Math.floor(b), beat = song.beats[i];
-    return (beat ? beat.cue_t ?? beat.t : i * song.beat_sec) + (b - i) * song.beat_sec;
-  };
+  beatT = (b) => beatTime(song, b);
   Object.assign($('#stage').style, { width: `${STAGE.width}px`, height: `${STAGE.height}px` });
   const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
   await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
