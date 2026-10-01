@@ -73,7 +73,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--muted); text
   gap: 6px; }
 .cap kbd { text-transform: none; letter-spacing: 0; }
 .big { font-size: 20px; line-height: 26px; white-space: nowrap; }
-.sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub { font-size: 12px; line-height: 16px; display: flex; flex-wrap: wrap; gap: 0 8px; min-width: 0; }
 select { font: 500 15px/1 var(--mono); color: var(--text); background: var(--raised); border: 1px solid var(--line-hi);
   border-radius: 5px; padding: 4px 6px; height: 28px; width: 80px; }
 .swing-row { display: flex; align-items: center; gap: 8px; height: 28px; }

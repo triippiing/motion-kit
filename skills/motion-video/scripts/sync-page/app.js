@@ -446,12 +446,13 @@ function commitDraft(name) {
   const el = flags.querySelector('[data-marker="_draft"]');
   const why = !NAME.test(name) ? 'a marker name is lowercase letters, digits and -, starting with a letter'
     : S.pending.markers.some((m) => m.name === name) ? `there is already a marker called ${name}` : null;
-  if (why) { el?.classList.add('invalid'); S.warning = why; renderStatus(); return; }
+  if (why) { el?.classList.add('invalid'); S.warning = why; renderStatus(); return false; }
   S.pending.markers.push({ name, t: draft.t });
   S.pending.markers.sort((a, b) => a.t - b.t);
   draft = null; el?.remove();
   S.selected = name; S.warning = null;
   refresh();
+  return true;
 }
 
 function cancelDraft() {
@@ -505,7 +506,10 @@ function renderStatus() {
   parts.push(`<span>${checked ? `checked by ear ${checked}` : 'not checked by ear'}</span>`);
   const outside = S.anim.markers.filter((m) => !m.in_loop).map((m) => m.name);
   if (outside.length) parts.push(`<span>outside the loop: ${outside.map(esc).join(', ')}</span>`);
-  if (S.pending.bpm !== savedSync(S.song).bpm || S.pending.meter !== savedSync(S.song).meter) parts.push('<span class="warn">tempo and meter are approximate until Save</span>');
+  // the analyser snaps beats to detected hits until the user sets a nudge or tempo; then the grid is even, so the
+  // first nudge can move clicks by more than its 5 ms
+  parts.push(`<span>${S.pending.nudge_ms || S.pending.bpm != null ? 'even grid: detected hits off' : 'grid follows detected hits'}</span>`);
+  if (S.pending.bpm !== savedSync(S.song).bpm || S.pending.meter !== savedSync(S.song).meter) parts.push('<span class="warn">preview is approximate until you save</span>');
   if (S.saving) parts.push('<span class="warn">saving: re-cutting the clip</span>');
   else if (S.dirty) parts.push('<span class="warn">unsaved changes</span>');
   if (S.lastSaved) parts.push(`<span>saved ${pad(S.lastSaved.getHours())}:${pad(S.lastSaved.getMinutes())}:${pad(S.lastSaved.getSeconds())}</span>`);
@@ -538,7 +542,12 @@ function applyTap() {
 
 async function save() {
   if (S.saving || !S.pending) return;
-  if (draft) commitDraft(flags.querySelector('.namebox')?.value.trim() ?? '');
+  // a marker still being named must be named first: an empty or invalid name keeps the prompt open and saves nothing
+  if (draft && !commitDraft(flags.querySelector('.namebox')?.value.trim() ?? '')) {
+    if (!S.warning) S.warning = 'name the new marker (or press Esc) before saving';
+    flags.querySelector('.namebox')?.focus();
+    return renderStatus();
+  }
   S.saving = true; S.error = null;
   renderControls();
   const posted = JSON.stringify(S.pending);
@@ -553,6 +562,7 @@ async function save() {
     // edits made while saving stay pending; otherwise take the section as the server wrote it
     if (JSON.stringify(S.pending) === posted) S.pending = savedSync(S.song);
     await loadClip();
+    S.t = mod(S.t, S.loopSec); // the loop may be shorter now (a tempo or meter change)
     animKey = null;
     refresh();
     if (fwin && typeof fwin.rebuild === 'function') rebuildFrame();
@@ -571,9 +581,9 @@ async function save() {
 // ---------------- input ----------------
 
 addEventListener('keydown', (e) => {
-  if (e.target.closest?.('.namebox')) return; // the name prompt has its own keys
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if ((e.ctrlKey || e.metaKey) && key === 's') { e.preventDefault(); save(); return; }
+  if (e.target.closest?.('.namebox')) return; // the name prompt has its own keys
   if (e.ctrlKey || e.metaKey || e.altKey || !S.pending) return;
   const take = () => e.preventDefault();
   switch (key) {
@@ -596,6 +606,7 @@ $('#right').addEventListener('click', () => { S.pending.checked_by_ear = today()
 $('#save').addEventListener('click', save);
 $('#tempo-auto').addEventListener('click', () => { S.pending.bpm = null; gridChanged(); });
 $('#meter').addEventListener('change', (e) => { S.pending.meter = e.target.value; e.target.blur(); gridChanged(); });
+// swing is not gridChanged(): it only moves the off-beats, not the beats "Sounds right" checked (the server agrees)
 $('#swing').addEventListener('input', (e) => { S.pending.swing = Math.round(Number(e.target.value) * 100) / 100; refresh(); });
 $('#swing').addEventListener('change', (e) => e.target.blur());
 

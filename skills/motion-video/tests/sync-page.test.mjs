@@ -92,9 +92,11 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   // nudge: 5 ms a press, previewed on the grid and the click schedule (the audio does not move until Save)
   // (a nudged grid is the user's: each beat sounds on its grid time t, no snapping to onsets, as Save will write it)
   const grid0 = before.beats.map((b) => b.t);
+  assert.match(await page.locator('#status').textContent(), /grid follows detected hits/);
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowLeft');
   assert.equal(await state(() => window.syncState.pending.nudge_ms), -10);
+  assert.match(await page.locator('#status').textContent(), /even grid: detected hits off/);
   const grid1 = await state(() => window.syncState.clickTimes.map((c) => c.t));
   assert.equal(grid1.length, grid0.length);
   grid1.forEach((t, i) => assert.ok(Math.abs(t - (grid0[i] - 0.010)) < 1e-6, `beat ${i}: ${t} vs ${grid0[i]} - 10 ms`));
@@ -112,6 +114,12 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   // M drops a marker at the playhead; it is named inline
   const t = await state(() => window.syncState.t);
   await page.keyboard.press('m');
+  // Ctrl+S while the name is still empty saves nothing and keeps the prompt open, with a warning
+  await page.keyboard.press('Control+s');
+  assert.equal(await state(() => window.syncState.saves), 0);
+  assert.equal(await state(() => window.syncState.saving), false);
+  assert.ok(await state(() => window.syncState.warning));
+  assert.equal(await page.locator('.namebox').count(), 1);
   await page.keyboard.type('drop');
   await page.keyboard.press('Enter');
   const m0 = await state(() => window.syncState.pending.markers[0]);
@@ -140,6 +148,7 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   assert.ok(Math.abs(saved.sync.markers[0].t - m1.t) < 0.001);
   assert.ok(saved.markers.find((m) => m.name === 'drop'));
   assert.equal(await state(() => window.syncState.dirty), false);
+  assert.ok(await state(() => window.syncState.t < window.syncState.loopSec), 'the playhead is inside the saved loop');
   assert.equal(await state(() => window.syncState.pending.nudge_ms), -10);
   assert.deepEqual(await state(() => window.syncState.clickTimes.map((c) => c.t)),
     await state(() => window.syncState.song.beats.map((b) => b.cue_t ?? b.t)), 'after Save the grid is the saved one');
