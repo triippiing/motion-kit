@@ -64,22 +64,26 @@ Success means:
 - **The ear wins over detection:** when `nudge_ms != 0` or `bpm` is set, each beat's `cue_t` equals its
   grid time (no snapping to detected onsets), so the grid sits exactly where the user put it.
 - The analyser also writes a derived top-level `markers` list for the current loop:
-  `[{ "name", "song_t", "t" (loop time), "beat" (exact, fractional), "in_loop": true|false }]`.
+  `[{ "name", "song_t", "t" (loop time), "in_loop": true|false }]`. A marker's exact beat is computed
+  by the timing module (below), because swing is applied at run time.
 - `swing` is not baked into beats; it is applied by `beatT` (below) so whole beats never move.
 - Validation: bad values in `sync` (unknown meter, swing outside 0.5 to 0.75, duplicate or invalid
   marker names, non-numeric times) are an `error: ...` with exit 2 from the analyser.
 
 ## Timing: beatT, swing and markers
 
-- `beatT(b)` interpolates between consecutive beats instead of adding a fraction of the average beat:
-  `t = beats[i].t' + warp(f) * (beats[i+1].t' - beats[i].t')`, where `t'` is `cue_t ?? t`, `f` is the
-  fractional part of `b`, and after the last beat it falls back to `beat_sec`.
+- `beatT(b)` follows the grid's own spacing instead of the average beat:
+  `t = start(i) + warp(f) * (grid(i+1) - grid(i))`, where `start(i)` is `cue_t ?? t` of beat `i`, `grid(i)` its
+  `t`, and `f` the fractional part of `b`; past the last beat, `grid` extends by `beat_sec`. On today's
+  uniform grid `grid(i+1) - grid(i)` is `beat_sec`, so times are unchanged; on a drifting grid (C2) the
+  fraction follows the local tempo.
 - `warp(f)` is the swing curve: piecewise linear through `(0,0)`, `(0.5, swing)`, `(1,1)`.
   With swing 0.5 it is the identity.
 - One implementation, shared: `beatT` moves into a small pure module (`components/core/timing.js`,
   copied into projects like the rest of `components/`) used by the template, the engine, render's sound
   cues, `beat_stills.mjs`, export's poster time and the validator. Today's copies are replaced.
-- **Parity:** with no `sync` section, every beat and half-beat time equals today's to within 1e-9 s on
+- **Parity:** with no `sync` section, every beat and half-beat time equals today's to within 1e-6 s (beat
+  times are stored to 6 decimals; a frame is 16.7 ms) on
   the fixtures and demos 01, 02 and 04 (today the grid is uniform, so interpolation equals the old sum).
 - **Markers in tables:** a row's `at` may be a marker name (`at: 'drop'`) with an optional
   `offset` in beats (`{ at: 'drop', offset: -0.5 }`). The engine resolves it once to an exact beat
@@ -137,10 +141,14 @@ the analyser fails, the server restores the previous `song.json`, returns the er
 it. The save route only ever writes `song.json` and `song.json.bak` inside DIR. Changing the grid after
 "Sounds right" clears `checked_by_ear` until it is pressed again.
 
-**Re-running the analyser needs the song file.** `song.json` stores only the basename (privacy). The
-analyser gains `--reapply DIR`: it re-applies `sync` using the cached analysis it writes alongside
-(`DIR/.analysis.json`: the detection results it needs, no audio), so saving never needs the original song.
-Projects without the cache fall back to asking for the song path once (`sync.mjs DIR --song PATH`).
+**Save re-runs the analyser on the original song.** A nudge or a tempo change moves the loop window's
+start or length, so `clip.wav` must be cut again from the full song. `song.json` keeps only the basename
+(privacy), so the song's absolute path is stored in `DIR/.source.json` (`{"path": ...}`), written by
+`analyze_song.py` and never committed (git-ignored). Save runs `analyze_song.py PATH --out DIR --bars N
+--fps F --start-near SEC` with the project's current values; `--start-near SEC` (new) picks the loop start
+bar whose time is nearest SEC, so the window stays put when a nudge, tempo or meter change renumbers
+bars. If `.source.json` is missing or the file has moved, the page says so and `sync.mjs DIR --song PATH`
+records the path.
 
 ## Planner and docs
 
@@ -161,7 +169,7 @@ Projects without the cache fall back to asking for the song path once (`sync.mjs
   marker resolution with offsets, the last-beat fallback.
 - Analyser: preserves `sync` across re-runs and `--start-bar` changes; applies nudge, bpm and meter;
   derived `markers` with `in_loop`; `cue_t` snapping off once the user has nudged or set a tempo;
-  `--reapply` without the song; bad `sync` values exit 2.
+  `--start-near`; writes `.source.json`; bad `sync` values exit 2.
 - Validator / check_brief: unknown marker (did-you-mean), out-of-loop marker, off-grid marker rows,
   the low-confidence warning.
 - Save route: writes only inside DIR, keeps `.bak`, restores on analyser failure, rejects invalid sync.
@@ -181,8 +189,8 @@ brief change), check_brief passes, the piece is re-rendered and Jack watches it.
 
 1. Shared timing module (beatT with interpolation and swing, marker resolution) + parity tests; switch
    every consumer to it.
-2. `song.json` `sync` section in the analyser (preserve, apply, derived markers, `.analysis.json`,
-   `--reapply`) + tests.
+2. `song.json` `sync` section in the analyser (preserve, apply, derived markers, `.source.json`,
+   `--start-near`) + tests.
 3. Markers in tables: engine resolution, validator and check_brief rules + tests.
 4. `sync.mjs` server routes and Save (validation, `.bak`, restore on failure) + tests.
 5. The sync page UI (layout B, keys, audio clock, waveform, markers, preview) + Playwright test.
