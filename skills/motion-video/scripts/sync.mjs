@@ -4,7 +4,8 @@
 //   node sync.mjs DIR [--port N] [--no-open] [--song PATH]
 //
 // Serves DIR on 127.0.0.1 (render.mjs serve) with two routes added:
-//   GET  /__sync         the page (scripts/sync-page/index.html); its own files are under /__sync/
+//   GET  /__sync         the page (scripts/sync-page/index.html, app.js, style.css); its own files are under /__sync/,
+//                        and /__sync/timing.js is the kit's timing module (for a project copied before it existed)
 //   POST /__sync/save    body {"sync": {...}}. Replies 200 {"song": <the new song.json>}, 400 {"error"} for
 //                        invalid input or a song that has moved, 500 {"error"} when the analyser fails otherwise.
 // Save writes the user's sync section into song.json and re-runs analyze_song.py on the original song (its path is
@@ -23,6 +24,8 @@ export class SaveError extends Error {}
 const HERE = import.meta.dirname;
 const ANALYSER = path.join(HERE, 'analyze_song.py');
 const PAGE_DIR = path.join(HERE, 'sync-page');
+// The page's fallback for a project copied before components/core/timing.js existed.
+const KIT_TIMING = path.join(HERE, '..', 'components', 'core', 'timing.js');
 const MAX_BODY = 1 << 20;
 const USAGE = 'usage: sync.mjs DIR [--port N] [--no-open] [--song PATH]';
 
@@ -133,20 +136,22 @@ export function saveSync(dir, sync, { python = 'python3' } = {}) {
   return next;
 }
 
-// The body as text, or TOO_LARGE once it passes MAX_BODY (the rest is drained and dropped, not kept).
+// The body as text, or TOO_LARGE once it passes MAX_BODY (the rest is drained and dropped, not kept). Either way it
+// resolves when the body has ended: a reply sent while the client is still writing would reset its connection.
 const TOO_LARGE = Symbol('too large');
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    const chunks = []; let size = 0;
+    const chunks = []; let size = 0, over = false;
     const onData = (c) => {
       size += c.length;
       if (size <= MAX_BODY) return chunks.push(c);
+      over = true;
+      chunks.length = 0;
       req.off('data', onData);
       req.resume();
-      resolve(TOO_LARGE);
     };
     req.on('data', onData);
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolve(over ? TOO_LARGE : Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
 }
@@ -158,8 +163,8 @@ function sendJson(res, status, value, headers = {}) {
 
 async function servePage(req, res) {
   const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname).slice('/__sync'.length).replace(/^\//, '');
-  const file = path.join(PAGE_DIR, rel || 'index.html');
-  if (!inside(PAGE_DIR, file)) { res.writeHead(403); return res.end(); }
+  const file = rel === 'timing.js' ? KIT_TIMING : path.join(PAGE_DIR, rel || 'index.html');
+  if (file !== KIT_TIMING && !inside(PAGE_DIR, file)) { res.writeHead(403); return res.end(); }
   try {
     const body = await readFile(file);
     res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
