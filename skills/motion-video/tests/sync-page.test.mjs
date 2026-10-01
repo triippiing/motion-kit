@@ -93,8 +93,8 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   // (a nudged grid is the user's: each beat sounds on its grid time t, no snapping to onsets, as Save will write it)
   const grid0 = before.beats.map((b) => b.t);
   assert.match(await page.locator('#status').textContent(), /grid follows detected hits/);
-  await page.keyboard.press('ArrowLeft');
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   assert.equal(await state(() => window.syncState.pending.nudge_ms), -10);
   assert.match(await page.locator('#status').textContent(), /even grid: detected hits off/);
   const grid1 = await state(() => window.syncState.clickTimes.map((c) => c.t));
@@ -187,18 +187,85 @@ test('sync page: an old project copy without rebuild loads, plays, and saves (th
   await page.waitForTimeout(300);
   assert.equal(await state(() => window.syncState.playing), true);
   await page.keyboard.press('Space');
-  await page.keyboard.press('Shift+ArrowRight');
-  assert.equal(await state(() => window.syncState.pending.nudge_ms), 20);
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await state(() => window.syncState.pending.nudge_ms), 5);
+  await page.keyboard.press('Shift+ArrowUp');
+  assert.equal(await state(() => window.syncState.pending.nudge_ms), 25);
   await frame().evaluate(() => { window.__stale = true; });
   await page.keyboard.press('Control+s');
   await page.waitForFunction(() => window.syncState.saves === 1 || window.syncState.error, null, { timeout: 60000 });
   assert.equal(await state(() => window.syncState.error), null);
-  assert.equal(songOf(dir).sync.nudge_ms, 20);
+  assert.equal(songOf(dir).sync.nudge_ms, 25);
   await page.waitForFunction(() => window.syncState.iframeReloads === 1, null, { timeout: 30000 });
   assert.equal(await frame().evaluate(() => window.__stale ?? null), null, 'the iframe was reloaded');
   await page.keyboard.press('Space');
   await page.waitForTimeout(300);
   assert.equal(await state(() => window.syncState.playing), true);
   await page.keyboard.press('Space');
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: arrow keys scrub the playhead (10 ms, a quarter beat, to the next beat line), Home, wrap, blips', async () => {
+  const dir = project();
+  const { page, errors, state, frames } = await open(dir);
+  const t = () => state(() => window.syncState.t);
+  const blips = () => state(() => window.syncState.blips.length);
+  const { L, bs, lines } = await state(() => ({ L: window.syncState.loopSec, bs: window.syncState.grid.beat_sec,
+    lines: window.syncState.clickTimes.map((c) => c.t) }));
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} vs ${b}`);
+
+  await page.keyboard.press('Home');
+  near(await t(), 0, 'Home');
+  assert.equal(await blips(), 1, 'a stopped scrub plays one blip');
+  await page.keyboard.press('ArrowRight');
+  near(await t(), 0.010, 'ArrowRight');
+  assert.equal(await blips(), 2);
+  const b = await state(() => window.syncState.blips.at(-1));
+  near(b.t, 0.010, 'the blip plays from the new playhead');
+  await page.keyboard.press('Shift+ArrowRight');
+  near(await t(), 0.010 + bs / 4, 'Shift+ArrowRight');
+  const here = await t();
+  await page.keyboard.press('Alt+ArrowRight');
+  const next = lines.map((x) => mod(x, L)).filter((x) => x > here + 1e-6).sort((x, y) => x - y)[0];
+  near(await t(), next, 'Alt+ArrowRight lands on the next beat line');
+  await page.keyboard.press('Alt+ArrowLeft');
+  const prev = lines.map((x) => mod(x, L)).filter((x) => x < next - 1e-6).sort((x, y) => x - y).at(-1);
+  near(await t(), prev, 'Alt+ArrowLeft lands on the previous beat line');
+  // wrap at the loop edges
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowLeft');
+  near(await t(), L - 0.010, 'ArrowLeft from 0 wraps to the loop end');
+  await page.keyboard.press('ArrowRight');
+  near(await t(), 0, 'and ArrowRight wraps back');
+  // nudging is on up and down, never the playhead
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await state(() => window.syncState.pending.nudge_ms), -5);
+  near(await t(), 0, 'ArrowDown does not move the playhead');
+  // the animation follows the scrubbed playhead
+  await page.keyboard.press('Shift+ArrowRight');
+  await frames();
+  near(await state(() => window.syncState.lastSeek), bs / 4, 'seek(t) follows the scrub');
+  // playing: a scrub seeks, and the clicks after it are on the grid, once each
+  const n = await blips();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Alt+ArrowRight');
+  await page.waitForTimeout(500);
+  const run = await state(() => ({ clicks: window.syncState.clicks.slice(), startedAt: window.syncState.startedAt,
+    grid: window.syncState.clickTimes.map((c) => c.t), span: window.syncState.scheduled() }));
+  await page.keyboard.press('Space');
+  assert.equal(await blips(), n, 'no blip while playing');
+  const whens = run.clicks.map((c) => c.when);
+  assert.equal(new Set(whens.map((w) => w.toFixed(6))).size, whens.length, 'no doubled clicks');
+  for (const c of run.clicks) {
+    const at = mod(c.when - run.startedAt, L);
+    assert.ok(run.grid.some((g) => Math.abs(mod(g, L) - at) < 1e-6), `click at loop ${at} is on the grid`);
+  }
+  const [from, until] = run.span;
+  let expected = 0;
+  for (let k = Math.floor((from - run.startedAt) / L) - 1; run.startedAt + k * L < until; k++) {
+    for (const g of run.grid) { const w = run.startedAt + k * L + mod(g, L); if (w >= from && w < until) expected++; }
+  }
+  assert.equal(run.clicks.length, expected, 'every beat after the seek got a click');
   assert.deepEqual(errors, []);
 });

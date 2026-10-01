@@ -119,8 +119,9 @@ Only a person can confirm that the beat grid sits on the music, so the kit has a
 never claims the sync is right. `node $S/sync.mjs DIR [--port N] [--no-open] [--song PATH]` serves the
 project on 127.0.0.1 and opens `/__sync`: the project's own animation on the left, a waveform with the
 grid and marker flags on the right, beat clicks scheduled on the audio clock. The user nudges the grid
-(← / →, 5 ms, Shift 20 ms), taps the tempo (T, then Enter), sets meter and swing, drops named markers
-(M), presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)
+(↑ / ↓, 5 ms, Shift 20 ms), scrubs the playhead (← / →, 10 ms, Shift a quarter beat, Alt a beat, Home
+the start; stopped, each step plays a short blip), taps the tempo (T, then Enter), sets meter and swing,
+drops named markers at the playhead (M), presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)
 is the Sync section of `skills/motion-video/SKILL.md`.
 
 - **Save** writes song.json's `sync` section (`nudge_ms`, `bpm`, `meter`, `swing`, `markers` in song

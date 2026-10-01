@@ -101,7 +101,9 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | Key or action | Does |
 |---|---|
 | Space | play / stop (song, clicks and animation together) |
-| ← / → | nudge the grid 5 ms earlier / later; with Shift, 20 ms |
+| ← / → | scrub the playhead 10 ms back / forward; with Shift, a quarter beat; with Alt, to the previous / next beat line. It wraps at the loop edges. Stopped, each step plays an 80 ms blip of the song there (no clicks), so you can hear exactly where M will drop a marker; playing, it seeks |
+| Home | playhead to the loop start |
+| ↑ / ↓ | nudge the grid 5 ms later / earlier; with Shift, 20 ms |
 | T | tap the tempo; after 8 taps (a gap over 2 s starts again) the readout shows the tapped BPM |
 | Enter | apply the tapped BPM (40 to 240) |
 | M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it |

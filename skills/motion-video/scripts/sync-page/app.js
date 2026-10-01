@@ -47,6 +47,7 @@ const S = window.syncState = {
   grid: null,           // the preview song the waveform and clicks use (also approximate tempo and meter)
   playing: false, t: 0, lastSeek: null, startedAt: 0, loopSec: 0, latency: 0,
   clicksOn: true, clickTimes: [], clicks: [],   // clickTimes: [{ beat, t, down }] (loop s); clicks: every start(when) made
+  blips: [],            // every scrub blip: { when, t }
   taps: [], tapBpm: null,
   viewStart: 0, viewBars: 2, follow: true, selected: null,
   dirty: false, saving: false, saves: 0, error: null, warning: null, lastSaved: null,
@@ -189,6 +190,48 @@ function seekTo(t) {
   if (was) stop();
   S.t = mod(t, S.loopSec);
   if (was) play();
+}
+
+// Scrubbing (arrow keys, Home): 10 ms, a quarter beat, or to the next / previous beat line, wrapping at the loop
+// edges. Playing, it seeks (stop() takes back the clicks not yet sounding, play() schedules afresh, so none double
+// or drop); stopped, it plays a short blip of the song at the new playhead.
+function scrub(dir, step) {
+  const t = clockT(), L = S.loopSec;
+  if (step === 'fine') return scrubTo(t + dir * 0.010);
+  if (step === 'quarter') return scrubTo(t + (dir * S.grid.beat_sec) / 4);
+  const lines = S.clickTimes.map((c) => mod(c.t, L)).sort((a, b) => a - b), eps = 1e-6;
+  const next = dir > 0 ? (lines.find((x) => x > t + eps) ?? lines[0] + L) : (lines.findLast((x) => x < t - eps) ?? lines.at(-1) - L);
+  scrubTo(next);
+}
+
+function scrubTo(t) {
+  if (S.playing) return seekTo(t);
+  S.t = mod(t, S.loopSec);
+  blip(S.t);
+}
+
+// About 80 ms of the song from loop time t, faded in and out over 5 ms, through the song's own output; a new blip
+// stops the one before. No clicks.
+let blipNode = null;
+function blip(t) {
+  if (!buffer) return;
+  ctx.resume();
+  if (blipNode) { try { blipNode.stop(); } catch {} blipNode.disconnect(); }
+  const when = ctx.currentTime + 0.005, len = 0.08, fade = 0.005;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, when);
+  g.gain.linearRampToValueAtTime(1, when + fade);
+  g.gain.setValueAtTime(1, when + len - fade);
+  g.gain.linearRampToValueAtTime(0, when + len);
+  g.connect(songGain);
+  const node = ctx.createBufferSource();
+  Object.assign(node, { buffer, loop: true, loopStart: 0, loopEnd: buffer.duration });
+  node.connect(g);
+  node.start(when, t, len);
+  node.onended = () => { g.disconnect(); if (blipNode === node) blipNode = null; };
+  blipNode = node;
+  S.blips.push({ when, t });
+  if (S.blips.length > 64) S.blips.shift();
 }
 
 // The lookahead loop: schedule every click that falls in [scheduledUntil, currentTime + HORIZON).
@@ -584,11 +627,14 @@ addEventListener('keydown', (e) => {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if ((e.ctrlKey || e.metaKey) && key === 's') { e.preventDefault(); save(); return; }
   if (e.target.closest?.('.namebox')) return; // the name prompt has its own keys
-  if (e.ctrlKey || e.metaKey || e.altKey || !S.pending) return;
+  if (e.ctrlKey || e.metaKey || !S.pending) return;
   const take = () => e.preventDefault();
+  if (key === 'ArrowLeft' || key === 'ArrowRight') { take(); return scrub(key === 'ArrowLeft' ? -1 : 1, e.altKey ? 'beat' : e.shiftKey ? 'quarter' : 'fine'); }
+  if (e.altKey) return;
   switch (key) {
     case ' ': take(); if (!e.repeat) toggle(); break;
-    case 'ArrowLeft': case 'ArrowRight': take(); nudge((key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 20 : 5)); break;
+    case 'ArrowUp': case 'ArrowDown': take(); nudge((key === 'ArrowDown' ? -1 : 1) * (e.shiftKey ? 20 : 5)); break;
+    case 'Home': take(); scrubTo(0); break;
     case 't': take(); if (!e.repeat) tap(e.timeStamp); break;
     case 'Enter': if (S.tapBpm != null) { take(); applyTap(); } break;
     case 'm': take(); if (!e.repeat) newMarker(); break;

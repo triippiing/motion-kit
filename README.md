@@ -82,8 +82,9 @@ node ~/.claude/skills/motion-video/scripts/sync.mjs ~/promo
 ```
 
 It plays the loop with a click on every beat next to the live animation. If the clicks drift, nudge
-the grid with the arrow keys (5 ms, Shift for 20 ms) or tap the tempo (T, then Enter). Set the meter
-and swing if the song needs them. Press **M** to mark a moment (a drop, a vocal) and name it, then
+the grid with ↑ / ↓ (5 ms, Shift for 20 ms) or tap the tempo (T, then Enter). Set the meter
+and swing if the song needs them. Scrub with ← / → (10 ms, Shift a quarter beat, Alt a whole beat;
+each step plays a short blip of the song) and press **M** to mark a moment (a drop, a vocal) and name it, then
 **Sounds right** and **Save** (Ctrl/Cmd+S). Save writes the `sync` section of `song.json` (keeping a
 `song.json.bak`) and re-cuts the clip from your original song.
 

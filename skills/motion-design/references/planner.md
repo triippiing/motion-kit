@@ -46,7 +46,7 @@ Write the understanding back (goal, destinations and the design shape with the r
   One question per message, as above:
   1. If song.json `bpm_confidence` is under 0.5 and `sync.checked_by_ear` is absent: "The beat grid's
      confidence is low (CONFIDENCE). Please open the sync page, listen to the clicks over the song, nudge with
-     ← / → or tap the tempo (T, then Enter) if they drift, then press Sounds right and Save. Tell me when
+     ↑ / ↓ or tap the tempo (T, then Enter) if they drift, then press Sounds right and Save. Tell me when
      it's saved." Above 0.5, offer the same check as optional.
   2. Always: "Any moments to hit (a drop, a vocal)? Mark them on the sync page (M, type a name, Enter),
      then Save, and I'll plan those rows with `at: 'name'`." Names are lowercase letters, digits and `-`.
