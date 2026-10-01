@@ -90,8 +90,8 @@ and swing if the song needs them. Press **M** to mark a moment (a drop, a vocal)
 A row in the animation can then hit the moment by name, even between beats:
 
 ```js
-{ at: 'drop', use: 'check', label: 'Done' },                 // states(): on the drop
-{ at: 'drop', offset: -0.5, target: 'button', press: true }, // cursor(): half a beat before
+{ at: 'drop', target: 'button', press: true },             // cursor(): the press, on the drop
+{ at: 'drop', offset: 0.5, use: 'check', label: 'Done' },  // states(): its result, half a beat later
 ```
 
 Keys, limits and errors: the Sync section of [the motion-video skill](skills/motion-video/SKILL.md).

@@ -12,7 +12,7 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Check tooling | `scripts/doctor.sh` |
 | New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css]` |
 | Re-theme from a project | `python3 scripts/extract_theme.py app.css --out DIR [--map accent=--brand]` |
-| Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` |
+| Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` (delete `sync` from song.json first) |
 | Hear and fix the beat grid, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
@@ -163,9 +163,12 @@ loop as top-level `markers: [{ name, song_t, t, in_loop }]` in `song.json` (`t` 
 `offset` in beats:
 
 ```js
-{ at: 'drop', use: 'check', label: 'Done' }        // exactly on the marker, even between beats
-{ at: 'drop', offset: -0.5, target: 'button', press: true }  // half a beat before it
+{ at: 'drop', offset: -0.5, target: 'button' }        // cursor(): the approach, half a beat before
+{ at: 'drop', target: 'button', press: true }         // cursor(): the press, exactly on the marker
+{ at: 'drop', offset: 0.5, use: 'check', label: 'Done' }  // states(): its result, half a beat after
 ```
+
+Put the action on the marker and its result after it; a lead (`offset: -0.5`) is for the approach only.
 
 - Names are lowercase letters, digits and `-`, starting with a letter. Marker names (`at:`) and hotspot
   names (`target:`) are separate: a marker called `button` does not clash with the `button` hotspot.
@@ -184,7 +187,8 @@ loop as top-level `markers: [{ name, song_t, t, in_loop }]` in `song.json` (`t` 
 **Known limits.**
 - A loop window that ends at the very end of the song cannot be nudged or re-tempoed: Save fails with
   "the loop window would end past the end of the song". Move the loop window first with
-  `python3 scripts/analyze_song.py SONG --out DIR --bars N --start-bar B` (the strip on the page only moves the view).
+  `python3 scripts/analyze_song.py SONG --out DIR --bars N --start-bar B`, or `--start-near SEC` to start on the bar
+  nearest a time in the song (the strip on the page only moves the view).
 - Markers outside the loop are listed in the status line but not drawn, so they cannot be dragged on the
   page. With the page closed, edit their `t` in `song.json` `sync.markers`, then open the page and Save
   (Save re-runs the analyser even with nothing changed). Or move the loop window to include them.

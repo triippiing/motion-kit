@@ -37,18 +37,26 @@ beat before). The row lands on the marker's exact time, even between beats.
 - Before the user nudges or taps a tempo, beats follow detected hits and can leave tiny gaps; a marker
   in one resolves to the nearest whole beat.
 
-In the readable table, write the marker's name in `bar.beat` and its `t` from song.json. Say `drop` is
-at loop time 2.27 s at 120 BPM (about beat 4.54): the press lands half a beat before the drop and the tick
-draws on it.
+Land the action on the marker and let its result follow: the press is `at: 'drop'`, the new state is
+`{ at: 'drop', offset: 0.5, ... }` (as a press at 1.5 is followed by its state at 2 in the worked example
+below). A lead such as `offset: -0.5` is for the approach row only (the cursor gliding onto the button).
+
+In the readable table, write the marker's name (plus any offset) in `bar.beat` and its `t` from
+song.json. Say `drop` is at loop time 2.27 s at 120 BPM (about beat 4.54):
 
 | # | bar.beat | t | component | what changes | sound |
 |---|---|---|---|---|---|
-| 3 | drop - 0.5 | 2.02 | button | cursor presses "Export report" half a beat before the drop | click |
-| 4 | drop | 2.27 | check | tick draws on the drop, "Exported" | |
+| 3 | drop - 0.5 | 2.02 | button | cursor glides onto "Export report" | |
+| 4 | drop | 2.27 | button | presses it on the drop | click |
+| 5 | drop + 0.5 | 2.52 | check | tick draws, "Exported" | |
+
+This fence has no language tag on purpose: the tests allow exactly one `js` block in this file (the
+worked example below).
 
 ```
-{ at: 'drop', use: 'check', label: 'Exported' },              // states()
-{ at: 'drop', offset: -0.5, target: 'button', press: true },  // cursor()
+{ at: 'drop', offset: 0.5, use: 'check', label: 'Exported' },  // states(): the result
+{ at: 'drop', offset: -0.5, target: 'button' },                // cursor(): the approach
+{ at: 'drop', target: 'button', press: true },                 // cursor(): the press, on the drop
 ```
 
 ## Worked example: the reference sequence, 7 bars at 120 BPM (28 beats)

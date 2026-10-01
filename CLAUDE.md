@@ -131,13 +131,14 @@ is the Sync section of `skills/motion-video/SKILL.md`.
 - **The ear wins:** once a nudge or tempo is set, beats sit on the even grid (`cue_t` equals `t`, no
   snapping to detected hits). A nudge, tempo or meter change clears `checked_by_ear`; swing does not.
 - **Markers in tables:** `{ at: 'drop', ... }` or `{ at: 'drop', offset: -0.5, ... }` (offset in beats) lands
-  on the marker's exact time. The analyser lists the loop's markers as top-level song.json `markers`
+  on the marker's exact time. Put the action (the press) on the marker and its result after it; a lead is for the
+  approach row. The analyser lists the loop's markers as top-level song.json `markers`
   (`name`, `song_t`, `t`, `in_loop`); one outside the loop is an error. check_brief warns
   `beat grid not checked by ear (confidence N): open it with sync.mjs DIR and press Sounds right` when
   `bpm_confidence` < 0.5 and `sync.checked_by_ear` is absent.
 - **Limits:** a loop window that ends at the song's end cannot be nudged (Save refuses it; move the window
-  with `--start-bar` first). Markers outside the loop are listed but not drawn, so edit `sync.markers` or
-  move the window. Save does not pass `--states`. Older projects get the kit's timing module from
+  with `--start-bar` first). Markers outside the loop are listed but not drawn, so edit `sync.markers` with
+  the page closed, then open it and Save, or move the window (`--start-near SEC` a bar or two before the moment). Save does not pass `--states`. Older projects get the kit's timing module from
   `/__sync/timing.js` and, lacking `window.rebuild`, a reload after Save; their old `components/` copy does
   not know markers. Every script's page server refuses files symlinked from outside the project
   (`new_project.sh` copies, so its projects are fine).

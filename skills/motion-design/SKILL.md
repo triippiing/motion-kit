@@ -36,7 +36,7 @@ Five complete sequences to start from: `~/.claude/skills/motion-video/components
 | "Just use a CSS animation / GSAP" | Every frame must be computed in `seek(t)`. |
 | "120 BPM is close enough" | Use the measured grid in song.json. |
 | "The grid looks right, the sync is fine" | Claude cannot hear. Under 0.5 confidence the user checks it by ear on the sync page (`sync.mjs DIR`); never claim it is in sync. |
-| "The drop is around beat 20" | Ask the user to mark it on the sync page (M) and use `at: 'drop'`; never guess a moment's time. |
+| "The drop is around beat 20" | Ask roughly when (m:ss), start the loop a bar or two before it (`--start-near SEC`; the page plays only the loop), have the user mark it on the sync page (M), then press `at: 'drop'` with the result after it. Never guess a moment's time. |
 
 Credits: the look and rules adapt the open prompt template by zero (@twoclipping); the
 transitions.dev catalog is by Jakub Antalik.
