@@ -196,7 +196,8 @@ loop as top-level `markers: [{ name, song_t, t, in_loop }]` in `song.json` (`t` 
   `index.html` also lacks `window.rebuild(song)`, the template's hook used only by the sync page, so the
   animation shows the saved grid while you edit and is reloaded after each Save.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
-- The kit's page server (`serve()` in render.mjs, used by render, beat_stills, export, safezones and sync)
+- The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
+  safe-zone check and sync)
   refuses any file in the project that is a symlink to somewhere outside it. `new_project.sh` copies files
   rather than linking them, so its projects are unaffected.
 
