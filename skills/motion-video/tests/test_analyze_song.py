@@ -191,6 +191,21 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.song()["sync"], sync)
 
+    def test_marker_note_round_trips(self):
+        note = "the roll into the chorus, Bar 3!"
+        sync = {"markers": [{"name": "snare", "t": 1.0, "note": note}, {"name": "drop", "t": 2.0}]}
+        for _ in range(2):  # the second run reads the sync the first wrote
+            code, err = self.run_main("--bars", "2", "--start-bar", "1", **({"sync": sync} if _ == 0 else {}))
+            self.assertEqual(code, 0, err)
+            song = self.song()
+            self.assertEqual(song["sync"], sync)
+            by = {m["name"]: m for m in song["markers"]}
+            self.assertEqual(by["snare"]["note"], note)
+            self.assertNotIn("note", by["drop"])
+        code, err = self.run_main("--bars", "2", "--start-bar", "1",
+                                  sync={"markers": [{"name": "snare", "t": 1.0, "note": "x" * 200}]})
+        self.assertEqual(code, 0, err)
+
     def test_marker_outside_the_loop(self):
         sync = {"markers": [{"name": "intro", "t": 0.5}, {"name": "outro-2", "t": 25.0}]}
         code, err = self.run_main("--bars", "2", "--start-bar", "2", sync=sync)
@@ -276,6 +291,9 @@ class SyncTests(unittest.TestCase):
             ({"bpm": 250}, "bpm"),
             ({"bpm": "fast"}, "bpm"),
             ({"nudge_ms": "x"}, "nudge_ms"),
+            ({"markers": [{"name": "drop", "t": 1, "note": 7}]}, "note"),
+            ({"markers": [{"name": "drop", "t": 1, "note": None}]}, "note"),
+            ({"markers": [{"name": "drop", "t": 1, "note": "x" * 201}]}, "201 characters"),
             ([1, 2], "sync"),
         ]
         for sync, word in bad:

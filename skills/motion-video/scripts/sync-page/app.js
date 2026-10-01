@@ -61,7 +61,7 @@ const S = window.syncState = {
 function savedSync(song) {
   const s = song.sync && typeof song.sync === 'object' ? song.sync : {};
   return { nudge_ms: s.nudge_ms ?? 0, bpm: s.bpm ?? null, meter: s.meter ?? meterOf(song.beats_per_bar), swing: s.swing ?? 0.5,
-    markers: (s.markers ?? []).map((m) => ({ name: m.name, t: m.t })), ...(s.checked_by_ear ? { checked_by_ear: s.checked_by_ear } : {}) };
+    markers: (s.markers ?? []).map((m) => ({ name: m.name, t: m.t, ...(typeof m.note === 'string' ? { note: m.note } : {}) })), ...(s.checked_by_ear ? { checked_by_ear: s.checked_by_ear } : {}) };
 }
 
 // The two preview songs from the saved song and the pending edits.
@@ -432,6 +432,10 @@ function placeFlags(W, V, v0) {
     el.style.display = xs.length ? '' : 'none';
     if (xs.length) el.style.left = `${xs[0]}px`;
     el.classList.toggle('selected', S.selected === name);
+    if (name !== DRAFT) {
+      const note = S.pending.markers.find((m) => m.name === name)?.note;
+      el.querySelector('.flag').title = `${name}${note ? `: ${note}` : ''}\nDrag to move, a note in the markers list (N), Delete or right-click to remove`;
+    }
   }
 }
 
@@ -446,7 +450,7 @@ function markerFlag(name) {
   flag.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
-    S.selected = name; flag.focus();
+    S.selected = name; flag.focus(); renderMarkerList();
     flag.setPointerCapture(e.pointerId);
     const m = S.pending.markers.find((x) => x.name === name), x0 = e.clientX, t0 = m.t;
     const pps = wave.clientWidth / span(), lo = S.song.loop.start_sec, hi = lo + S.loopSec - 0.001;
@@ -504,6 +508,74 @@ function cancelDraft() {
   S.warning = null; renderStatus();
 }
 
+// Notes: the selected marker's line in the markers list holds a visible note field ("add a note", pre-filled). Enter
+// or clicking away keeps a changed note (empty removes it), Esc drops the edit, N focuses the field, and Ctrl/Cmd+S
+// inside it keeps the note and saves. A note is for people only: it never moves the grid or clears "Sounds right".
+const NOTE_MAX = 200;
+const noteField = () => $('#marker-list .notebox');
+
+// Keeps the open field's text as the selected marker's note; true when that changed the note.
+function commitNote() {
+  const input = noteField(), m = input && S.pending.markers.find((x) => x.name === input.dataset.marker);
+  if (!m) return false;
+  const text = input.value.trim().slice(0, NOTE_MAX);
+  if (text === (m.note ?? '')) return false;
+  if (text) m.note = text; else delete m.note;
+  refresh();
+  return true;
+}
+
+function focusNote() {
+  const input = noteField();
+  if (input) { input.focus(); input.select(); }
+}
+
+// One line per marker: name, song time, note; a click selects it and moves the playhead there (a marker outside the
+// loop is listed but cannot be jumped to).
+const fmtSong = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}`;
+function renderMarkerList() {
+  const list = $('#marker-list'), start = S.song.loop.start_sec, open = noteField();
+  // never rebuild under the user's typing
+  if (open && document.activeElement === open && open.dataset.marker === S.selected) return;
+  list.hidden = !S.pending.markers.length;
+  list.replaceChildren(...S.pending.markers.map((m) => {
+    const inLoop = m.t - start >= 0 && m.t - start < S.loopSec, selected = S.selected === m.name;
+    const row = document.createElement('div');
+    row.className = `mrow${inLoop ? '' : ' outside'}${selected ? ' selected' : ''}`;
+    row.dataset.marker = m.name;
+    row.innerHTML = '<span class="mname"></span><span class="mtime mono"></span>';
+    row.querySelector('.mname').textContent = m.name;
+    row.querySelector('.mtime').textContent = fmtSong(m.t) + (inLoop ? '' : ' · outside loop');
+    if (selected) {
+      const input = document.createElement('input');
+      Object.assign(input, { className: 'notebox', maxLength: NOTE_MAX, value: m.note ?? '', placeholder: 'add a note' });
+      input.dataset.marker = m.name;
+      input.setAttribute('aria-label', `Note for ${m.name}`);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commitNote(); input.blur(); }
+        else if (e.key === 'Escape') { e.preventDefault(); input.value = m.note ?? ''; input.blur(); }
+      });
+      input.addEventListener('blur', () => { if (!commitNote()) renderMarkerList(); });
+      row.append(input);
+    } else {
+      const note = document.createElement('span');
+      note.className = `mnote${m.note ? '' : ' empty'}`;
+      note.textContent = m.note || 'no note';
+      row.append(note);
+    }
+    row.title = inLoop ? 'Select, and move the playhead here' : 'Outside the loop: move the window with --start-bar to use it';
+    row.addEventListener('mousedown', (e) => { if (!e.target.closest('input')) e.preventDefault(); });
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('input')) return;
+      S.selected = m.name;
+      const at = m.t - S.song.loop.start_sec; // read now: a Save since this line was drawn may have moved the window
+      if (at >= 0 && at < S.loopSec) seekTo(at);
+      renderMarkerList();
+    });
+    return row;
+  }));
+}
+
 function removeMarker(name) {
   S.pending.markers = S.pending.markers.filter((m) => m.name !== name);
   if (S.selected === name) S.selected = null;
@@ -537,6 +609,7 @@ function renderControls() {
   $('#save').classList.toggle('dirty', S.dirty);
   $('#save').disabled = S.saving;
   $('#save').textContent = S.saving ? 'Saving' : 'Save';
+  renderMarkerList();
   renderStatus();
 }
 
@@ -585,6 +658,7 @@ function applyTap() {
 
 async function save() {
   if (S.saving || !S.pending) return;
+  commitNote(); // a note being typed is kept first (Ctrl/Cmd+S from inside its field)
   // a marker still being named must be named first: an empty or invalid name keeps the prompt open and saves nothing
   if (draft && !commitDraft(flags.querySelector('.namebox')?.value.trim() ?? '')) {
     if (!S.warning) S.warning = 'name the new marker (or press Esc) before saving';
@@ -626,7 +700,7 @@ async function save() {
 addEventListener('keydown', (e) => {
   const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if ((e.ctrlKey || e.metaKey) && key === 's') { e.preventDefault(); save(); return; }
-  if (e.target.closest?.('.namebox')) return; // the name prompt has its own keys
+  if (e.target.closest?.('.namebox, .notebox')) return; // the name and note boxes have their own keys
   if (e.ctrlKey || e.metaKey || !S.pending) return;
   const take = () => e.preventDefault();
   if (key === 'ArrowLeft' || key === 'ArrowRight') { take(); return scrub(key === 'ArrowLeft' ? -1 : 1, e.altKey ? 'beat' : e.shiftKey ? 'quarter' : 'fine'); }
@@ -638,6 +712,7 @@ addEventListener('keydown', (e) => {
     case 't': take(); if (!e.repeat) tap(e.timeStamp); break;
     case 'Enter': if (S.tapBpm != null) { take(); applyTap(); } break;
     case 'm': take(); if (!e.repeat) newMarker(); break;
+    case 'n': if (S.selected) { take(); focusNote(); } break;
     case 'c': take(); toggleClicks(); break;
     case 'Delete': case 'Backspace': if (S.selected) { take(); removeMarker(S.selected); } break;
     case 'Escape': S.selected = null; S.taps = []; S.tapBpm = null; renderControls(); break;
@@ -677,16 +752,27 @@ wave.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // overview: drag the window, or click outside it to jump there
+// overview: a click (under 4 px of movement) moves the playhead there and centres the view on it (a seek while
+// playing, a blip while stopped); a drag that starts on the view's window pans the view and leaves the playhead
 over.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || !S.pending) return;
   const W = over.clientWidth, L = S.loopSec, at = (e.offsetX / W) * L, V = Math.min(span(), L);
-  const inWindow = mod(at - S.viewStart, L) <= V;
-  if (!inWindow) { seekTo(at); S.viewStart = at - V * 0.25; S.follow = true; return; }
+  const inWindow = mod(at - S.viewStart, L) <= V, x0 = e.clientX, v0 = S.viewStart;
+  let dragging = false;
   over.setPointerCapture(e.pointerId);
-  const x0 = e.clientX, v0 = S.viewStart;
-  S.follow = false;
-  const move = (ev) => { S.viewStart = v0 + ((ev.clientX - x0) / W) * L; };
-  const up = () => { over.removeEventListener('pointermove', move); over.removeEventListener('pointerup', up); };
+  const move = (ev) => {
+    if (!dragging && Math.abs(ev.clientX - x0) < 4) return;
+    if (!inWindow) return;
+    dragging = true; S.follow = false;
+    S.viewStart = v0 + ((ev.clientX - x0) / W) * L;
+  };
+  const up = () => {
+    over.removeEventListener('pointermove', move); over.removeEventListener('pointerup', up);
+    if (dragging) return;
+    scrubTo(at);
+    S.viewStart = at - span() / 2;
+    S.follow = S.playing;
+  };
   over.addEventListener('pointermove', move);
   over.addEventListener('pointerup', up);
 });

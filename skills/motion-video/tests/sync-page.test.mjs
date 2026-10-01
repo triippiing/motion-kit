@@ -137,7 +137,29 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   assert.ok(m1.t > m0.t + 0.01, `dragged from ${m0.t} to ${m1.t}`);
   assert.equal(await state(() => window.syncState.dirty), true);
 
-  // Ctrl+S saves: song.json on disk has the nudge and the marker
+  // a note: clicking the flag selects the marker and shows a visible note field on its line in the markers list
+  await page.locator('#right').click();
+  const checked = await state(() => window.syncState.pending.checked_by_ear);
+  assert.match(checked, /^\d{4}-\d{2}-\d{2}$/);
+  await page.locator('[data-marker="drop"] .flag').click();
+  const field = page.locator('#marker-list .notebox');
+  assert.equal(await field.getAttribute('placeholder'), 'add a note');
+  await field.click();
+  await page.keyboard.type('the roll');
+  await page.keyboard.press('Enter');
+  assert.equal(await state(() => window.syncState.pending.markers[0].note), 'the roll');
+  assert.equal(await state(() => window.syncState.pending.checked_by_ear), checked, 'a note does not clear Sounds right');
+  await frames(); // flags are placed (and titled) on the next frame
+  assert.match(await page.locator('[data-marker="drop"] .flag').getAttribute('title'), /the roll/);
+  // N focuses the same field (pre-filled); typing there never reaches the page keys (Space, T...)
+  await page.keyboard.press('n');
+  assert.equal(await page.evaluate(() => document.activeElement?.className), 'notebox');
+  await page.keyboard.press('End');
+  await page.keyboard.type(' into the chorus');
+  assert.equal(await state(() => window.syncState.playing), false, 'Space in the note field did not play');
+  assert.equal(await state(() => window.syncState.taps.length), 0, 'T in the note field did not tap');
+  const note = 'the roll into the chorus';
+  // Ctrl+S from inside the note field keeps the note and saves: song.json on disk has the nudge, marker and note
   await page.keyboard.press('Control+s');
   await page.waitForFunction(() => window.syncState.saves === 1 || window.syncState.error, null, { timeout: 60000 });
   assert.equal(await state(() => window.syncState.error), null);
@@ -147,6 +169,13 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   assert.equal(saved.sync.markers[0].name, 'drop');
   assert.ok(Math.abs(saved.sync.markers[0].t - m1.t) < 0.001);
   assert.ok(saved.markers.find((m) => m.name === 'drop'));
+  assert.equal(saved.sync.markers[0].note, note);
+  assert.equal(saved.markers.find((m) => m.name === 'drop').note, note);
+  assert.equal(saved.sync.checked_by_ear, checked);
+  // a line in the marker list moves the playhead to its marker
+  await page.locator('#marker-list .mrow[data-marker="drop"] .mname').click();
+  const atMarker = await state(() => window.syncState.t + window.syncState.song.loop.start_sec);
+  assert.ok(Math.abs(atMarker - saved.sync.markers[0].t) < 1e-6, `playhead at song ${atMarker}, marker at ${saved.sync.markers[0].t}`);
   assert.equal(await state(() => window.syncState.dirty), false);
   assert.ok(await state(() => window.syncState.t < window.syncState.loopSec), 'the playhead is inside the saved loop');
   assert.equal(await state(() => window.syncState.pending.nudge_ms), -10);
@@ -246,6 +275,23 @@ test('sync page: arrow keys scrub the playhead (10 ms, a quarter beat, to the ne
   await frames();
   near(await state(() => window.syncState.lastSeek), bs / 4, 'seek(t) follows the scrub');
   // playing: a scrub seeks, and the clicks after it are on the grid, once each
+  // a click on the loop strip moves the playhead there (a blip while stopped); a drag on its window only pans
+  const strip = await page.locator('#overview').boundingBox();
+  const nb = await blips();
+  await page.mouse.click(strip.x + strip.width * 0.25, strip.y + strip.height / 2);
+  const onePx = L / strip.width;
+  assert.ok(Math.abs(await t() - 0.25 * L) <= onePx, `strip click at 25%: ${await t()} vs ${0.25 * L}`);
+  assert.equal(await blips(), nb + 1);
+  const view = await state(() => window.syncState.viewStart), before = await t();
+  const V = await state(() => window.syncState.viewBars * window.syncState.grid.beats_per_bar * window.syncState.grid.beat_sec);
+  const vx = strip.x + strip.width * ((((view + V / 2) % L) + L) % L / L); // the middle of the view's window
+  await page.mouse.move(vx, strip.y + strip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(vx + 30, strip.y + strip.height / 2, { steps: 5 });
+  await page.mouse.up();
+  assert.equal(await t(), before, 'dragging the window leaves the playhead');
+  const panned = await state(() => window.syncState.viewStart);
+  assert.ok(Math.abs(panned - view) > 0.1, `and pans the view: ${view} -> ${panned} (L ${L}, x ${vx - strip.x} of ${strip.width})`);
   const n = await blips();
   await page.keyboard.press('Space');
   await page.waitForTimeout(300);

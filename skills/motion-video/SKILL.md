@@ -93,7 +93,10 @@ running until stopped, so start it in the background (or let the user run it) an
 **Layout.** Left: the project's own `index.html` in a frame, driven by `seek(t)` from the audio clock, so
 what plays is what renders. Right: a zoomed waveform (about 2 bars) that follows the playhead, with bars
 as strong lines and numbers, beats faint, swung half-beats fainter, and markers as orange flags. Under
-it, the whole loop as a strip with the view's window on it. Then Play, Clicks, Sounds right, Save, the
+it, the whole loop as a strip with the view's window on it, then the markers list (one line each: name,
+song time m:ss.mmm, note; click a line to select the marker and move the playhead there; markers outside the
+loop are listed as "outside loop" and cannot be jumped to). The selected marker's line holds a note field
+("add a note"). Then Play, Clicks, Sounds right, Save, the
 readouts (nudge, tempo, meter, swing) and a status line.
 
 **Keys and mouse.**
@@ -107,6 +110,8 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | T | tap the tempo; after 8 taps (a gap over 2 s starts again) the readout shows the tapped BPM |
 | Enter | apply the tapped BPM (40 to 240) |
 | M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it |
+| click a flag, then type in "add a note" | select a marker (its line in the markers list then shows a note field, pre-filled) and write a note on it. Enter or clicking away keeps a changed note, Esc drops the edit, an empty note removes it; Save or Ctrl/Cmd+S writes it (Ctrl/Cmd+S inside the field keeps it and saves in one step). Hover a flag to read its note. A note (at most 200 characters) is for people only: it never moves the grid and does not clear "Sounds right" |
+| N | focus the selected marker's note field |
 | Delete or Backspace | remove the selected marker (right-click a flag does the same) |
 | C | clicks on / off (the downbeat click is higher) |
 | Esc | clear the selection and any taps |
@@ -114,7 +119,7 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | drag a flag | move a marker (it stays inside the loop) |
 | click the waveform | move the playhead |
 | wheel / Ctrl+wheel | scroll / zoom the waveform (0.5 to 8 bars) |
-| the loop strip | drag the view's window, or click outside it to jump there |
+| the loop strip | click anywhere to move the playhead there and centre the view on it (playing, the song and clicks carry on from there; stopped, a short blip plays); drag the view's window to pan the view without moving the playhead |
 | "use detected" | drop a tapped tempo and go back to the detected one |
 | Meter, Swing | 4/4, 3/4 or 6/8 (6/8 counts two dotted beats a bar); swing 0.50 (straight) to 0.75, 0.67 is triplet |
 | Sounds right | records today's date as `checked_by_ear` (the button then reads "Checked DATE") |
@@ -155,11 +160,12 @@ The `sync` section it writes:
 | `bpm` | tapped tempo: the grid is fitted at it instead of the detected one | `null` |
 | `meter` | `4/4`, `3/4` or `6/8` (beats per bar 4, 3, 2) | `4/4` |
 | `swing` | where the off-beat sits inside a beat, 0.5 to 0.75 | 0.5 |
-| `markers` | `[{ "name", "t" }]`, `t` in seconds from the start of the song file | `[]` |
+| `markers` | `[{ "name", "t", "note" }]`, `t` in seconds from the start of the song file; `note` is optional free text (at most 200 characters) and never affects timing | `[]` |
 | `checked_by_ear` | the date "Sounds right" was pressed | absent |
 
 The analyser validates it (a bad value is `error: ...`, exit 2) and lists the markers for the current
-loop as top-level `markers: [{ name, song_t, t, in_loop }]` in `song.json` (`t` in loop seconds).
+loop as top-level `markers: [{ name, song_t, t, in_loop, note }]` in `song.json` (`t` in loop seconds;
+`note` only when the marker has one).
 
 **Markers in tables.** A `states()` or `cursor()` row can sit on a marker by name, with an optional
 `offset` in beats:
@@ -190,8 +196,8 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
 - A loop window that ends at the very end of the song cannot be nudged or re-tempoed: Save fails with
   "the loop window would end past the end of the song". Move the loop window first with
   `python3 scripts/analyze_song.py SONG --out DIR --bars N --start-bar B`, or `--start-near SEC` to start on the bar
-  nearest a time in the song (the strip on the page only moves the view).
-- Markers outside the loop are listed in the status line but not drawn, so they cannot be dragged on the
+  nearest a time in the song (the strip on the page moves the playhead and view inside the loop, never the loop window).
+- Markers outside the loop are listed in the status line and the markers list ("outside loop") but not drawn, so they cannot be dragged on the
   page. With the page closed, edit their `t` in `song.json` `sync.markers`, then open the page and Save
   (Save re-runs the analyser even with nothing changed). Or move the loop window to include them.
 - Save does not pass `--states`, so a "states need N beats" warning from `new_project.sh` is not repeated.

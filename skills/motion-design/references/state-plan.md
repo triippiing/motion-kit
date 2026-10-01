@@ -24,7 +24,8 @@ continues from where the first left off and animates the difference (tabs `activ
 ## Hitting a marked moment
 
 When the user has marked a moment on the sync page (`sync.mjs DIR`, key M), song.json lists it in
-`markers` as `{ name, song_t, t, in_loop }`, with `t` in loop seconds. A row hits it by name instead of
+`markers` as `{ name, song_t, t, in_loop }` (plus `note` when the user wrote one: what the moment is,
+for people only), with `t` in loop seconds. A row hits it by name instead of
 a beat number: `at: 'drop'`, optionally with `offset` in beats (`{ at: 'drop', offset: -0.5 }` is half a
 beat before). The row lands on the marker's exact time, even between beats.
 

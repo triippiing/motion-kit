@@ -121,11 +121,12 @@ project on 127.0.0.1 and opens `/__sync`: the project's own animation on the lef
 grid and marker flags on the right, beat clicks scheduled on the audio clock. The user nudges the grid
 (↑ / ↓, 5 ms, Shift 20 ms), scrubs the playhead (← / →, 10 ms, Shift a quarter beat, Alt a beat, Home
 the start; stopped, each step plays a short blip), taps the tempo (T, then Enter), sets meter and swing,
-drops named markers at the playhead (M), presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)
+drops named markers at the playhead (M) with an optional note (click the flag, type in its "add a note"
+field; at most 200 characters, never used for timing), clicks the loop strip to move the playhead, presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)
 is the Sync section of `skills/motion-video/SKILL.md`.
 
 - **Save** writes song.json's `sync` section (`nudge_ms`, `bpm`, `meter`, `swing`, `markers` in song
-  seconds, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
+  seconds with an optional `note`, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
   original song (path from `DIR/.source.json`) with the project's bars and fps and `--start-near` the loop
   start, re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
   naming `sync.mjs DIR --song PATH`.

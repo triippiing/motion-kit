@@ -42,6 +42,7 @@ METERS = {"4/4": 4, "3/4": 3, "6/8": 2}
 SYNC_BPM = (40.0, 240.0)
 SWING = (0.5, 0.75)
 MARKER_NAME = re.compile(r"[a-z][a-z0-9-]*")
+NOTE_MAX = 200  # a marker's optional note: free text for people, never read for timing
 
 
 class SongError(Exception):
@@ -159,6 +160,9 @@ def validate_sync(sync):
         seen.add(name)
         if not (is_number(m.get("t")) and m["t"] >= 0):
             raise SongError(f"marker {name!r} needs a time t in seconds (0 or more), got {m.get('t')!r}")
+        if "note" in m and not (isinstance(m["note"], str) and len(m["note"]) <= NOTE_MAX):
+            raise SongError(f"marker {name!r} note must be text of at most {NOTE_MAX} characters, got "
+                            + (f"{len(m['note'])} characters" if isinstance(m["note"], str) else repr(m["note"])))
     return sync
 
 
@@ -302,7 +306,8 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
         # markers are in song time; list them against this loop (their beat is computed by timing.js)
         start_r = round(start_sec, 6)
         song["markers"] = [{"name": m["name"], "song_t": round(float(m["t"]), 6),
-                            "t": round(m["t"] - start_r, 6), "in_loop": 0 <= m["t"] - start_r < duration}
+                            "t": round(m["t"] - start_r, 6), "in_loop": 0 <= m["t"] - start_r < duration,
+                            **({"note": m["note"]} if "note" in m else {})}
                            for m in sync.get("markers", [])]
         song["sync"] = sync
     return song
