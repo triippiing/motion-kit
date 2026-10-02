@@ -119,7 +119,7 @@ Only a person can confirm that the beat grid sits on the music, so the kit has a
 never claims the sync is right. `node $S/sync.mjs DIR [--port N] [--no-open] [--song PATH]` serves the
 project on 127.0.0.1 and opens `/__sync`: the project's own animation on the left, a waveform with the
 grid and marker flags on the right, beat clicks scheduled on the audio clock. The user nudges the grid
-(↑ / ↓, 5 ms, Shift 20 ms), scrubs the playhead (← / →, 10 ms, Shift a quarter beat, Alt a beat, Home
+(↑ / ↓, 5 ms, Shift 20 ms), scrubs the playhead (← / →, 10 ms, Shift a quarter beat, Alt to the next beat line, Home
 the start; stopped, each step plays a short blip), taps the tempo (T, then Enter), sets meter and swing,
 drops named markers at the playhead (M) with an optional note (click the flag, type in its "add a note"
 field; at most 200 characters, never used for timing), clicks the loop strip to move the playhead, presses Sounds right and saves (Ctrl/Cmd+S). The full guide (keys, status line, errors, known limits)

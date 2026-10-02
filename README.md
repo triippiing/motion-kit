@@ -65,8 +65,8 @@ trigger on their own in any project, e.g. "make a 15 second promo of this app to
 ```bash
 S=~/.claude/skills/motion-video/scripts
 $S/new_project.sh ~/promo ~/Music/song.mp3 --bars 7 --theme ./app/style.css   # measure the song, scaffold
-# edit ~/promo/index.html: the states() and cursor() tables (start from a recipe)
 node $S/sync.mjs ~/promo             # check the beat grid by ear, mark moments (see Syncing); Ctrl+C when done
+# edit ~/promo/index.html: the states() and cursor() tables (start from a recipe)
 node $S/check_brief.mjs ~/promo      # if you wrote a MOTION-BRIEF.md: check its tables
 node $S/beat_stills.mjs ~/promo      # contact sheet + loop-seam check
 node $S/render.mjs ~/promo           # -> ~/promo/out/video.mp4
@@ -83,7 +83,7 @@ node ~/.claude/skills/motion-video/scripts/sync.mjs ~/promo
 
 It plays the loop with a click on every beat next to the live animation. If the clicks drift, nudge
 the grid with ↑ / ↓ (5 ms, Shift for 20 ms) or tap the tempo (T, then Enter). Set the meter
-and swing if the song needs them. Scrub with ← / → (10 ms, Shift a quarter beat, Alt a whole beat;
+and swing if the song needs them. Scrub with ← / → (10 ms, Shift a quarter beat, Alt to the next beat line;
 each step plays a short blip of the song) and press **M** to mark a moment (a drop, a vocal) and name it.
 Click a flag and type in its **add a note** field (e.g. "the roll into the chorus"; notes never affect timing). Then
 **Sounds right** and **Save** (Ctrl/Cmd+S). Save writes the `sync` section of `song.json` (keeping a
