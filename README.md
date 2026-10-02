@@ -1,5 +1,9 @@
 # motion-kit
 
+<p align="center"><img src="docs/media/launch.gif" alt="The motion-kit launch video, made with motion-kit: a cursor scratches an 'introducing' pill, which becomes a 'motion kit for claude' card, then walks through planning, song analysis, syncing, rendering and export, then a real finance app demo" width="720"></p>
+
+<p align="center"><sub>The launch video, made with motion-kit itself (silent here). Music in the full video: "Tease Me" prod. by LoopGod (<a href="https://www.instagram.com/loopgodmusic/">@loopgodmusic</a>), used under licence.</sub></p>
+
 Three [Claude Code](https://claude.com/claude-code) skills that turn any project's UI into
 beat-synced motion videos and springy in-app motion, all in code. No After Effects,
 Remotion or Lottie: every video frame is a pure function of time, so the same page renders

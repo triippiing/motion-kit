@@ -31,6 +31,10 @@ motion-kit stands on other people's work. Thank you to all of them.
   in this repo, and all rights belong to the artists and rights holders. Use a track you have the
   rights to for anything you publish.
 
+- **"Tease Me" (2000s x 90s R&B-Pop type beat), prod. by LoopGod
+  ([@loopgodmusic](https://www.instagram.com/loopgodmusic/))**: the music of the launch video, used under a paid
+  licence (lease). The audio is not in this repo; the README GIF at the top is silent.
+
 ## Fonts
 
 - **[Geist](https://vercel.com/font)** by Vercel (SIL Open Font License 1.1), the template's house

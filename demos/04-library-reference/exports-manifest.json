@@ -1,6 +1,6 @@
 {
   "project": "04-library-reference",
-  "created": "2026-10-01T06:47:09.886Z",
+  "created": "2026-10-02T19:39:32.511Z",
   "renders": [
     {
       "size": "1080x1920",
@@ -16,8 +16,8 @@
         "square",
         "design"
       ],
-      "path": "out/shapes/1440x1440/video.mp4",
-      "reused": false
+      "path": "out/video.mp4",
+      "reused": true
     }
   ],
   "files": [
@@ -25,7 +25,7 @@
       "preset": "reels",
       "format": "mp4",
       "path": "out/exports/reels.mp4",
-      "bytes": 680573,
+      "bytes": 677232,
       "duration": 15.433333,
       "width": 1080,
       "height": 1920,
@@ -53,7 +53,7 @@
       "preset": "x",
       "format": "mp4",
       "path": "out/exports/x.mp4",
-      "bytes": 801025,
+      "bytes": 795699,
       "duration": 15.433333,
       "width": 1200,
       "height": 1200,
@@ -83,7 +83,7 @@
       "preset": "discord",
       "format": "mp4",
       "path": "out/exports/discord.mp4",
-      "bytes": 872066,
+      "bytes": 870440,
       "duration": 15.416667,
       "width": 1440,
       "height": 1440,
@@ -110,7 +110,7 @@
       "preset": "web",
       "format": "mp4",
       "path": "out/exports/web.mp4",
-      "bytes": 711192,
+      "bytes": 712267,
       "duration": 15.416667,
       "width": 1440,
       "height": 1440,
@@ -140,7 +140,7 @@
       "preset": "web",
       "format": "webm",
       "path": "out/exports/web.webm",
-      "bytes": 959143,
+      "bytes": 956106,
       "duration": 15.42,
       "width": 1440,
       "height": 1440,
@@ -168,7 +168,7 @@
       "preset": "web",
       "format": "jpg",
       "path": "out/exports/web.jpg",
-      "bytes": 26465,
+      "bytes": 26461,
       "duration": null,
       "width": 1440,
       "height": 1440,
@@ -197,7 +197,7 @@
       "preset": "gif",
       "format": "gif",
       "path": "out/exports/gif.gif",
-      "bytes": 1334796,
+      "bytes": 1325539,
       "duration": 15.4,
       "width": 720,
       "height": 720,
