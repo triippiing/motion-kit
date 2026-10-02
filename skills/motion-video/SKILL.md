@@ -133,7 +133,7 @@ checked by ear, any markers outside the loop, and:
 |---|---|
 | grid follows detected hits | each beat sounds on the detected hit near it (`cue_t`), as the analyser measured |
 | even grid: detected hits off | a nudge (other than 0) or a tapped tempo is set, so the ear wins: every beat sits exactly on the even grid, with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it |
-| preview is approximate until you save | a tempo or meter change is pending. The clicks follow an even grid at the new tempo over the **old** loop length, so expect a flam at the loop seam; the animation keeps the saved tempo. Save fits the real grid |
+| preview is approximate until you save | a tempo or meter change is pending. The clicks follow an even grid at the new tempo over the **old** loop length, so expect a flam at the loop seam; the animation keeps the saved tempo. Save fits the real grid. Save keeps `--bars N`, so a tempo change alters the loop's length in seconds and a meter change alters its length in beats (bars times beats a bar): afterwards re-read song.json's `beats` and `loop.duration_sec` and redo the bars and the tables |
 | unsaved changes / saving: re-cutting the clip / saved HH:MM:SS | the Save state |
 
 Nudge and swing preview exactly (clicks, lines and animation). Swing does not clear "Sounds right" (the
@@ -198,8 +198,9 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   `python3 scripts/analyze_song.py SONG --out DIR --bars N --start-bar B`, or `--start-near SEC` to start on the bar
   nearest a time in the song (the strip on the page moves the playhead and view inside the loop, never the loop window).
 - Markers outside the loop are listed in the status line and the markers list ("outside loop") but not drawn, so they cannot be dragged on the
-  page. With the page closed, edit their `t` in `song.json` `sync.markers`, then open the page and Save
-  (Save re-runs the analyser even with nothing changed). Or move the loop window to include them.
+  page. To remove one, click its line in the markers list (that selects it), press Delete, then Save. To move
+  one, edit its `t` in `song.json` `sync.markers` with the page closed, then open the page and Save (Save
+  re-runs the analyser even with nothing changed). Or move the loop window to include it.
 - Save does not pass `--states`, so a "states need N beats" warning from `new_project.sh` is not repeated.
 - Older projects. One copied before `components/core/timing.js` existed still works on the page: sync.mjs
   serves the kit's timing module at `/__sync/timing.js` as a fallback. But a `components/` copy from before
@@ -208,7 +209,9 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   refuses marker rows when the project's copy is too old (no `components/core/timing.js`): "the project's
   components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)". An older
   `index.html` also lacks `window.rebuild(song)`, the template's hook used only by the sync page, so the
-  animation shows the saved grid while you edit and is reloaded after each Save.
+  animation shows the saved grid while you edit and is reloaded after each Save. Its inline `beatT` also
+  ignores swing, while render's sound cues (from `components/core/timing.js`) apply it, so on a swung grid
+  the animation and the sounds disagree on the off-beats until the page uses the kit's `beatTime`.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)

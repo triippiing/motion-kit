@@ -53,11 +53,13 @@ Write the understanding back (goal, destinations and the design shape with the r
 
   After the user says they saved, stop the server (end the background job, or ask the user to press
   Ctrl+C in their terminal) and re-read song.json: `sync.checked_by_ear`, the top-level `markers` (plan
-  only those with `in_loop: true`), and `bpm` (a tapped tempo changes it: redo
-  bars = round(seconds * bpm / 240) if it moved). The page plays only the loop, so a moment outside it
-  cannot be marked there: re-run the analyser with `--start-near SEC` a bar or two before the moment (as
-  above; a marker already saved is kept and comes back `in_loop: true`), then start the page again for
-  the user to mark or check it. If the user skips the check, check_brief keeps warning
+  only those with `in_loop: true`), and `bpm`. After a tapped tempo or a meter change, also re-read
+  `beats` and `loop.duration_sec` and redo the bars (bars = round(seconds * bpm / (60 * beats a bar)),
+  `beats_per_bar` in song.json) if the length moved: Save keeps `--bars N`, so a tempo change alters the
+  loop's length in seconds and a meter change alters its length in beats (bars times beats a bar).
+  The page plays only the loop, so a moment outside it cannot be marked there: re-run the analyser with
+  `--start-near SEC` a bar or two before the moment (as above; a marker already saved is kept and comes
+  back `in_loop: true`), then start the page again for the user to mark or check it. If the user skips the check, check_brief keeps warning
   `beat grid not checked by ear (confidence N): open it with sync.mjs DIR and press Sounds right`; record
   it as an `**Accepted:**` line.
 - song.json: `rules.min_hold_beats`, `rules.max_states`, loop window and sections, per-beat `accent` (biggest changes on the strongest beats).
