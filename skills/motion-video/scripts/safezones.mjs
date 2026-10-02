@@ -76,6 +76,8 @@ function intrusions(box, m, W, H) {
 // viewport matches at device scale 1, so CSS px are stage px; getBoundingClientRect includes the camera zoom and the
 // cursor's own scale). The cursor box runs from its tip (window.inspect) to the far corner of the arrow the engine
 // draws (#cursor path: 23 x 33 px right of and below the tip at scale 1); a page without that path counts the tip.
+// A cursor hidden by a `hide` row (inspect's opacity under 0.05) is not on screen, so it counts for no zone; a page
+// whose inspect has no opacity (older projects) is always visible.
 function measure(t) {
   window.seek(t);
   const shape = document.querySelector('#shape');
@@ -85,6 +87,7 @@ function measure(t) {
   const box = b.width > 0 && b.height > 0 ? { left: b.left - st.left, top: b.top - st.top, right: b.right - st.left, bottom: b.bottom - st.top } : null;
   const c = typeof window.inspect === 'function' ? window.inspect(t)?.cursor : null;
   if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) return { shape: box, cursor: null };
+  if (Number.isFinite(c.opacity) && c.opacity < 0.05) return { shape: box, cursor: null };
   const a = document.querySelector('#cursor path')?.getBoundingClientRect();
   const cursor = { left: c.x, right: c.x, top: c.y, bottom: c.y };
   if (a && a.width > 0) Object.assign(cursor, { right: Math.max(c.x, a.right - st.left), bottom: Math.max(c.y, a.bottom - st.top) });

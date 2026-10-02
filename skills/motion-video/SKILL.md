@@ -215,8 +215,10 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   ignores swing, while render's sound cues (from `components/core/timing.js`) apply it, so on a swung grid
   the animation and the sounds disagree on the off-beats until the page uses the kit's `beatTime`.
 - Older projects and `hide`. A `components/` copy from before cursor `hide` rejects it: its engine throws at page load
-  with `unknown cursor key "hide" at beat N (keys: ...)`. `check_brief.mjs` validates with the kit's own rules, so a
-  brief using `hide` passes there and then fails on that page; copy a fresh `components/` in before using `hide`.
+  with `unknown cursor key "hide" at beat N (keys: ...)`. `check_brief.mjs` refuses a brief with any `hide` key when
+  the project's copy is too old (its `components/core/validate.js` does not list `'hide'` in `CURSOR_KEYS`, or its
+  `core/engine.js` never reads `.hide`): "the project's components/ copy predates hide; copy a fresh components/ in
+  (see SKILL.md, Older projects)". The safe-zone check skips the cursor while it is hidden (opacity under 0.05).
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)

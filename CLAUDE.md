@@ -194,7 +194,7 @@ plays every component and edge case.
 
 New projects get their own copy of `components/` (so a project keeps working if the library changes);
 `check_brief.mjs` validates with the kit's own rules and the project's component registry (the library's when
-the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`).
+the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`), and `hide` cursor rows when it predates hide.
 
 ## Long pieces and 4K
 
