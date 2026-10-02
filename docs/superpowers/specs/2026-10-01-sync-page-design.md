@@ -196,3 +196,18 @@ brief change), check_brief passes, the piece is re-rendered and Jack watches it.
 5. The sync page UI (layout B, keys, audio clock, waveform, markers, preview) + Playwright test.
 6. Planner and docs.
 7. Proof on demo 04 + wiki.
+
+## Amendments (2026-10-01)
+
+Two rulings made during the build change the page described above. The code and
+`skills/motion-video/SKILL.md` (Sync section) are current.
+
+- **Ruling I: keys.** ← / → scrub the playhead: 10 ms a press, Shift a quarter beat, Alt to the next
+  beat line in that direction, and Home goes to the loop start. Stopped, each step plays a short blip of
+  the song there, so the user hears where M will drop a marker; playing, it seeks. ↑ / ↓ nudge the grid
+  (5 ms, Shift 20 ms).
+- **Ruling J: marker notes and navigation.** A marker may carry an optional `note`, a string of at most
+  200 characters, for people only (it never affects timing or "Sounds right"); the analyser validates it
+  and passes it through to the top-level `markers`. The page shows a markers list (name, song time, note)
+  with a visible note field on the selected marker's line, and clicking the overview strip moves the
+  playhead there.
