@@ -1,34 +1,49 @@
 // slider.js -- a value on a track, dragged by the thumb; past the ends the track stretches like rubber.
-import { el, frame, icon, pressDepth } from '../core/helpers.js';
+import { el, textW, frame, icon, pressDepth, fade, applyFade } from '../core/helpers.js';
 
 export const meta = {
   name: 'slider', group: 'controls',
-  useWhen: 'A value is dragged: volume, brightness, an amount.',
-  motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value.",
-  props: { value: ['number', 0.4], min: ['number', 0], max: ['number', 1], overstretch: ['boolean', true], icon: ['enum:volume|none', 'volume'] },
+  useWhen: 'A value is dragged: volume, brightness, an amount. Give it a `label` (\'Swing\') when the viewer needs to know which setting it is.',
+  motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value. A `label` sits left of the track (the shape widens to fit it); a following slider row with a different label crossfades it.",
+  props: { value: ['number', 0.4], min: ['number', 0], max: ['number', 1], overstretch: ['boolean', true], icon: ['enum:volume|none', 'volume'], label: ['string', ''] },
   hotspots: ['thumb', 'track'],
   drag: ['thumb'],
   sounds: [],
   example: "{ at: 0, use: 'slider', value: 0.6 }",
-  edgeCases: [{ value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }],
+  edgeCases: [{ value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }, { label: 'Swing', value: 0.6, min: 0.5, max: 0.75, icon: 'none' }],
 };
 
 const TRACK = 440, THUMB = 36;
-const trackLeft = (p, w) => (p.icon === 'none' ? (w - TRACK) / 2 : 112);
+// A labelled slider (like a labelled toggle): the label on the left, then the icon, then the track,
+// anchored to the right edge with today's 88 px of room for the thumb and the rubber band.
+const PAD_L = 40, GAP = 48, ICON_W = 72, PAD_R = 88;
+const trackLeft = (p, w) => (p.label ? w - PAD_R - TRACK : p.icon === 'none' ? (w - TRACK) / 2 : 112);
 // A value as px along the track (clamped to the track).
 const px = (p, v) => Math.max(0, Math.min(1, (v - p.min) / (p.max - p.min || 1))) * TRACK;
 // Rubber band past the ends: 60 px at most, most of it in the first 120 px of pull.
 const band = (over) => 60 * (1 - Math.exp(-over / 120));
 const rubber = (p, r) => (!p.overstretch ? Math.max(0, Math.min(TRACK, r)) : r > TRACK ? TRACK + band(r - TRACK) : r < 0 ? -band(-r) : r);
 
-export function geometry() {
-  return { w: 640, h: 112, r: 56, fill: 'surface', ink: 'ink' };
+export function geometry(p) {
+  if (!p.label) return { w: 640, h: 112, r: 56, fill: 'surface', ink: 'ink' };
+  return { w: Math.min(1200, PAD_L + textW(p.label, 30) + GAP + (p.icon !== 'none' ? ICON_W : 0) + TRACK + PAD_R), h: 112, r: 56, fill: 'surface', ink: 'ink' };
 }
+
+function label(parent, p, w, h, cls) {
+  const l = el(parent, 'span', { class: `sl-label ${cls}` }, p.label);
+  const end = trackLeft(p, w) - (p.icon !== 'none' ? ICON_W : 0) - GAP;
+  Object.assign(l.style, { position: 'absolute', left: `${PAD_L}px`, top: '0', font: '400 28px var(--font)', lineHeight: `${h}px`,
+    maxWidth: `${end - PAD_L}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+}
+const changed = (a, b) => a.label !== b.label;
 
 export function mount(root, p, ctx) {
   const { w, h } = ctx.geo;
   const f = frame(root, 'sl', w, h);
-  if (p.icon !== 'none') Object.assign(icon(f, p.icon, 36).style, { position: 'absolute', left: '40px', top: `${(h - 36) / 2}px` });
+  if (p.icon !== 'none') Object.assign(icon(f, p.icon, 36).style, { position: 'absolute', left: `${p.label ? trackLeft(p, w) - ICON_W : 40}px`, top: `${(h - 36) / 2}px` });
+  // A changed label on a continuation: the previous one too, to fade out under the new one.
+  if (ctx.continues && changed(ctx.prev, p) && ctx.prev.label) label(f, ctx.prev, w, h, 'sl-prev');
+  if (p.label) label(f, p, w, h, 'sl-cur');
   const bar = { position: 'absolute', top: `${(h - 10) / 2}px`, height: '10px', borderRadius: '5px' };
   Object.assign(el(f, 'div', { class: 'sl-track' }).style, bar, { background: 'var(--muted)' });
   Object.assign(el(f, 'div', { class: 'sl-fill' }).style, bar, { background: 'var(--accent)' });
@@ -70,6 +85,9 @@ export function render(root, p, ctx, t) {
   Object.assign(f.querySelector('.sl-fill').style, { left: `${left}px`, width: `${Math.max(0, s)}px` });
   const held = drags(ctx).flatMap((d) => (d.up ? [d.down, d.up] : [d.down]));
   Object.assign(f.querySelector('.sl-thumb').style, { left: `${x0 + s - THUMB / 2}px`, transform: `scale(${1 + 0.2 * pressDepth(ctx, t, held)})` });
+  const prev = f.querySelector('.sl-prev'), cur = f.querySelector('.sl-cur');
+  if (prev) applyFade(prev, fade(ctx, t, -Infinity, ctx.t0));
+  if (cur && ctx.continues && changed(ctx.prev, p)) applyFade(cur, fade(ctx, t, ctx.t0 + 0.05 * ctx.beat_sec));
 }
 
 export function hotspot(name, p, geo) {
