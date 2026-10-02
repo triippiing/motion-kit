@@ -42,6 +42,7 @@ METERS = {"4/4": 4, "3/4": 3, "6/8": 2}
 SYNC_BPM = (40.0, 240.0)
 SWING = (0.5, 0.75)
 MARKER_NAME = re.compile(r"[a-z][a-z0-9-]*")
+CHECKED_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 NOTE_MAX = 200  # a marker's optional note: free text for people, never read for timing
 
 
@@ -144,6 +145,9 @@ def validate_sync(sync):
         raise SongError(f"sync meter must be one of {', '.join(METERS)}, got {sync['meter']!r}")
     if "swing" in sync and not (is_number(sync["swing"]) and SWING[0] <= sync["swing"] <= SWING[1]):
         raise SongError(f"sync swing must be a number from {SWING[0]} to {SWING[1]}, got {sync['swing']!r}")
+    if "checked_by_ear" in sync and not (isinstance(sync["checked_by_ear"], str)
+                                         and CHECKED_DATE.fullmatch(sync["checked_by_ear"])):
+        raise SongError(f"sync checked_by_ear must be a date like 2026-10-01, got {sync['checked_by_ear']!r}")
     markers = sync.get("markers", [])
     if not isinstance(markers, list):
         raise SongError("sync markers must be a list of {name, t}")

@@ -315,3 +315,18 @@ test('sync page: arrow keys scrub the playhead (10 ms, a quarter beat, to the ne
   assert.equal(run.clicks.length, expected, 'every beat after the seek got a click');
   assert.deepEqual(errors, []);
 });
+
+test('sync page: a hostile checked_by_ear in song.json shows as text and never runs', async () => {
+  const dir = project();
+  const evil = '<img src=x onerror="window.__xss=1">';
+  const song = songOf(dir);
+  song.sync = { ...(song.sync ?? {}), checked_by_ear: evil };
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify(song, null, 2));
+  const { page, errors, frames } = await open(dir);
+  await frames();
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__xss), undefined);
+  assert.equal(await page.locator('#status img').count(), 0);
+  assert.ok((await page.locator('#status').textContent()).includes(`checked by ear ${evil}`));
+  assert.deepEqual(errors, []);
+});

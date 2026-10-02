@@ -619,7 +619,7 @@ function renderStatus() {
   const conf = S.song.bpm_confidence;
   parts.push(`<span>confidence ${conf != null ? conf.toFixed(2) : 'n/a'}${conf != null && conf < 0.5 ? ' (low: check by ear)' : ''}</span>`);
   const checked = S.pending.checked_by_ear;
-  parts.push(`<span>${checked ? `checked by ear ${checked}` : 'not checked by ear'}</span>`);
+  parts.push(`<span>${checked ? `checked by ear ${esc(checked)}` : 'not checked by ear'}</span>`);
   const outside = S.anim.markers.filter((m) => !m.in_loop).map((m) => m.name);
   if (outside.length) parts.push(`<span>outside the loop: ${outside.map(esc).join(', ')}</span>`);
   // the analyser snaps beats to detected hits until the user sets a nudge or tempo; then the grid is even, so the

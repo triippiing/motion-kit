@@ -206,6 +206,12 @@ class SyncTests(unittest.TestCase):
                                   sync={"markers": [{"name": "snare", "t": 1.0, "note": "x" * 200}]})
         self.assertEqual(code, 0, err)
 
+    def test_checked_by_ear_date_is_kept(self):
+        sync = {"checked_by_ear": "2026-10-01"}
+        code, err = self.run_main("--bars", "2", sync=sync)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.song()["sync"], sync)
+
     def test_marker_outside_the_loop(self):
         sync = {"markers": [{"name": "intro", "t": 0.5}, {"name": "outro-2", "t": 25.0}]}
         code, err = self.run_main("--bars", "2", "--start-bar", "2", sync=sync)
@@ -295,6 +301,11 @@ class SyncTests(unittest.TestCase):
             ({"markers": [{"name": "drop", "t": 1, "note": None}]}, "note"),
             ({"markers": [{"name": "drop", "t": 1, "note": "x" * 201}]}, "201 characters"),
             ([1, 2], "sync"),
+            ({"checked_by_ear": "yesterday"}, "checked_by_ear"),
+            ({"checked_by_ear": '<img src=x onerror="window.__xss=1">'}, "checked_by_ear"),
+            ({"checked_by_ear": "2026-10-01<b>"}, "checked_by_ear"),
+            ({"checked_by_ear": 20261001}, "checked_by_ear"),
+            ({"checked_by_ear": True}, "checked_by_ear"),
         ]
         for sync, word in bad:
             with self.subTest(sync=sync):
