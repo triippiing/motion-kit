@@ -10,12 +10,14 @@ export const meta = {
   drag: ['thumb'],
   sounds: [],
   example: "{ at: 0, use: 'slider', value: 0.6 }",
-  edgeCases: [{ value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }, { label: 'Swing', value: 0.6, min: 0.5, max: 0.75, icon: 'none' }],
+  edgeCases: [{ value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }, { label: 'Swing', value: 0.6, min: 0.5, max: 0.75, icon: 'none' },
+    { label: 'A very long slider label that keeps going and going', icon: 'none' }],
 };
 
 const TRACK = 440, THUMB = 36;
 // A labelled slider (like a labelled toggle): the label on the left, then the icon, then the track,
-// anchored to the right edge with today's 88 px of room for the thumb and the rubber band.
+// anchored to the right edge with today's 88 px of room for the thumb and the rubber band. Dragged far
+// below min, the stretched track can reach the end of the label, as it reaches the icon when unlabelled.
 const PAD_L = 40, GAP = 48, ICON_W = 72, PAD_R = 88;
 const trackLeft = (p, w) => (p.label ? w - PAD_R - TRACK : p.icon === 'none' ? (w - TRACK) / 2 : 112);
 // A value as px along the track (clamped to the track).
@@ -29,8 +31,9 @@ export function geometry(p) {
   return { w: Math.min(1200, PAD_L + textW(p.label, 30) + GAP + (p.icon !== 'none' ? ICON_W : 0) + TRACK + PAD_R), h: 112, r: 56, fill: 'surface', ink: 'ink' };
 }
 
-function label(parent, p, w, h, cls) {
-  const l = el(parent, 'span', { class: `sl-label ${cls}` }, p.label);
+// One label, laid out for this row (p): a fading previous label takes this row's frame and icon.
+function label(parent, text, p, w, h, cls) {
+  const l = el(parent, 'span', { class: `sl-label ${cls}` }, text);
   const end = trackLeft(p, w) - (p.icon !== 'none' ? ICON_W : 0) - GAP;
   Object.assign(l.style, { position: 'absolute', left: `${PAD_L}px`, top: '0', font: '400 28px var(--font)', lineHeight: `${h}px`,
     maxWidth: `${end - PAD_L}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
@@ -41,9 +44,10 @@ export function mount(root, p, ctx) {
   const { w, h } = ctx.geo;
   const f = frame(root, 'sl', w, h);
   if (p.icon !== 'none') Object.assign(icon(f, p.icon, 36).style, { position: 'absolute', left: `${p.label ? trackLeft(p, w) - ICON_W : 40}px`, top: `${(h - 36) / 2}px` });
-  // A changed label on a continuation: the previous one too, to fade out under the new one.
-  if (ctx.continues && changed(ctx.prev, p) && ctx.prev.label) label(f, ctx.prev, w, h, 'sl-prev');
-  if (p.label) label(f, p, w, h, 'sl-cur');
+  // A changed label on a continuation: the previous one too, to fade out under the new one. A row
+  // without a label has no room for it, so the old label goes with the previous layer.
+  if (p.label && ctx.continues && changed(ctx.prev, p) && ctx.prev.label) label(f, ctx.prev.label, p, w, h, 'sl-prev');
+  if (p.label) label(f, p.label, p, w, h, 'sl-cur');
   const bar = { position: 'absolute', top: `${(h - 10) / 2}px`, height: '10px', borderRadius: '5px' };
   Object.assign(el(f, 'div', { class: 'sl-track' }).style, bar, { background: 'var(--muted)' });
   Object.assign(el(f, 'div', { class: 'sl-fill' }).style, bar, { background: 'var(--accent)' });

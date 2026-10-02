@@ -134,6 +134,53 @@ test('slider: a continuation with a new label crossfades old out and new in', as
   } finally { await s.close(); }
 });
 
+// Continuation a -> b (row 1 at beat 2): at mid-swap and once settled, every row-1 label with any opacity ends
+// left of the icon and the track; returns the labels' text at each moment.
+async function labelSwap(a, b) {
+  const dir = makeProject({ bars: 2,
+    states: `[{ at: 0, use: 'slider', value: 0.6, ${a} }, { at: 2, use: 'slider', value: 0.6, ${b} }, { at: END - 2, use: 'slider', value: 0.6, ${a} }]`,
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' });
+  const s = await openScene(dir), seen = [];
+  try {
+    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
+    for (const beat of [2.12, 3.8]) {
+      await s.seek(beat * bs);
+      const r = await s.page.evaluate(() => {
+        const box = (e) => e && e.getBoundingClientRect(), row = document.querySelector('.c-slider[data-row="1"]');
+        const labels = [...row.querySelectorAll('.sl-label')].map((e) => ({ text: e.textContent, o: Number(e.style.opacity || 1), r: box(e).right, w: box(e).width }));
+        return { labels, icon: box(row.querySelector('.ico'))?.left ?? Infinity, track: box(row.querySelector('.sl-track')).left };
+      });
+      for (const l of r.labels.filter((l) => l.o > 0.001)) {
+        assert.ok(l.w > 40 && l.r <= Math.min(r.icon, r.track), `${a} -> ${b} at beat ${beat}: ${JSON.stringify(l)} overlaps icon ${r.icon} / track ${r.track}`);
+      }
+      seen.push(r.labels.filter((l) => l.o > 0.001).map((l) => l.text));
+    }
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+  return seen;
+}
+
+test('slider: label to no label drops the old label; no label to a label fades it in clear of the icon and track', async () => {
+  assert.deepEqual(await labelSwap("label: 'Swing'", "label: ''"), [[], []]);
+  assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: '', icon: 'none'"), [[], []]);
+  assert.deepEqual(await labelSwap("label: ''", "label: 'Swing'"), [['Swing'], ['Swing']]);
+  // The previous label is laid out with this row's icon.
+  assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: 'Tempo'"), [['Swing', 'Tempo'], ['Tempo']]);
+});
+
+test('slider: the unlabelled layout keeps its inline positions', async () => {
+  await scene({ bars: 2,
+    states: "[{ at: 0, use: 'slider' }, { at: END - 2, use: 'slider' }]",
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' }, async (s, at) => {
+    await at(1);
+    const st = await s.page.evaluate(() => {
+      const q = (sel) => document.querySelector(`.c-slider[data-row="0"] ${sel}`).style;
+      return { track: [q('.sl-track').left, q('.sl-track').width], fill: [q('.sl-fill').left, q('.sl-fill').width], thumb: q('.sl-thumb').left, icon: q('.ico').left };
+    });
+    assert.deepEqual(st, { track: ['112px', '440px'], fill: ['112px', '176px'], thumb: '270px', icon: '40px' });
+  });
+});
+
 test('slider: no label element without a label', async () => {
   await scene({ bars: 2,
     states: "[{ at: 0, use: 'slider', value: 0.5 }, { at: END - 2, use: 'slider', value: 0.5, label: '' }]",
