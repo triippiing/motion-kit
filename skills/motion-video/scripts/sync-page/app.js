@@ -47,6 +47,7 @@ const S = window.syncState = {
   grid: null,           // the preview song the waveform and clicks use (also approximate tempo and meter)
   playing: false, t: 0, lastSeek: null, startedAt: 0, loopSec: 0, latency: 0,
   clicksOn: true, clickTimes: [], clicks: [],   // clickTimes: [{ beat, t, down }] (loop s); clicks: every start(when) made
+  skipped: 0,           // clicks skipped since Play because their tick came too late to schedule them
   blips: [],            // every scrub blip: { when, t }
   taps: [], tapBpm: null,
   viewStart: 0, viewBars: 2, follow: true, selected: null,
@@ -166,7 +167,7 @@ function play() {
   Object.assign(songNode, { buffer, loop: true, loopStart: 0, loopEnd: buffer.duration });
   songNode.connect(songGain);
   songNode.start(when, from);
-  Object.assign(S, { playing: true, startedAt: when - from, clicks: [], follow: true });
+  Object.assign(S, { playing: true, startedAt: when - from, clicks: [], skipped: 0, follow: true });
   playWhen = when; playFrom = from; scheduledUntil = when; queued = [];
   schedule();
   timer = setInterval(schedule, TICK_MS);
@@ -253,7 +254,7 @@ function schedule() {
 
 function startClick(when, c) {
   // a tick that came late (a throttled background tab) skips the click: silent beats a click off the grid
-  if (when < ctx.currentTime) return;
+  if (when < ctx.currentTime) { S.skipped++; return; }
   const node = ctx.createBufferSource();
   node.buffer = c.down ? hiClick : loClick;
   node.connect(clickGain);

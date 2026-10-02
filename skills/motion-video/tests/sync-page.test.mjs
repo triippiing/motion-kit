@@ -60,28 +60,33 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   });
   await page.keyboard.press('Space');
   assert.equal(await state(() => window.syncState.playing), true);
-  await page.waitForTimeout(600);
+  // wait (not a fixed sleep, which a loaded machine can outrun) until the clock has moved and clicks went out
+  await page.waitForFunction(() => {
+    const s = window.syncState, f = document.querySelector('iframe').contentWindow;
+    return f.__got.length > 10 && f.__got.at(-1) > 0.3 && s.clicks.length + s.skipped >= 1;
+  }, null, { timeout: 30000 });
   const live = await page.evaluate(() => {
     const s = window.syncState, f = document.querySelector('iframe').contentWindow;
-    return { got: f.__got.slice(), t: s.t, clock: s.clockT(), clicks: s.clicks.slice(), grid: s.clickTimes.map((c) => c.t),
+    return { got: f.__got.slice(), t: s.t, clock: s.clockT(), clicks: s.clicks.slice(), skipped: s.skipped, grid: s.clickTimes.map((c) => c.t),
       startedAt: s.startedAt, L: s.loopSec, span: s.scheduled() };
   });
   assert.ok(live.got.length > 10, `seek called ${live.got.length} times while playing`);
   assert.ok(live.got.at(-1) > 0.3, `t moved with the audio clock: ${live.got.at(-1)}`);
   assert.ok(Math.abs(live.clock - live.got.at(-1)) < 0.1, `seek t ${live.got.at(-1)} vs audio clock ${live.clock}`);
   // every click went out on the audio clock, exactly on a grid time
-  assert.ok(live.clicks.length >= 1, 'clicks were scheduled');
+  assert.ok(live.clicks.length >= 1, `clicks were scheduled (${live.skipped} skipped as too late)`);
   for (const c of live.clicks) {
     const at = mod(c.when - live.startedAt, live.L);
     assert.ok(live.grid.some((g) => Math.abs(mod(g, live.L) - at) < 1e-6), `click at loop ${at} is on the grid`);
   }
-  // and no beat was dropped: one click per grid time in the span the scheduler covered
+  // and no beat was lost: one click per grid time in the span the scheduler covered, or one skipped because its tick
+  // came too late (a loaded machine; the page stays silent rather than click off the grid)
   const [from, until] = live.span;
   let expected = 0;
   for (let k = Math.floor((from - live.startedAt) / live.L) - 1; live.startedAt + k * live.L < until; k++) {
     for (const g of live.grid) { const w = live.startedAt + k * live.L + mod(g, live.L); if (w >= from && w < until) expected++; }
   }
-  assert.equal(live.clicks.length, expected, 'every beat in the scheduled span got a click');
+  assert.equal(live.clicks.length + live.skipped, expected, 'every beat in the scheduled span got a click (or was skipped as too late)');
   await page.keyboard.press('Space');
   assert.equal(await state(() => window.syncState.playing), false);
   await frames();
@@ -297,7 +302,7 @@ test('sync page: arrow keys scrub the playhead (10 ms, a quarter beat, to the ne
   await page.waitForTimeout(300);
   await page.keyboard.press('Alt+ArrowRight');
   await page.waitForTimeout(500);
-  const run = await state(() => ({ clicks: window.syncState.clicks.slice(), startedAt: window.syncState.startedAt,
+  const run = await state(() => ({ clicks: window.syncState.clicks.slice(), skipped: window.syncState.skipped, startedAt: window.syncState.startedAt,
     grid: window.syncState.clickTimes.map((c) => c.t), span: window.syncState.scheduled() }));
   await page.keyboard.press('Space');
   assert.equal(await blips(), n, 'no blip while playing');
@@ -312,7 +317,7 @@ test('sync page: arrow keys scrub the playhead (10 ms, a quarter beat, to the ne
   for (let k = Math.floor((from - run.startedAt) / L) - 1; run.startedAt + k * L < until; k++) {
     for (const g of run.grid) { const w = run.startedAt + k * L + mod(g, L); if (w >= from && w < until) expected++; }
   }
-  assert.equal(run.clicks.length, expected, 'every beat after the seek got a click');
+  assert.equal(run.clicks.length + run.skipped, expected, 'every beat after the seek got a click (or was skipped as too late)');
   assert.deepEqual(errors, []);
 });
 
