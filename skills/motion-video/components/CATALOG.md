@@ -118,7 +118,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 ![slider](docs-images/slider.png)
 
-**Use when:** A value is dragged: volume, brightness, an amount. Give it a `label` ('Swing') when the viewer needs to know which setting it is.
+**Use when:** A value is dragged: volume, brightness, an amount.
 
 **Motion:** Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value. A `label` sits left of the track (the shape widens to fit it); a following slider row with a different label crossfades it.
 

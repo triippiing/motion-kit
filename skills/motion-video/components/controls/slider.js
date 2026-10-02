@@ -3,7 +3,7 @@ import { el, textW, frame, icon, pressDepth, fade, applyFade } from '../core/hel
 
 export const meta = {
   name: 'slider', group: 'controls',
-  useWhen: 'A value is dragged: volume, brightness, an amount. Give it a `label` (\'Swing\') when the viewer needs to know which setting it is.',
+  useWhen: 'A value is dragged: volume, brightness, an amount.',
   motion: "Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value. A `label` sits left of the track (the shape widens to fit it); a following slider row with a different label crossfades it.",
   props: { value: ['number', 0.4], min: ['number', 0], max: ['number', 1], overstretch: ['boolean', true], icon: ['enum:volume|none', 'volume'], label: ['string', ''] },
   hotspots: ['thumb', 'track'],

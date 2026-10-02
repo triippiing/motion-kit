@@ -75,7 +75,7 @@ test('slider: a label widens the shape and puts the thumb and track to its right
     const p = sliderProps({ label: 'Swing', value: 0.6, min: 0.5, max: 0.75, icon }), geo = slider.geometry(p);
     assert.ok(geo.w > 640, `wider than the bare slider: ${geo.w}`);
     assert.equal(geo.h, 112);
-    const labelRight = 36 + 28 * 0.56 * 'Swing'.length - geo.w / 2;
+    const labelRight = 40 + 28 * 0.56 * 'Swing'.length - geo.w / 2;
     for (const n of ['thumb', 'track']) {
       const h = slider.hotspot(n, p, geo);
       assert.ok(h && h.x > labelRight && h.x < geo.w / 2, `${icon} ${n} at ${h?.x}, label ends at ${labelRight}, half width ${geo.w / 2}`);
