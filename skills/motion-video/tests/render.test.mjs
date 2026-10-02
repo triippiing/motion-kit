@@ -188,6 +188,28 @@ test('template CURSOR supports press down/up and sound rows; EXTRA_SFX merges in
   } finally { await p.close(); }
 });
 
+test('template CURSOR hide: the drawn cursor\'s opacity is inspect(t).cursor.opacity, hidden and visible', async () => {
+  const proj = scaffold();
+  const html = readFileSync(path.join(proj, 'index.html'), 'utf8')
+    .replace("{ at: 3,       x: 200, y: 230 },", "{ at: 3, x: 200, y: 230, hide: true },\n  { at: 5, x: 120, y: 200 },");
+  writeFileSync(path.join(proj, 'index.html'), html);
+  const p = await openProject(proj, { workers: 1 });
+  try {
+    const page = p.pages[0], b = p.song.beat_sec;
+    const at = (t) => page.evaluate((t) => {
+      window.seek(t);
+      return { drawn: Number(getComputedStyle(document.querySelector('#cursor')).opacity), said: window.inspect(t).cursor.opacity };
+    }, t);
+    for (const [beat, want] of [[2.5, 1], [3.1, null], [4.5, 0], [6, 1]]) {
+      const { drawn, said } = await at(beat * b);
+      assert.ok(Math.abs(drawn - said) < 1e-4, `beat ${beat}: drawn ${drawn}, inspect ${said}`);
+      if (want !== null) assert.ok(Math.abs(said - want) < 0.02, `beat ${beat}: opacity ${said}, want ${want}`);
+      else assert.ok(said > 0.02 && said < 0.98, `beat ${beat}: mid-fade ${said}`);
+    }
+    assert.deepEqual(p.errors, []);
+  } finally { await p.close(); }
+});
+
 test('a misspelt colour role fails the render with the role list, not a silent NaN colour', async () => {
   const proj = scaffold();
   const f = path.join(proj, 'index.html');

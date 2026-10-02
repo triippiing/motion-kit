@@ -109,6 +109,19 @@ test('the cursor arrow counts to the right: a tip 15 px left of the right zone s
   assert.deepEqual(issues.map((i) => [i.part, i.edge, i.px]), [['cursor', 'right', 8]]);
 });
 
+test('a hidden cursor (inspect opacity under 0.05) is never in a zone; a visible one in the same place is', async () => {
+  // The tip at 460 / 2.4 design px puts the arrow 8 px into the Reels right zone (as above).
+  const row = `[{ at: 0, ${small} }, { at: END - 2, ${small} }]`, x = 460 / 2.4;
+  let { issues } = await checkSafeZones(makeProject({ bars: 2, states: row,
+    cursor: `[{ at: 0, x: ${x}, y: 0, hide: true }, { at: END - 2, x: ${x}, y: 0, hide: true }]` }), { presets: ['reels'], samples: 'beats' });
+  assert.deepEqual(issues, [], 'hidden all loop: nothing reported');
+  // Visible on beats 0 to 2, hidden from beat 2 (gone by beat 3), shown again from beat 5 (fading in from 0 there).
+  ({ issues } = await checkSafeZones(makeProject({ bars: 2, states: row,
+    cursor: `[{ at: 0, x: ${x}, y: 0 }, { at: 2, x: ${x}, y: 0, hide: true }, { at: 5, x: ${x}, y: 0 }, { at: END - 2, x: ${x}, y: 0 }]` }),
+    { presets: ['reels'], samples: 'beats' }));
+  assert.deepEqual(issues.map((i) => [i.part, i.edge, i.beat, i.through, i.px]), [['cursor', 'right', 0, 2, 8], ['cursor', 'right', 6, 7, 8]]);
+});
+
 test('a malformed song.json is error: ... exit 2', () => {
   const dir = makeProject({ bars: 2 });
   writeFileSync(path.join(dir, 'song.json'), '{ "beats": [');

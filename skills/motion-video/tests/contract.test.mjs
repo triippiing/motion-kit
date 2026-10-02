@@ -57,6 +57,7 @@ test('the catalog row keys name the optional pos/neg roles and a badge of 0', as
   const keys = catalogMd(await collect()).split('## Row keys')[1].split('\n## ')[0];
   assert.match(keys, /\| `fill` \|.*`pos`, `neg` \(when the theme defines them\)/);
   assert.match(keys, /\| `badge` \|.*0 shows none/);
+  assert.match(keys, /\| `hide` \| cursor rows: .*cannot press \|/);
 });
 
 test('the registry has at least the reference component', () => {

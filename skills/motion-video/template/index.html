@@ -63,7 +63,8 @@ const states = () => [
 // STATES). Either x/y in px from the stage
 // centre, or target: '<hotspot>' (see each component's hotspots in the catalog),
 // optionally with dx/dy. press: true clicks (click sound); 'down' presses and holds,
-// 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat.
+// 'up' releases (drags). sound: 'key' plays sfx/key.wav on that beat. hide: true fades the
+// cursor out from that beat (it still moves); the next row without it fades it back in. A hidden row cannot press.
 // First and last rows must match, the last at least 2 beats before END.
 const cursor = () => [
   { at: 0,       x: 240, y: 280 },

@@ -46,7 +46,9 @@ props; the cursor aims at its hotspots with `target:`.
    plus a `.layer[data-state=NAME]` and a `content` function, or add a component
    (`components/WRITING-A-COMPONENT.md`). Edit only the tables: `states()`, `cursor()`, `content`,
    `extraSfx()`, plus a `.layer` per custom state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
-   (hold, for drags) and `sound: 'key'` (plays sfx/key.wav); `extraSfx()` returns `[{beat, file, gain}]`
+   (hold, for drags), `sound: 'key'` (plays sfx/key.wav) and `hide: true` (fades the cursor out from that beat
+   while it keeps moving; the next row without it fades it back in; a hidden row cannot press). Hide the cursor where it
+   is not doing anything, e.g. `{ at: 3, x: 200, y: 230, hide: true }` after a press; `extraSfx()` returns `[{beat, file, gain}]`
    for any other cue. A row's `at` may also name a marker set on the sync page (`at: 'drop'`, optionally
    `offset` in beats; see Sync). Every `press: 'down'` needs a later `press: 'up'`. A drag is three rows: down, move, up (the move row sits strictly between them; a move written on the 'up' row starts only after the release, so the 'up' row repeats the move row's position). Each `content` function takes absolute `t` and runs every frame (use `since(stateName, t)`). Colours in STATES are theme roles (`canvas surface ink muted accent`)
    so the piece re-themes with the project (theme.json may also carry optional `pos`/`neg` roles when the CSS defines success/danger colours; use `var(--pos)` / `var(--neg)` in layers, and only when present); use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
@@ -212,6 +214,11 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   animation shows the saved grid while you edit and is reloaded after each Save. Its inline `beatT` also
   ignores swing, while render's sound cues (from `components/core/timing.js`) apply it, so on a swung grid
   the animation and the sounds disagree on the off-beats until the page uses the kit's `beatTime`.
+- Older projects and `hide`. A `components/` copy from before cursor `hide` rejects it: its engine throws at page load
+  with `unknown cursor key "hide" at beat N (keys: ...)`. `check_brief.mjs` refuses a brief with any `hide` key when
+  the project's copy is too old (its `components/core/validate.js` does not list `'hide'` in `CURSOR_KEYS`, or its
+  `core/engine.js` never reads `.hide`): "the project's components/ copy predates hide; copy a fresh components/ in
+  (see SKILL.md, Older projects)". The safe-zone check skips the cursor while it is hidden (opacity under 0.05).
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)

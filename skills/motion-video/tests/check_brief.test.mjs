@@ -360,3 +360,31 @@ test('marker rows need a project components/ copy that knows markers (core/timin
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
   assert.deepEqual((await checkBrief(dir)).errors, []);
 });
+
+test('hide rows need a project components/ copy that knows hide (validate.js CURSOR_KEYS and engine.js read it)', async () => {
+  const dir = makeProject({ bars: 4 });
+  const core = path.join(dir, 'components', 'core');
+  const OLD = "the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)";
+  const hidden = good.replace("{ at: 0, x: 240, y: 280 },\n  { at: 1.5", "{ at: 0, x: 240, y: 280 },\n  { at: 0.5, x: 200, y: 230, hide: true },\n  { at: 1.5");
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden));
+  assert.deepEqual((await checkBrief(dir)).errors, [], 'a fresh copy is fine');
+  // a validator from before hide: CURSOR_KEYS without it (its engine would throw unknown cursor key "hide")
+  const v = path.join(core, 'validate.js'), vNew = readFileSync(v, 'utf8');
+  assert.ok(vNew.includes("'sound', 'hide']);"));
+  writeFileSync(v, vNew.replace("'sound', 'hide']);", "'sound']);"));
+  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(cli.status, 1);
+  assert.ok(cli.stderr.includes(`error: ${OLD}`), cli.stderr);
+  // no hide rows: the old copy is fine; any row with the key (even hide: false) needs the new copy
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden.replace('hide: true', 'hide: false')));
+  assert.ok((await checkBrief(dir)).errors.includes(OLD), 'hide: false is still a key the old copy rejects');
+  // a validator that knows the key but an engine that never draws it
+  writeFileSync(v, vNew);
+  const e = path.join(core, 'engine.js');
+  writeFileSync(e, readFileSync(e, 'utf8').replaceAll('.hide', '.hid'));
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden));
+  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+});

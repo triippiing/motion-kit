@@ -15,6 +15,8 @@ Rules (checked by `check_brief.mjs`): something changes on every beat; every row
 (same component and props) and sits at least 2 beats before `END`; the last cursor row repeats the
 first. The last two rules are for loops: a launch video with `"loop": false` in project.json may end
 anywhere, and every beat to the end must then be busy. Presses click on their own; typing components play their key sounds.
+Hide the cursor where it is not doing anything with `hide: true` on a cursor row (`{ at: 3, x: 200, y: 230, hide: true }`):
+it fades out from that beat and the next row without `hide` fades it back in; a hidden row cannot press.
 
 Consecutive rows with the same `use` are one component changing, not a cut: the second row
 continues from where the first left off and animates the difference (tabs `active: 'Day'` then

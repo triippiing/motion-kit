@@ -47,6 +47,14 @@ export function projectTheme(dir) {
   return existsSync(path.join(dir, 'theme.json')) ? readJson(dir, 'theme.json') : HOUSE;
 }
 
+// Whether the project's own components/ copy supports cursor `hide`: its core/validate.js names 'hide' in CURSOR_KEYS
+// (an older one rejects the key) and its core/engine.js reads `.hide` (an older one never draws it). A missing file
+// counts as no.
+export function knowsHide(dir) {
+  const read = (f) => { try { return readFileSync(path.join(dir, 'components', 'core', f), 'utf8'); } catch { return ''; } };
+  return /CURSOR_KEYS\s*=\s*new Set\(\[[^\]]*'hide'/.test(read('validate.js')) && /\.hide\b/.test(read('engine.js'));
+}
+
 // The text of the brief's ## Decisions section ('' when it has none).
 export function briefDecisions(md) {
   const m = /^## Decisions[ \t]*\r?$/m.exec(md);
@@ -128,6 +136,10 @@ export async function checkBrief(dir, opts = {}) {
   const marked = [states, cursor].some((rows) => Array.isArray(rows) && rows.some((r) => typeof r?.at === 'string'));
   if (marked && !existsSync(path.join(dir, 'components', 'core', 'timing.js')))
     errors.push("the project's components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)");
+  // Likewise a copy from before cursor `hide`: its validator rejects the key (unknown cursor key "hide") and its engine
+  // never draws it. Supported means both: validate.js lists 'hide' in CURSOR_KEYS and engine.js reads `.hide`.
+  if (Array.isArray(cursor) && cursor.some((c) => c && typeof c === 'object' && Object.hasOwn(c, 'hide')) && !knowsHide(dir))
+    errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   errors.push(...r.errors); warnings.push(...r.warnings);
   // No Exports line: nothing more, and no browser. With errors, the page (running the same tables) would only fail

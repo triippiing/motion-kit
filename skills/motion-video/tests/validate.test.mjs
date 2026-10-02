@@ -360,3 +360,33 @@ test('quiet beats: a marker row within 1/8 beat of a whole beat counts for it; t
   // A numeric row at 6.998 gets no tolerance: 7 stays quiet.
   assert.match(quiet(rows({ at: 6.998, use: 'toast' }), song), /: 7;/);
 });
+
+test('hide: a hidden cursor cannot press, hide must be a boolean, and hide is never an unknown key', () => {
+  const st = loopOk([{ at: 0, use: 'button' }]);
+  const cur = (...mid) => [{ at: 0, x: 0, y: 0 }, ...mid, { at: 14, x: 0, y: 0 }];
+  assert.deepEqual(run(st, cur({ at: 2, x: 9, y: 9, hide: true }, { at: 4, target: 'button', press: true })).errors, []);
+  assert.deepEqual(run(st, cur({ at: 2, x: 9, y: 9, hide: false })).errors, []);
+  for (const press of [true, 'down', 'up']) {
+    const e = run(st, cur({ at: 2, target: 'button', hide: true, press })).errors;
+    assert.ok(e.includes('cursor() row 2: a hidden cursor cannot press (remove hide or press)'), `${press}: ${e.join('\n')}`);
+  }
+  // a drag cannot start or end on a hidden row
+  const drag = run(loopOk([{ at: 0, use: 'slider' }]), cur({ at: 2, target: 'thumb', press: 'down', hide: true }, { at: 3, target: 'thumb', dx: 50 },
+    { at: 4, target: 'thumb', dx: 50, press: 'up' })).errors;
+  assert.ok(drag.includes('cursor() row 2: a hidden cursor cannot press (remove hide or press)'), drag.join('\n'));
+  for (const bad of [1, 'yes', null, 0])
+    assert.ok(run(st, cur({ at: 2, x: 9, y: 9, hide: bad })).errors.includes(`hide at beat 2 should be true or false, got ${JSON.stringify(bad)}`), String(bad));
+  // messages round a marker row's beat and name the marker
+  const msong = { ...song, markers: [{ name: 'drop', song_t: 3.1, t: 3.1, in_loop: true }] };
+  assert.match(run(st, cur({ at: 'drop', x: 9, y: 9, hide: 'no' }), { song: msong }).errors.join('\n'), /hide at beat 6\.2 \('drop'\) should be true or false/);
+  const all = [cur({ at: 2, x: 9, y: 9, hide: true }), cur({ at: 2, x: 9, y: 9, hide: 'x' }), cur({ at: 2, target: 'button', hide: true, press: true })];
+  for (const c of all) assert.ok(!run(st, c, { strict: true }).errors.some((m) => /unknown cursor key/.test(m)));
+});
+
+test('hide: the cursor seam includes hide; an explicit hide: false equals none', () => {
+  const st = loopOk([{ at: 0, use: 'button' }]);
+  assert.match(run(st, [{ at: 0, x: 0, y: 0, hide: true }, { at: 14, x: 0, y: 0 }]).errors.join('\n'), /last cursor row must repeat the first/);
+  assert.match(run(st, [{ at: 0, x: 0, y: 0 }, { at: 14, x: 0, y: 0, hide: true }]).errors.join('\n'), /last cursor row must repeat the first/);
+  assert.deepEqual(run(st, [{ at: 0, x: 0, y: 0, hide: true }, { at: 4, x: 9, y: 9 }, { at: 14, x: 0, y: 0, hide: true }]).errors, []);
+  assert.deepEqual(run(st, [{ at: 0, x: 0, y: 0, hide: false }, { at: 14, x: 0, y: 0 }]).errors, []);
+});
