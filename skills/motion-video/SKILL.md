@@ -203,8 +203,10 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
 - Save does not pass `--states`, so a "states need N beats" warning from `new_project.sh` is not repeated.
 - Older projects. One copied before `components/core/timing.js` existed still works on the page: sync.mjs
   serves the kit's timing module at `/__sync/timing.js` as a fallback. But a `components/` copy from before
-  markers does not know `at: 'drop'` (its engine and `check_brief.mjs`, which validates against the
-  project's copy, both reject it), so copy a fresh `components/` in before using markers. An older
+  markers does not know `at: 'drop'` (its engine rejects it), so copy a fresh `components/` in before using
+  markers. `check_brief.mjs` validates with the kit's own rules and the project's component registry, and
+  refuses marker rows when the project's copy is too old (no `components/core/timing.js`): "the project's
+  components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)". An older
   `index.html` also lacks `window.rebuild(song)`, the template's hook used only by the sync page, so the
   animation shows the saved grid while you edit and is reloaded after each Save.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.

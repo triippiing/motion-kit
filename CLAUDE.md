@@ -192,7 +192,8 @@ thumbnail; look at it), then `npm test`. `gallery.mjs OUT` without `--stills` wr
 plays every component and edge case.
 
 New projects get their own copy of `components/` (so a project keeps working if the library changes);
-`check_brief.mjs` validates against the project's copy when there is one.
+`check_brief.mjs` validates with the kit's own rules and the project's component registry (the library's when
+the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`).
 
 ## Long pieces and 4K
 

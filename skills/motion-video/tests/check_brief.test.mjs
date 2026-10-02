@@ -333,3 +333,30 @@ test('a brief may place rows on the song\'s markers; a marker song.json lacks is
   assert.deepEqual((await checkBrief(dir)).errors, ["states() row 2: unknown marker 'chorus' (markers: drop)"]);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
 });
+
+test('marker rows need a project components/ copy that knows markers (core/timing.js)', async () => {
+  const dir = makeProject({ bars: 4 });
+  const f = path.join(dir, 'song.json'), song = JSON.parse(readFileSync(f, 'utf8'));
+  const t = song.beats[6].cue_t ?? song.beats[6].t;
+  writeFileSync(f, JSON.stringify({ ...song, markers: [{ name: 'drop', song_t: t + 10, t, in_loop: true }] }));
+  // a copy from before markers: no core/timing.js, and an engine and validator that never imported it
+  const core = path.join(dir, 'components', 'core');
+  rmSync(path.join(core, 'timing.js'));
+  for (const n of ['engine.js', 'validate.js']) {
+    const g = path.join(core, n);
+    writeFileSync(g, readFileSync(g, 'utf8').replace("import { resolveRows } from './timing.js';", 'const resolveRows = (rows) => rows;'));
+  }
+  const OLD = "the project's components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)";
+  // a states row on a marker
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'drop', use: 'check' }")));
+  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(cli.status, 1);
+  assert.ok(cli.stderr.includes(`error: ${OLD}`), cli.stderr);
+  // a cursor row on a marker
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 2, target: 'button', press: true }", "{ at: 'drop', offset: -4, target: 'button', press: true }")));
+  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  // no marker rows: the old copy is fine
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
+  assert.deepEqual((await checkBrief(dir)).errors, []);
+});

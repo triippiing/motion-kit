@@ -9,7 +9,8 @@
 // is such a line), each issue a warning, and a commercial track (a **Song:** or **Music:** line calling it
 // commercial) with public presets is a warning too.
 // Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
-// is an error. A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
+// is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js).
+// A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -123,6 +124,10 @@ export async function checkBrief(dir, opts = {}) {
     const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
     return { errors: [...errors, `beat table code ${why}`], warnings };
   }
+  // The project's page runs its own components/ copy, and one from before markers cannot place `at: 'name'` rows.
+  const marked = [states, cursor].some((rows) => Array.isArray(rows) && rows.some((r) => typeof r?.at === 'string'));
+  if (marked && !existsSync(path.join(dir, 'components', 'core', 'timing.js')))
+    errors.push("the project's components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)");
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   errors.push(...r.errors); warnings.push(...r.warnings);
   // No Exports line: nothing more, and no browser. With errors, the page (running the same tables) would only fail
