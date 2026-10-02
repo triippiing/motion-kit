@@ -43,6 +43,11 @@
 // entrance. Otherwise prev is null and continues false. The shape's geometry still morphs
 // between the rows as usual.
 // A drag (press 'down' ... 'up') must not span a row change; validate rejects it.
+// Cursor rows: x/y or target (+ dx/dy), press (true, 'down', 'up'), sound ('key') and hide. hide: true fades the
+// cursor out from that row's beat (a quarter beat, critically damped: no overshoot, opacity clamped to [0, 1]); the
+// next row without it fades it back in from its own beat. A hidden first row starts hidden. Hiding changes only
+// visibility: the cursor still follows its path, so presses, targets and inspect(t).cursor x/y are unchanged. A
+// hidden row cannot press (validate rejects it). inspect(t) -> { cursor: { x, y, opacity } }.
 import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage } from './validate.js';
 import { resolveRows } from './timing.js';
 import { el } from './helpers.js';
@@ -63,6 +68,7 @@ export function createScene(o) {
   const SHAPE = { omega: fromSettle(sp.settle_sec, sp.zeta), zeta: sp.zeta };
   const CAM = { omega: fromSettle(bs, 1), zeta: 1 };
   const PTR = { omega: fromSettle(0.8 * bs, 1), zeta: 1 };
+  const HIDE = { omega: fromSettle(0.25 * bs, 1), zeta: 1 };
   const v = (tr, t) => track(t, tr).value;
   const HEX = /^#[0-9a-f]{6}$/i;
   const hex = (c) => {
@@ -158,6 +164,9 @@ export function createScene(o) {
     ink: [0, 1, 2].map((k) => mk(G, (s) => hex(s.ink)[k], SHAPE)),
     zoom: mk(G, zoom, CAM),
     cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
+    // cursor opacity: a change only where hide flips, so consecutive hidden rows stay hidden
+    show: { from: C[0].hide ? 0 : 1, ...HIDE,
+      changes: C.flatMap((c, i) => (i && !c.hide !== !C[i - 1].hide ? [{ t: beatT(c.at), to: c.hide ? 0 : 1 }] : [])) },
     press: { from: 1, omega: fromSettle(0.15 * bs, 1), zeta: 1,
       changes: C.filter((c) => c.press).flatMap((c) => (c.press === 'down' ? [down(c)] : c.press === 'up' ? [up(c)] : [down(c), up(c, 0.1)])) },
   };
@@ -216,8 +225,10 @@ export function createScene(o) {
     const p = v(tracks.press, t);
     const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
     dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${(p * K) / z})`;
+    dom.cursor.style.opacity = shown(t);
   }
 
-  const inspect = (t) => { const z = v(tracks.zoom, t); return { cursor: { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z } }; };
+  const shown = (t) => Math.max(0, Math.min(1, v(tracks.show, t)));
+  const inspect = (t) => { const z = v(tracks.zoom, t); return { cursor: { x: CX + v(tracks.cx, t) * z, y: CY + v(tracks.cy, t) * z, opacity: shown(t) } }; };
   return { seek, inspect, since, sfx, rows, cursorRows: C };
 }

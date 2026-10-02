@@ -2,7 +2,7 @@
 import { resolveRows } from './timing.js';
 // `offset` goes with a marker `at` and is gone once resolved; `marker` is the name a resolved row came from.
 export const RESERVED = new Set(['at', 'offset', 'marker', 'use', 'name', 'w', 'h', 'r', 'fill', 'ink', 'shake', 'badge']);
-const CURSOR_KEYS = new Set(['at', 'offset', 'marker', 'x', 'y', 'target', 'dx', 'dy', 'press', 'sound']);
+const CURSOR_KEYS = new Set(['at', 'offset', 'marker', 'x', 'y', 'target', 'dx', 'dy', 'press', 'sound', 'hide']);
 
 export function lev(a, b) {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
@@ -159,6 +159,8 @@ const spot = (c) => canon({ target: c.target ?? null, x: c.x ?? null, y: c.y ?? 
 // The marker a row was placed by is where it sits, not what it is, so it is left out like `at`.
 const bare = ({ marker, ...row }) => row;
 const same = (a, b, registry) => canon({ ...withDefaults(bare(a), registry), at: 0 }) === canon({ ...withDefaults(bare(b), registry), at: 0 });
+// A cursor row for the seam: hide: false is the same as no hide.
+const shown = ({ hide, ...c }) => (hide === false || hide === undefined ? c : { ...c, hide });
 
 const HEX = /^#[0-9a-f]{6}$/i;
 const describe = (v) => (v === undefined ? 'nothing' : typeof v === 'number' ? String(v) : JSON.stringify(v));
@@ -266,6 +268,9 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       for (const k of ['dx', 'dy']) if (c[k] !== undefined && !Number.isFinite(c[k])) errors.push(`${k} at beat ${B(c)} should be a number, got ${describe(c[k])}`);
       if (c.press !== undefined && ![true, 'down', 'up'].includes(c.press)) errors.push(`press at beat ${B(c)} should be true, 'down' or 'up'`);
       if (c.sound !== undefined && c.sound !== 'key') errors.push(`sound at beat ${B(c)} should be 'key'`);
+      if (c.hide !== undefined && typeof c.hide !== 'boolean') errors.push(`hide at beat ${B(c)} should be true or false, got ${describe(c.hide)}`);
+      // A hidden cursor only travels: it cannot click, nor start or end a drag.
+      if (c.hide === true && c.press !== undefined) errors.push(`cursor() row ${i + 1}: a hidden cursor cannot press (remove hide or press)`);
       if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`); open = c.at; openAt = B(c); openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(c); }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${B(c)} has no 'down' before it`);
@@ -303,7 +308,7 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       }).join(' or on '));
     });
     if (open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`);
-    if (loop && cursor.length > 1 && !same(cursor.at(-1), cursor[0])) errors.push('the last cursor row must repeat the first so the loop is seamless');
+    if (loop && cursor.length > 1 && !same(shown(cursor.at(-1)), shown(cursor[0]))) errors.push('the last cursor row must repeat the first so the loop is seamless');
   }
   if (strict && song?.rules) {
     const hold = song.rules.min_hold_beats ?? 1;
