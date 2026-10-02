@@ -21,6 +21,45 @@ continues from where the first left off and animates the difference (tabs `activ
 `active: 'Month'` slides the indicator). After a press, write the pressed result into the next row
 (a toggle pressed on is written `on: true`).
 
+## Hitting a marked moment
+
+When the user has marked a moment on the sync page (`sync.mjs DIR`, key M), song.json lists it in
+`markers` as `{ name, song_t, t, in_loop }` (plus `note` when the user wrote one: what the moment is,
+for people only), with `t` in loop seconds. A row hits it by name instead of
+a beat number: `at: 'drop'`, optionally with `offset` in beats (`{ at: 'drop', offset: -0.5 }` is half a
+beat before). The row lands on the marker's exact time, even between beats.
+
+- Use only markers with `in_loop: true`; any other is an error.
+- Marker names are lowercase letters, digits and `-`, starting with a letter. Markers (`at:`) and
+  hotspots (`target:`) are separate namespaces: a marker may share a name with a hotspot without clashing.
+- The rules above still apply: the `states()` row before a marker row must start at least
+  `min_hold_beats` earlier, and the next one that much later. check_brief reports a marker row's beat
+  rounded to 3 places, with the name, e.g. `beat 4.538 ('drop')`.
+- Before the user nudges or taps a tempo, beats follow detected hits and can leave tiny gaps; a marker
+  in one resolves to the nearest whole beat.
+
+Land the action on the marker and let its result follow: the press is `at: 'drop'`, the new state is
+`{ at: 'drop', offset: 0.5, ... }` (as a press at 1.5 is followed by its state at 2 in the worked example
+below). A lead such as `offset: -0.5` is for the approach row only (the cursor gliding onto the button).
+
+In the readable table, write the marker's name (plus any offset) in `bar.beat` and its `t` from
+song.json. Say `drop` is at loop time 2.27 s at 120 BPM (about beat 4.54):
+
+| # | bar.beat | t | component | what changes | sound |
+|---|---|---|---|---|---|
+| 3 | drop - 0.5 | 2.02 | button | cursor glides onto "Export report" | |
+| 4 | drop | 2.27 | button | presses it on the drop | click |
+| 5 | drop + 0.5 | 2.52 | check | tick draws, "Exported" | |
+
+This fence has no language tag on purpose: the tests allow exactly one `js` block in this file (the
+worked example below).
+
+```
+{ at: 'drop', offset: 0.5, use: 'check', label: 'Exported' },  // states(): the result
+{ at: 'drop', offset: -0.5, target: 'button' },                // cursor(): the approach
+{ at: 'drop', target: 'button', press: true },                 // cursor(): the press, on the drop
+```
+
 ## Worked example: the reference sequence, 7 bars at 120 BPM (28 beats)
 
 `min_hold_beats` is 2 at 120 BPM, so every row holds 2 beats (14 rows, 12 components). The change

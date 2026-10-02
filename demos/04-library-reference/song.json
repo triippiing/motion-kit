@@ -327,5 +327,28 @@
       "settle_sec": 0.3303
     },
     "warnings": []
+  },
+  "markers": [
+    {
+      "name": "snare",
+      "song_t": 60.022,
+      "t": 12.659174,
+      "in_loop": true,
+      "note": "export report button should be pressed"
+    }
+  ],
+  "sync": {
+    "nudge_ms": 0,
+    "bpm": null,
+    "meter": "4/4",
+    "swing": 0.5,
+    "markers": [
+      {
+        "name": "snare",
+        "t": 60.022,
+        "note": "export report button should be pressed"
+      }
+    ],
+    "checked_by_ear": "2026-10-01"
   }
 }

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<!-- The sync page (sync.mjs): hear the beat grid over the song beside the live animation, nudge it, tap the
+     tempo, set meter and swing, drop named markers, Save. Plain HTML, CSS and JS; the logic is in app.js. -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync</title>
+<link rel="stylesheet" href="/__sync/style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand">motion-kit <b>sync</b></div>
+  <div id="song-name" class="muted"></div>
+  <div class="spacer"></div>
+  <div id="position" class="mono" title="Playhead: bar.beat and loop seconds"></div>
+</header>
+<main id="main">
+  <section id="anim" aria-label="Animation">
+    <div id="frame-box"><iframe id="frame" title="The project's animation, driven by the playhead" tabindex="-1" scrolling="no"></iframe></div>
+  </section>
+  <section id="side">
+    <div id="wave-wrap">
+      <canvas id="wave" aria-label="Waveform with the beat grid; click to move the playhead"></canvas>
+      <div id="flags"></div>
+    </div>
+    <canvas id="overview" aria-label="The whole loop; drag the window or click to jump"></canvas>
+    <div id="marker-list" aria-label="Markers" hidden></div>
+    <div id="transport">
+      <button id="play" class="primary" title="Play / stop (Space)"><span class="icon" aria-hidden="true"></span><span class="label">Play</span></button>
+      <button id="clicks" aria-pressed="true" title="Clicks on / off (C)">Clicks on</button>
+      <div class="spacer"></div>
+      <button id="right" title="Mark the grid as checked by ear">Sounds right</button>
+      <button id="save" title="Save (Ctrl+S)">Save</button>
+    </div>
+    <div id="readouts">
+      <div class="cell">
+        <div class="cap">Nudge <kbd>&uarr;</kbd><kbd>&darr;</kbd></div>
+        <output id="nudge" class="big mono">0 ms</output>
+        <div class="sub muted">5 ms, Shift 20 ms</div>
+      </div>
+      <div class="cell">
+        <div class="cap">Tempo <kbd>T</kbd></div>
+        <output id="tempo" class="big mono">120.0 BPM</output>
+        <div class="sub"><span id="tap" class="muted">detected</span> <button id="tempo-auto" class="link" hidden>use detected</button></div>
+      </div>
+      <div class="cell">
+        <label class="cap" for="meter">Meter</label>
+        <select id="meter">
+          <option value="4/4">4/4</option>
+          <option value="3/4">3/4</option>
+          <option value="6/8">6/8</option>
+        </select>
+        <div class="sub muted" id="meter-note">beats per bar</div>
+      </div>
+      <div class="cell">
+        <label class="cap" for="swing">Swing</label>
+        <div class="swing-row"><input id="swing" type="range" min="0.5" max="0.75" step="0.01" value="0.5"><output id="swing-out" class="mono">0.50</output></div>
+        <div class="sub muted" id="swing-note">straight</div>
+      </div>
+    </div>
+    <div id="status" role="status" aria-live="polite"></div>
+    <div id="keys" class="muted">
+      <span><kbd>Space</kbd> play</span>
+      <span><kbd>&larr;</kbd><kbd>&rarr;</kbd> scrub 10 ms, Shift &frac14; beat, Alt beat</span>
+      <span><kbd>Home</kbd> start</span>
+      <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> nudge</span>
+      <span><kbd>T</kbd> tap, <kbd>Enter</kbd> apply</span>
+      <span><kbd>M</kbd> marker</span>
+      <span><kbd>N</kbd> note</span>
+      <span><kbd>Del</kbd> remove</span>
+      <span><kbd>C</kbd> clicks</span>
+      <span><kbd>Ctrl</kbd><kbd>S</kbd> save</span>
+      <span>wheel scroll, <kbd>Ctrl</kbd> wheel zoom</span>
+    </div>
+  </section>
+</main>
+<script type="module" src="/__sync/app.js"></script>
+</body>
+</html>

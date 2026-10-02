@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validate, didYouMean, typeOk, matchHotspot, targetRow, pressRow } from '../components/core/validate.js';
+import { validate, didYouMean, typeOk, matchHotspot, targetRow, pressRow, markerMessage } from '../components/core/validate.js';
+import { markerBeat, resolveRows } from '../components/core/timing.js';
 
 // Fakes with real geometry/hotspot: a hotspot resolves when its name matches (tabs: only its own items).
 const fake = (name, props = {}, hotspots = [], drag, hotspot) => ({ meta: { name, props, hotspots, ...(drag ? { drag } : {}) },
@@ -254,7 +255,9 @@ test('holes, non-object rows and non-numeric beats are readable errors, not cras
   assert.deepEqual(holes.errors, ['states() row 2 (after beat 0) is empty (a stray comma?)']);
   assert.match(run([null, { at: 14, use: 'button' }]).errors.join('\n'), /states\(\) row 1 should be an object like \{ at: 4, \.\.\. \}, got null/);
   assert.match(run([{ at: 0, use: 'button' }, 'toast']).errors.join('\n'), /states\(\) row 2 \(after beat 0\) should be an object .* got "toast"/);
-  assert.match(run([{ at: '0', use: 'button' }]).errors.join('\n'), /states\(\) row 1 needs a numeric `at` \(a beat\), got "0"/);
+  // A string `at` is read as a marker name; a number in quotes gets the hint to write the number.
+  assert.match(run([{ at: '0', use: 'button' }]).errors.join('\n'), /states\(\) row 1: at: '0' is not a marker: markers start with a letter \(for beat 0 write at: 0\)/);
+  assert.match(run([{ at: null, use: 'button' }]).errors.join('\n'), /states\(\) row 1 needs a numeric `at` \(a beat\), got null/);
   assert.match(run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: NaN, x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]).errors.join('\n'),
     /cursor\(\) row 2 \(after beat 0\) needs a numeric `at` \(a beat\), got NaN/);
   // eslint-disable-next-line no-sparse-arrays
@@ -277,4 +280,83 @@ test('strict: a selection naming a value not in its list warns (meta.choices)', 
   assert.deepEqual(warn({ at: 0, use: 'dropdown', selected: '' }), [], 'an empty selection means none');
   assert.deepEqual(warn({ at: 0, use: 'tabs', active: 'Week' }), []);
   assert.deepEqual(libRun([{ at: 0, use: 'tabs', active: 'Mnoth' }], []).warnings, [], 'strict only');
+});
+
+// Markers: the song's derived top-level list (t in loop seconds). 'drop' sits at beat 9.37.
+const msong = { ...song, markers: [{ name: 'drop', song_t: 20.685, t: 4.685, in_loop: true }, { name: 'end', song_t: 23, t: 7, in_loop: true },
+  { name: 'outro', song_t: 72.31, t: 68.31, in_loop: false }] };
+const mrun = (states, cursor, o = {}) => run(states, cursor, { song: msong, ...o });
+
+test('markers: at: name and offset resolve to exact beats; holds, quiet beats and the seam use them', () => {
+  assert.ok(Math.abs(markerBeat(msong, 'drop') - 9.37) < 1e-9);
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }, { at: 'drop', use: 'tabs' }]);
+  // Something starts on every beat, except 8 and 9: the cursor row at drop - 0.5 (8.87) and the tabs row (9.37).
+  const cursor = [...[0, 1, 2, 3, 4, 5, 6, 7].map((b) => ({ at: b, x: b % 2, y: 0 })), { at: 'drop', offset: -0.5, target: 'tab:A' },
+    ...[10, 11, 12, 13].map((b) => ({ at: b, x: b % 2, y: 0 })), { at: 14, x: 0, y: 0 }];
+  assert.deepEqual(mrun(states, cursor, { strict: true }), { errors: [], warnings: [] });
+  // Holds are measured on the resolved beats (5.37 - 4 = 1.37).
+  const short = mrun(loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }, { at: 'drop', offset: -4, use: 'tabs' }]), undefined, { strict: true });
+  assert.match(short.errors.join('\n'), /row at beat 4 \(toast\) holds 1\.37 beats; min_hold_beats is 2/);
+  // A last row placed by marker still repeats the first (its marker name is not part of the comparison).
+  assert.deepEqual(mrun([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }, { at: 'end', use: 'button' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 'end', x: 0, y: 0 }]).errors, []);
+});
+
+test('markers: unknown, out-of-loop and non-name markers are errors with the row number, reported once', () => {
+  const r = mrun(loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'toast' }, { at: 'drp', use: 'tabs' }]),
+    [{ at: 0, x: 0, y: 0 }, { at: 'outro', x: 0, y: 0 }, { at: '4', x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(r.errors, [
+    "states() row 3: unknown marker 'drp' (did you mean 'drop'?)",
+    "cursor() row 2: marker 'outro' is outside the loop (at 1:12 in the song)",
+    "cursor() row 3: at: '4' is not a marker: markers start with a letter (for beat 4 write at: 4)",
+  ]);
+  // No markers at all (song.json without a sync section): the message says so.
+  assert.match(run(loopOk([{ at: 0, use: 'button' }, { at: 'drop', use: 'toast' }])).errors.join('\n'),
+    /states\(\) row 2: unknown marker 'drop' \(song\.json has no markers/);
+  assert.match(mrun(loopOk([{ at: 0, use: 'button' }, { at: 'zzzzzz', use: 'toast' }])).errors.join('\n'),
+    /unknown marker 'zzzzzz' \(markers: drop, end, outro\)/);
+});
+
+test('markers: offset needs a marker and a number', () => {
+  const r = mrun(loopOk([{ at: 0, use: 'button' }, { at: 4, offset: 1, use: 'toast' }, { at: 'drop', offset: 'x', use: 'tabs' }]));
+  assert.deepEqual(r.errors, [
+    "states() row 3: offset for marker 'drop' should be a number of beats, got \"x\"",
+  ]);
+  const n = mrun(loopOk([{ at: 0, use: 'button' }, { at: 4, offset: 1, use: 'toast' }]), [{ at: 0, x: 0, y: 0 }, { at: 2, offset: 1, x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(n.errors, [
+    'offset at beat 4 only goes with a marker, e.g. { at: \'drop\', offset: -0.5 }',
+    'offset at beat 2 only goes with a marker, e.g. { at: \'drop\', offset: -0.5 }',
+  ]);
+});
+
+test('markerMessage formats resolveRows errors (the one wording, shared with the engine)', () => {
+  const song2 = { ...song, markers: [{ name: 'drop', song_t: 72.31, t: 60, in_loop: false }] };
+  const [e] = resolveRows([{ at: 'drop' }], song2).errors;
+  assert.equal(markerMessage(e, 'states()'), "states() row 1: marker 'drop' is outside the loop (at 1:12 in the song)");
+});
+
+test('marker names and hotspot names are separate: a target named like a marker is still a hotspot', () => {
+  const r = mrun(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'drop' }, { at: 14, x: 0, y: 0 }]);
+  assert.match(r.errors.join('\n'), /hotspot "drop" is not on button/);
+});
+
+test('messages round a marker row\'s beat and name the marker', () => {
+  // drop + 0.1 resolves to 9.469999999999999 in floating point; the message prints 9.47 ('drop').
+  const r = mrun(loopOk([{ at: 0, use: 'button' }, { at: 'drop', offset: 0.1, use: 'toast', w: -1 }]),
+    [{ at: 0, x: 0, y: 0 }, { at: 'drop', offset: 0.1, press: 'sideways', x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
+  assert.deepEqual(r.errors, ["w at beat 9.47 ('drop') should be a number >= 0, got -1", "press at beat 9.47 ('drop') should be true, 'down' or 'up'"]);
+});
+
+test('quiet beats: a marker row within 1/8 beat of a whole beat counts for it; the tolerance is bounded; numbers unchanged', () => {
+  // Cursor rows leave 6 and 7 free; the toast row starts inside beat 6, so it decides whether 7 is quiet.
+  const at = (beat) => ({ ...song, markers: [{ name: 'snare', song_t: 60, t: beat * 0.5, in_loop: true }] });
+  const cursor = [...[0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13].map((b) => ({ at: b, x: b % 2, y: 0 })), { at: 14, x: 0, y: 0 }];
+  const quiet = (states, s) => validate({ states, cursor, registry, song: s, strict: true }).warnings.find((w) => /quiet beats/.test(w));
+  const rows = (row) => loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'button', label: 'B' }, row]);
+  // Marker 1 ms before beat 6 (5.998), row at offset 1 (6.998): sounds on beat 7, so 7 is busy.
+  assert.equal(quiet(rows({ at: 'snare', offset: 1, use: 'toast' }), at(5.998)), undefined);
+  // 0.2 beats off (6.8): too far from 7, which stays quiet.
+  assert.match(quiet(rows({ at: 'snare', offset: 1, use: 'toast' }), at(5.8)), /: 7;/);
+  // A numeric row at 6.998 gets no tolerance: 7 stays quiet.
+  assert.match(quiet(rows({ at: 6.998, use: 'toast' }), song), /: 7;/);
 });

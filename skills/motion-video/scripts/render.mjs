@@ -17,19 +17,20 @@ import { chromium } from 'playwright';
 import { execFile, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { readFile, readdir, stat, writeFile, mkdir, rename, rm } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile, mkdir, rename, rm, realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { beatTime } from '../components/core/timing.js';
 
 // A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
 export class UsageError extends Error {}
 
 export const FFMPEG = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((p) => existsSync(p)) || 'ffmpeg';
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
+export const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
@@ -58,14 +59,36 @@ export function spliceTables(html, code) {
 // `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in, `loop` (a boolean) with that
 // "loop"; `tables` serves index.html with those tables spliced in (spliceTables). Nothing is written.
 // `tablesSpliced` says whether the splice took.
-export function serve(dir, port = 0, { stage, loop, tables } = {}) {
+// `routes` maps 'METHOD /path' to a handler(req, res, root), checked before static files; a key ending in '/'
+// also answers every path under it (HEAD falls back to the GET route). With routes, any other method than GET or
+// HEAD that no route takes is a 404, and a request whose Host is not 127.0.0.1:PORT or localhost:PORT, or whose
+// Origin (when sent) is not http:// one of those, is a 403 (no cross-site requests, no DNS rebinding).
+// A path with a ".." segment, or one that resolves outside DIR (symlinks followed), is a 403.
+export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
   const root = path.resolve(dir);
+  let realRoot = root;
+  try { realRoot = realpathSync(root); } catch {}
   const state = { tablesSpliced: false };
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = createServer(async (req, res) => {
+      if (escapes(req.url)) { res.writeHead(403); return res.end(); }
       const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (routes && !sameOrigin(req, server.address().port)) { res.writeHead(403); return res.end(); }
+      if (routes) {
+        const handler = routeFor(routes, req.method, rel);
+        if (handler) {
+          try { return await handler(req, res, root); } catch (e) {
+            if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+          }
+        }
+        if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(404); return res.end(); }
+      }
       const file = path.join(root, rel === '/' ? 'index.html' : rel);
-      if (!file.startsWith(root)) { res.writeHead(403); return res.end(); }
+      if (!inside(root, file)) { res.writeHead(403); return res.end(); }
+      // a symlink inside DIR must not reach outside it; a missing file falls through (404, or a staged project.json)
+      const real = await realpath(file).catch(() => null);
+      if (real && !inside(realRoot, real)) { res.writeHead(403); return res.end(); }
       try {
         let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
         if (tables != null && (rel === '/' || rel === '/index.html')) {
@@ -76,9 +99,42 @@ export function serve(dir, port = 0, { stage, loop, tables } = {}) {
         res.end(body);
       } catch { res.writeHead(404); res.end(); }
     });
+    server.once('error', reject);
     server.listen(port, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${server.address().port}/`,
       get tablesSpliced() { return state.tablesSpliced; } }));
   });
+}
+
+// True when `file` is `root` or under it (a sibling such as root + "2" is not).
+export function inside(root, file) {
+  return file === root || file.startsWith(root + path.sep);
+}
+
+// A raw request path with a ".." segment (encoded or not, either slash) is never a browser's: URL parsing would
+// fold it away and serve some other file, so it is refused instead.
+function escapes(url) {
+  let p = url.split(/[?#]/)[0];
+  try { p = decodeURIComponent(p); } catch { return true; }
+  return p.split(/[\\/]/).includes('..');
+}
+
+// Only this machine's own pages: Host names the server itself, and Origin, when the browser sends one, is it too.
+function sameOrigin(req, port) {
+  const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+  if (!hosts.includes(req.headers.host)) return false;
+  const origin = req.headers.origin;
+  return origin == null || hosts.some((h) => origin === `http://${h}`);
+}
+
+function routeFor(routes, method, rel) {
+  if (method === 'HEAD') return lookupRoute(routes, 'HEAD', rel) || lookupRoute(routes, 'GET', rel);
+  return lookupRoute(routes, method, rel);
+}
+
+function lookupRoute(routes, method, rel) {
+  if (routes[`${method} ${rel}`]) return routes[`${method} ${rel}`];
+  const key = Object.keys(routes).find((k) => k.endsWith('/') && k.startsWith(`${method} `) && rel.startsWith(k.slice(method.length + 1)));
+  return key && routes[key];
 }
 
 async function stagedProject(file, { stage, loop }) {
@@ -133,12 +189,9 @@ export async function shoot(page, t) {
   return page.screenshot({ type: 'png', animations: 'disabled', caret: 'hide' });
 }
 
-// Loop time (seconds) of beat `b` (fractional allowed). Same mapping as the page's beatT: cue_t (else t)
-// of the floor beat plus the fraction of a beat.
-export function beatTime(song, b) {
-  const i = Math.floor(b), fb = song.beats?.[i];
-  return (fb ? (fb.cue_t ?? fb.t) : i * song.beat_sec) + (b - i) * song.beat_sec;
-}
+// Loop time (seconds) of beat `b`: the shared definition (the page's beatT uses the same one), re-exported
+// for export.mjs and safezones.mjs.
+export { beatTime };
 
 function sfxInputs(dir, song, sfx, offset, duration) {
   const inputs = [], filters = [];
@@ -181,12 +234,16 @@ const ffmpegLine = () => (ffmpegVersion ??= promisify(execFile)(FFMPEG, ['-versi
 
 // What produced a render, written beside it as <out>.render.json so export.mjs can tell a full-quality,
 // full-loop render made by this renderer from a preview, a section or a stale one. `renderer` hashes this
-// file, the project's components/core/engine.js (the code that turns the tables into frames), the ffmpeg
-// version line and Playwright's Chromium path (which names its revision; reading it launches nothing).
+// file and the skill's components/core/timing.js (it places the sounds), the project's components/core/engine.js
+// and timing.js (the code that turns the tables into frames), the ffmpeg version line and Playwright's
+// Chromium path (which names its revision; reading it launches nothing).
 // The options override the ffmpeg line or the Chromium path (tests).
 export async function rendererId(root, { ffmpeg, chromiumPath } = {}) {
   const h = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url)));
-  try { h.update(await readFile(path.join(root, 'components', 'core', 'engine.js'))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  h.update(await readFile(fileURLToPath(new URL('../components/core/timing.js', import.meta.url))));
+  for (const f of ['engine.js', 'timing.js']) {
+    try { h.update(await readFile(path.join(root, 'components', 'core', f))); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
   h.update(`\0${ffmpeg ?? await ffmpegLine()}\0${chromiumPath ?? chromium.executablePath()}`);
   return h.digest('hex').slice(0, 16);
 }

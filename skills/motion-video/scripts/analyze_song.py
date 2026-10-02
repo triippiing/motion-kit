@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 """analyze_song.py -- measure a song's beat grid and derive motion-video project rules.
 
-Usage: analyze_song.py SONG [--out DIR] [--bars 7] [--start-bar N] [--fps 60] [--states N]
+Usage: analyze_song.py SONG [--out DIR] [--bars 7] [--start-bar N | --start-near SEC] [--fps 60] [--states N]
 
-Writes DIR/song.json (grid + rules) and DIR/clip.wav (the loop window, 10ms edge
-fades). Needs ffmpeg and numpy, nothing else. Assumes 4/4 and a steady tempo,
-which is true of the programmed music these videos are cut to.
+Writes DIR/song.json (grid + rules), DIR/clip.wav (the loop window, 10ms edge
+fades) and DIR/.source.json (the song's absolute path, local only). Needs ffmpeg
+and numpy, nothing else. Assumes a steady tempo, which is true of the programmed
+music these videos are cut to.
+
+The `sync` section of an existing DIR/song.json belongs to the user and is kept.
+It is applied to the grid: `bpm` fixes the tempo, `meter` sets beats per bar,
+`nudge_ms` shifts every beat, and `markers` (song time) are listed for the loop.
+When the user set the grid (a nudge or a bpm), beats are not snapped to onsets.
 """
 import argparse
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +37,13 @@ COMFORT = (100.0, 130.0)
 SPRING_ZETA = 0.85
 SETTLE_BEATS = 0.6
 MIN_HOLD_SEC = 1.0
+UMASK = os.umask(0); os.umask(UMASK)
+METERS = {"4/4": 4, "3/4": 3, "6/8": 2}
+SYNC_BPM = (40.0, 240.0)
+SWING = (0.5, 0.75)
+MARKER_NAME = re.compile(r"[a-z][a-z0-9-]*")
+CHECKED_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
+NOTE_MAX = 200  # a marker's optional note: free text for people, never read for timing
 
 
 class SongError(Exception):
@@ -111,20 +126,73 @@ def fit_grid(env, bpm_guess, span=2.0, step=0.01):
     return best[1], best[2]
 
 
-def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
+def is_number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def validate_sync(sync):
+    """Check the user's sync section; returns it unchanged, or raises SongError."""
+    if sync is None:
+        return None
+    if not isinstance(sync, dict):
+        raise SongError("song.json sync must be an object")
+    if "nudge_ms" in sync and not is_number(sync["nudge_ms"]):
+        raise SongError(f"sync nudge_ms must be a number of milliseconds, got {sync['nudge_ms']!r}")
+    bpm = sync.get("bpm")
+    if bpm is not None and not (is_number(bpm) and SYNC_BPM[0] <= bpm <= SYNC_BPM[1]):
+        raise SongError(f"sync bpm must be a number from {SYNC_BPM[0]:g} to {SYNC_BPM[1]:g}, got {bpm!r}")
+    if "meter" in sync and sync["meter"] not in METERS:
+        raise SongError(f"sync meter must be one of {', '.join(METERS)}, got {sync['meter']!r}")
+    if "swing" in sync and not (is_number(sync["swing"]) and SWING[0] <= sync["swing"] <= SWING[1]):
+        raise SongError(f"sync swing must be a number from {SWING[0]} to {SWING[1]}, got {sync['swing']!r}")
+    if "checked_by_ear" in sync and not (isinstance(sync["checked_by_ear"], str)
+                                         and CHECKED_DATE.fullmatch(sync["checked_by_ear"])):
+        raise SongError(f"sync checked_by_ear must be a date like 2026-10-01, got {sync['checked_by_ear']!r}")
+    markers = sync.get("markers", [])
+    if not isinstance(markers, list):
+        raise SongError("sync markers must be a list of {name, t}")
+    seen = set()
+    for m in markers:
+        if not isinstance(m, dict):
+            raise SongError(f"sync markers must be objects with a name and a t, got {m!r}")
+        name = m.get("name")
+        if not isinstance(name, str) or not MARKER_NAME.fullmatch(name):
+            raise SongError(f"marker name {name!r} is not valid: use lowercase letters, digits and -, "
+                            "starting with a letter")
+        if name in seen:
+            raise SongError(f"marker name {name!r} is used twice")
+        seen.add(name)
+        if not (is_number(m.get("t")) and m["t"] >= 0):
+            raise SongError(f"marker {name!r} needs a time t in seconds (0 or more), got {m.get('t')!r}")
+        if "note" in m and not (isinstance(m["note"], str) and len(m["note"]) <= NOTE_MAX):
+            raise SongError(f"marker {name!r} note must be text of at most {NOTE_MAX} characters, got "
+                            + (f"{len(m['note'])} characters" if isinstance(m["note"], str) else repr(m["note"])))
+    return sync
+
+
+def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_near=None):
+    s = sync or {}
+    bpb = METERS[s.get("meter", "4/4")]
+    nudge = s.get("nudge_ms", 0) / 1000
+    user_grid = bool(s.get("nudge_ms")) or s.get("bpm") is not None
     x = decode(path)
+    song_sec = len(x) / SR
     full, low, centroid = envelopes(x)
     cands = tempo_candidates(full)
     if not cands:
         raise SongError("could not find a beat in this song")
-    bpm, phase = fit_grid(full, cands[0][0])
+    if s.get("bpm") is not None:
+        # the user's tempo: only the phase is fitted
+        bpm, phase = fit_grid(full, float(s["bpm"]), span=0.0)
+    else:
+        bpm, phase = fit_grid(full, cands[0][0])
     bpm = round(bpm, 3)  # song.json stores 3 decimals; derive everything from the stored value
     confidence = cands[0][1]
     beat_sec = 60.0 / bpm
     p = 60 * FPS_ENV / bpm
     n_beats = int((len(full) - 1 - phase) / p) + 1
     pos = phase + p * np.arange(n_beats)
-    times = np.array([env_time(q) for q in pos])
+    times = np.array([env_time(q) for q in pos]) + nudge
 
     low_at = np.interp(pos, np.arange(len(low)), low)
     j = int(np.argmax([low_at[k::bpb].mean() for k in range(bpb)]))
@@ -142,9 +210,9 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
     bar_rms, bar_cent = [], []
     for b in range(n_bars):
         t0, t1 = times[j + b * bpb], times[j + b * bpb] + bpb * beat_sec
-        seg = x[int(t0 * SR):int(t1 * SR)]
-        bar_rms.append(20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-9))
-        f0, f1 = int(t0 * FPS_ENV), int(t1 * FPS_ENV)
+        seg = x[max(0, int(t0 * SR)):max(0, int(t1 * SR))]
+        bar_rms.append(20 * np.log10(np.sqrt(np.mean(seg ** 2) if seg.size else 0.0) + 1e-9))
+        f0, f1 = max(0, int(t0 * FPS_ENV)), min(len(centroid), max(0, int(t1 * FPS_ENV)))
         bar_cent.append(float(centroid[f0:f1].mean()) if f1 > f0 else 0.0)
     F = np.array([bar_rms, bar_cent]).T
     F = (F - F.mean(0)) / (F.std(0) + 1e-9) if n_bars > 1 else F
@@ -161,27 +229,42 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
     if n_bars < bars:
         raise SongError(f"song is shorter than the requested loop: {n_bars} whole bars available, {bars} asked for")
     last_start = n_bars - bars
-    if start_bar is not None:
-        if not 0 <= start_bar <= last_start:
-            raise SongError(f"--start-bar must be between 0 and {last_start}")
-        start = start_bar
-    else:
-        score = lambda b: float(np.mean(bar_rms[b:b + bars]))
-        preferred = [b for b in sections if b <= last_start]
-        start = max(preferred or range(last_start + 1), key=score)
-
     total = bars * bpb
     duration = total * beat_sec
+    if start_bar is not None:
+        if not 0 <= start_bar <= last_start:
+            raise SongError(f"--start-bar must be between 0 and {last_start} (or pick the bar by time with --start-near SEC)")
+        start = start_bar
+    elif start_near is not None:
+        start = min(range(last_start + 1), key=lambda b: abs(times[j + b * bpb] - start_near))
+    else:
+        # a user grid can push the first or last bars off the song: pick among windows that fit
+        # (without one, the pick is exactly as it always was)
+        fits = [b for b in range(last_start + 1)
+                if not user_grid or (times[j + b * bpb] >= 0 and times[j + b * bpb] + duration <= song_sec)]
+        fits = fits or list(range(last_start + 1))
+        score = lambda b: float(np.mean(bar_rms[b:b + bars]))
+        preferred = [b for b in sections if b in fits]
+        start = max(preferred or fits, key=score)
+
     frames = int(round(duration * fps))
     frame_dt = duration / frames
     first = j + start * bpb
     start_sec = float(times[first])
+    if start_sec < 0:
+        raise SongError("the loop window would start before the song (move it with --start-bar); "
+                        "--start-near SEC also moves the loop window")
+    # the detected grid's last bar may end a little past the audio (the clip is then short), as it always
+    # has; a user grid is held to the song
+    if user_grid and start_sec + duration > song_sec:
+        raise SongError("the loop window would end past the end of the song (move it with --start-bar); "
+                        "--start-near SEC also moves the loop window")
     beats = []
     for i in range(total):
         abs_t = start_sec + i * beat_sec
         t = i * beat_sec
         cue = abs_t
-        if peak_t.size:
+        if peak_t.size and not user_grid:
             k = int(np.argmin(np.abs(peak_t - abs_t)))
             if abs(peak_t[k] - abs_t) <= beat_sec / 8:
                 cue = float(peak_t[k])
@@ -211,7 +294,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
         warnings.append(f"{states} states need {states * min_hold} beats at {min_hold} beats each; "
                         f"this loop has {total}. Use --bars {need} or fewer states.")
 
-    return {
+    song = {
         "source": Path(path).name, "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
         "alternatives": [round(c[0], 2) for c in cands[1:4]],
         "beat_sec": beat_sec, "beats_per_bar": bpb, "downbeat_sec": round(downbeat_sec, 6), "fps": fps,
@@ -223,6 +306,15 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, bpb=4):
                   "spring": {"zeta": SPRING_ZETA, "settle_sec": round(SETTLE_BEATS * beat_sec, 4)},
                   "warnings": warnings},
     }
+    if sync is not None:
+        # markers are in song time; list them against this loop (their beat is computed by timing.js)
+        start_r = round(start_sec, 6)
+        song["markers"] = [{"name": m["name"], "song_t": round(float(m["t"]), 6),
+                            "t": round(m["t"] - start_r, 6), "in_loop": 0 <= m["t"] - start_r < duration,
+                            **({"note": m["note"]} if "note" in m else {})}
+                           for m in sync.get("markers", [])]
+        song["sync"] = sync
+    return song
 
 
 def write_clip(src, start_sec, duration_sec, out_path):
@@ -232,6 +324,50 @@ def write_clip(src, start_sec, duration_sec, out_path):
                         "-c:a", "pcm_s16le", str(out_path)], capture_output=True)
     if r.returncode != 0:
         raise SongError(f"could not write clip: {r.stderr.decode(errors='replace')[:300]}")
+
+
+def read_sync(out):
+    """The sync section of an existing DIR/song.json, or None."""
+    path = Path(out) / "song.json"
+    if not path.is_file():
+        return None
+    try:
+        old = json.loads(path.read_text())
+    except (OSError, ValueError):
+        old = None
+    if not isinstance(old, dict):
+        print("warning: could not read the existing song.json; its sync section is not kept", file=sys.stderr)
+        return None
+    return old.get("sync")
+
+
+def write_atomic(out, files):
+    """Write each {name: writer(tmp_path)} to a temp file in out, then rename them all into place."""
+    # atomic per file, not as a set: Save (sync.mjs) keeps song.json.bak and restores it if a run fails
+    tmps = {}
+    try:
+        for name, writer in files.items():
+            fd, tmp = tempfile.mkstemp(dir=out, prefix=f".{name}.", suffix=Path(name).suffix)
+            os.close(fd)
+            tmps[name] = tmp
+            os.chmod(tmp, 0o666 & ~UMASK)  # mkstemp makes 0600; keep the usual mode
+            writer(tmp)
+        for name, tmp in tmps.items():
+            os.replace(tmp, Path(out) / name)
+    finally:
+        for tmp in tmps.values():
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+
+def finite_float(text):
+    try:
+        v = float(text)
+    except ValueError:
+        v = math.nan
+    if not math.isfinite(v):
+        raise argparse.ArgumentTypeError(f"must be a number of seconds, got {text!r}")
+    return v
 
 
 def positive_int(text):
@@ -249,16 +385,25 @@ def main(argv=None):
     ap.add_argument("song")
     ap.add_argument("--out", default=".")
     ap.add_argument("--bars", type=positive_int, default=7)
-    ap.add_argument("--start-bar", type=int)
+    where = ap.add_mutually_exclusive_group()
+    where.add_argument("--start-bar", type=int)
+    where.add_argument("--start-near", type=finite_float, metavar="SEC",
+                       help="start the loop on the bar nearest this time in the song")
     ap.add_argument("--fps", type=positive_int, default=60)
     ap.add_argument("--states", type=int)
     a = ap.parse_args(argv)
     try:
-        song = analyze(a.song, bars=a.bars, fps=a.fps, start_bar=a.start_bar, states=a.states)
         out = Path(a.out)
+        sync = validate_sync(read_sync(out))
+        song = analyze(a.song, bars=a.bars, fps=a.fps, start_bar=a.start_bar, states=a.states,
+                       sync=sync, start_near=a.start_near)
         out.mkdir(parents=True, exist_ok=True)
-        write_clip(a.song, song["loop"]["start_sec"], song["loop"]["duration_sec"], out / "clip.wav")
-        (out / "song.json").write_text(json.dumps(song, indent=2))
+        source = {"path": str(Path(a.song).resolve())}
+        write_atomic(out, {
+            "clip.wav": lambda p: write_clip(a.song, song["loop"]["start_sec"], song["loop"]["duration_sec"], p),
+            "song.json": lambda p: Path(p).write_text(json.dumps(song, indent=2)),
+            ".source.json": lambda p: Path(p).write_text(json.dumps(source, indent=2)),
+        })
     except (SongError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -267,6 +412,9 @@ def main(argv=None):
     print(f"loop: bar {L['start_bar']} at {L['start_sec']:.2f}s, {L['bars']} bars = {L['duration_sec']:.3f}s, {L['frames']} frames")
     print(f"rules: <= {song['rules']['max_states']} states, >= {song['rules']['min_hold_beats']} beats each, "
           f"spring settle {song['rules']['spring']['settle_sec']}s")
+    for m in song.get("markers", []):
+        print(f"marker {m['name']}: {m['song_t']:.3f}s in the song, "
+              + (f"{m['t']:.3f}s into the loop" if m["in_loop"] else "outside the loop"))
     for w in song["rules"]["warnings"]:
         print(f"warning: {w}")
     return 0

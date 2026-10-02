@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Springs from '../../../shared/springs.js';
 import { createScene } from '../components/core/engine.js';
+import { beatTime, markerBeat } from '../components/core/timing.js';
 
 // Minimal DOM: enough for createScene with component rows (mount only appends children).
 function node() {
@@ -182,4 +183,18 @@ test('a badge of 0 shows no bubble', () => {
 test('fill and ink overrides are checked against the theme before anything renders', () => {
   assert.throws(() => make([{ at: 0, use: 'a', fill: 'pos' }, { at: 12, use: 'a', fill: 'pos' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]),
     /motion-kit: .*fill at beat 0 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/s);
+});
+
+test('marker rows: t0 is the marker\'s exact beat; offsets and cursor rows resolve too; bad markers throw', () => {
+  const msong = { ...song, sync: { swing: 0.6 }, markers: [{ name: 'drop', song_t: 20.685, t: 4.685, in_loop: true }] };
+  const beatT = (b) => beatTime(msong, b);
+  const s = make([{ at: 0, use: 'a' }, { at: 'drop', use: 'b' }, { at: 12, use: 'a' }],
+    [{ at: 0, x: 0, y: 0 }, { at: 'drop', offset: -0.5, x: 0, y: 0, press: true }, { at: 12, x: 0, y: 0 }], { song: msong, beatT });
+  const b = markerBeat(msong, 'drop');
+  assert.ok(Math.abs(s.rows[1].t0 - beatTime(msong, b)) < 1e-9);
+  assert.ok(Math.abs(s.rows[1].t0 - 4.685) < 1e-9);
+  assert.equal(s.rows[1].row.marker, 'drop');
+  assert.equal(s.cursorRows[1].at, b - 0.5);
+  assert.throws(() => make([{ at: 0, use: 'a' }, { at: 'drp', use: 'b' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }],
+    { song: msong, beatT }), /motion-kit: states\(\) row 2: unknown marker 'drp' \(did you mean 'drop'\?\)/);
 });

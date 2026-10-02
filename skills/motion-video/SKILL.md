@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, sync, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
 ---
 
 # Motion video
@@ -12,7 +12,8 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Check tooling | `scripts/doctor.sh` |
 | New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css]` |
 | Re-theme from a project | `python3 scripts/extract_theme.py app.css --out DIR [--map accent=--brand]` |
-| Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` |
+| Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` (delete `sync` from song.json first) |
+| Hear and fix the beat grid, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
 | Preview render | `node scripts/render.mjs DIR --preview` |
@@ -46,7 +47,8 @@ props; the cursor aims at its hotspots with `target:`.
    (`components/WRITING-A-COMPONENT.md`). Edit only the tables: `states()`, `cursor()`, `content`,
    `extraSfx()`, plus a `.layer` per custom state name. `cursor()` rows take `press: true` (click), `press: 'down'`/`'up'`
    (hold, for drags) and `sound: 'key'` (plays sfx/key.wav); `extraSfx()` returns `[{beat, file, gain}]`
-   for any other cue. Every `press: 'down'` needs a later `press: 'up'`. A drag is three rows: down, move, up (the move row sits strictly between them; a move written on the 'up' row starts only after the release, so the 'up' row repeats the move row's position). Each `content` function takes absolute `t` and runs every frame (use `since(stateName, t)`). Colours in STATES are theme roles (`canvas surface ink muted accent`)
+   for any other cue. A row's `at` may also name a marker set on the sync page (`at: 'drop'`, optionally
+   `offset` in beats; see Sync). Every `press: 'down'` needs a later `press: 'up'`. A drag is three rows: down, move, up (the move row sits strictly between them; a move written on the 'up' row starts only after the release, so the 'up' row repeats the move row's position). Each `content` function takes absolute `t` and runs every frame (use `since(stateName, t)`). Colours in STATES are theme roles (`canvas surface ink muted accent`)
    so the piece re-themes with the project (theme.json may also carry optional `pos`/`neg` roles when the CSS defines success/danger colours; use `var(--pos)` / `var(--neg)` in layers, and only when present); use CSS `var(--accent)` etc. inside layers, never hex. Keep the page contract: `window.ready`, `window.STAGE`,
    pure `window.seek(t)` that does not wrap `t`, `window.inspect(t)`, `window.SFX`.
 3. Rules inside `seek(t)`: every style computed from `t`; no CSS transitions, animations,
@@ -69,6 +71,152 @@ props; the cursor aims at its hotspots with `target:`.
 - `rules.spring` sets the house spring (ζ 0.85, settle 0.6 beat); the template already uses it.
 - Outside 100–130 BPM: follow the warning (half-time events or half-beat accents).
 - A commercial track is for local viewing: remind the user before they post. `export.mjs --silent` drops the audio.
+- `song.json` `sync` (set on the sync page) belongs to the user: every `analyze_song.py` run keeps it and applies it.
+  Re-timing to a **different** song? Delete the `sync` section from `song.json` first: its nudge, tempo and
+  markers were set by ear against the old song.
+
+## Sync
+
+Only a person can hear whether the beat grid sits on the music. Claude cannot: never say the sync is
+right. The sync page lets the user hear clicks over the song next to the live animation, fix the grid,
+and mark named moments that table rows can then hit.
+
+```bash
+node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]
+```
+
+It serves DIR on 127.0.0.1 only, prints `sync page: http://127.0.0.1:PORT/__sync`, and opens it in the
+browser (macOS `open`) unless `--no-open`. `--port` is 0 to 65535 (default 0: any free port). It keeps
+running until stopped, so start it in the background (or let the user run it) and pass on the URL.
+`--song PATH` first records where the original song is now (see Save). Bad usage exits 2 with `error: ...`.
+
+**Layout.** Left: the project's own `index.html` in a frame, driven by `seek(t)` from the audio clock, so
+what plays is what renders. Right: a zoomed waveform (about 2 bars) that follows the playhead, with bars
+as strong lines and numbers, beats faint, swung half-beats fainter, and markers as orange flags. Under
+it, the whole loop as a strip with the view's window on it, then the markers list (one line each: name,
+song time m:ss.mmm, note; click a line to select the marker and move the playhead there; markers outside the
+loop are listed as "outside loop" and cannot be jumped to). The selected marker's line holds a note field
+("add a note"). Then Play, Clicks, Sounds right, Save, the
+readouts (nudge, tempo, meter, swing) and a status line.
+
+**Keys and mouse.**
+
+| Key or action | Does |
+|---|---|
+| Space | play / stop (song, clicks and animation together) |
+| ← / → | scrub the playhead 10 ms back / forward; with Shift, a quarter beat; with Alt, to the previous / next beat line. It wraps at the loop edges. Stopped, each step plays an 80 ms blip of the song there (no clicks), so you can hear exactly where M will drop a marker; playing, it seeks |
+| Home | playhead to the loop start |
+| ↑ / ↓ | nudge the grid 5 ms later / earlier; with Shift, 20 ms |
+| T | tap the tempo; after 8 taps (a gap over 2 s starts again) the readout shows the tapped BPM |
+| Enter | apply the tapped BPM (40 to 240) |
+| M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it |
+| click a flag, then type in "add a note" | select a marker (its line in the markers list then shows a note field, pre-filled) and write a note on it. Enter or clicking away keeps a changed note, Esc drops the edit, an empty note removes it; Save or Ctrl/Cmd+S writes it (Ctrl/Cmd+S inside the field keeps it and saves in one step). Hover a flag to read its note. A note (at most 200 characters) is for people only: it never moves the grid and does not clear "Sounds right" |
+| N | focus the selected marker's note field |
+| Delete or Backspace | remove the selected marker (right-click a flag does the same) |
+| C | clicks on / off (the downbeat click is higher) |
+| Esc | clear the selection and any taps |
+| Ctrl+S or Cmd+S | Save. It also works while typing a marker name: the marker is kept first, and an empty or invalid name stops the Save |
+| drag a flag | move a marker (it stays inside the loop) |
+| click the waveform | move the playhead |
+| wheel / Ctrl+wheel | scroll / zoom the waveform (0.5 to 8 bars) |
+| the loop strip | click anywhere to move the playhead there and centre the view on it (playing, the song and clicks carry on from there; stopped, a short blip plays); drag the view's window to pan the view without moving the playhead |
+| "use detected" | drop a tapped tempo and go back to the detected one |
+| Meter, Swing | 4/4, 3/4 or 6/8 (6/8 counts two dotted beats a bar); swing 0.50 (straight) to 0.75, 0.67 is triplet |
+| Sounds right | records today's date as `checked_by_ear` (the button then reads "Checked DATE") |
+
+Leaving the page with unsaved changes asks first.
+
+**The status line.** It shows the confidence (with "(low: check by ear)" under 0.5), whether the grid is
+checked by ear, any markers outside the loop, and:
+
+| Says | Means |
+|---|---|
+| grid follows detected hits | each beat sounds on the detected hit near it (`cue_t`), as the analyser measured |
+| even grid: detected hits off | a nudge (other than 0) or a tapped tempo is set, so the ear wins: every beat sits exactly on the even grid, with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it |
+| preview is approximate until you save | a tempo or meter change is pending. The clicks follow an even grid at the new tempo over the **old** loop length, so expect a flam at the loop seam; the animation keeps the saved tempo. Save fits the real grid. Save keeps `--bars N`, so a tempo change alters the loop's length in seconds and a meter change alters its length in beats (bars times beats a bar): afterwards re-read song.json's `beats` and `loop.duration_sec` and redo the bars and the tables |
+| unsaved changes / saving: re-cutting the clip / saved HH:MM:SS | the Save state |
+
+Nudge and swing preview exactly (clicks, lines and animation). Swing does not clear "Sounds right" (the
+beats themselves do not move); a nudge, tempo or meter change does, and the server applies the same rule
+as a backstop.
+
+**What Save does.** Save sends the `sync` section to the server, which:
+1. writes it into `DIR/song.json` and keeps the previous file as `DIR/song.json.bak`;
+2. re-runs `analyze_song.py` on the **original song** (its absolute path is in `DIR/.source.json`, written
+   by the analyser; local and git-ignored, never commit it) with the project's `--bars` and `--fps` and
+   `--start-near` the current loop start, so the loop window stays put while the bars renumber;
+3. which rebuilds `song.json` and re-cuts `clip.wav` (a nudge or tempo change moves the cut). The page
+   then reloads the grid, the audio and the animation.
+
+If anything fails, the previous `song.json` is put back and the page shows the error. If the song has
+moved, the error says `... record where the song is with: node sync.mjs DIR --song PATH`: run
+`node scripts/sync.mjs DIR --song /new/path/song.mp3` and Save again.
+
+The `sync` section it writes:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `nudge_ms` | shifts every beat earlier (negative) or later; markers do not move | 0 |
+| `bpm` | tapped tempo: the grid is fitted at it instead of the detected one | `null` |
+| `meter` | `4/4`, `3/4` or `6/8` (beats per bar 4, 3, 2) | `4/4` |
+| `swing` | where the off-beat sits inside a beat, 0.5 to 0.75 | 0.5 |
+| `markers` | `[{ "name", "t", "note" }]`, `t` in seconds from the start of the song file; `note` is optional free text (at most 200 characters) and never affects timing | `[]` |
+| `checked_by_ear` | the date "Sounds right" was pressed | absent |
+
+The analyser validates it (a bad value is `error: ...`, exit 2) and lists the markers for the current
+loop as top-level `markers: [{ name, song_t, t, in_loop, note }]` in `song.json` (`t` in loop seconds;
+`note` only when the marker has one).
+
+**Markers in tables.** A `states()` or `cursor()` row can sit on a marker by name, with an optional
+`offset` in beats:
+
+```js
+{ at: 'drop', offset: -0.5, target: 'button' }        // cursor(): the approach, half a beat before
+{ at: 'drop', target: 'button', press: true }         // cursor(): the press, exactly on the marker
+{ at: 'drop', offset: 0.5, use: 'check', label: 'Done' }  // states(): its result, half a beat after
+```
+
+Put the action on the marker and its result after it; a lead (`offset: -0.5`) is for the approach only.
+
+- Names are lowercase letters, digits and `-`, starting with a letter. Marker names (`at:`) and hotspot
+  names (`target:`) are separate: a marker called `button` does not clash with the `button` hotspot.
+- The row resolves to the marker's exact beat (fractional, swing included) before any rule runs, so
+  holds, the state budget and the seam treat it like a numeric row. Rows must still be in beat order.
+- Errors (from `check_brief.mjs`, and thrown by the page) name the marker, and give a marker's beat rounded
+  to 3 places, e.g. `states() row 3: unknown marker 'drp' (did you mean 'drop'?)`,
+  `cursor() row 5: marker 'drop' is outside the loop (at 1:42 in the song)` and
+  `rows must be in ascending beat order (beat 9.309 ('drop') after 10)`. With no markers at all the hint is
+  `song.json has no markers; mark them with sync.mjs DIR`. An `offset` on a numeric row is an error:
+  `offset at beat N only goes with a marker, e.g. { at: 'drop', offset: -0.5 }`.
+- While the grid follows detected hits, a beat's cue can sit a little off the even grid, leaving short
+  gaps no beat covers. A marker in such a gap resolves to the nearest whole beat. After a nudge or tempo
+  change the grid is even and there are no gaps.
+
+**Known limits.**
+- A loop window that ends at the very end of the song cannot be nudged or re-tempoed: Save fails with
+  "the loop window would end past the end of the song". Move the loop window first with
+  `python3 scripts/analyze_song.py SONG --out DIR --bars N --start-bar B`, or `--start-near SEC` to start on the bar
+  nearest a time in the song (the strip on the page moves the playhead and view inside the loop, never the loop window).
+- Markers outside the loop are listed in the status line and the markers list ("outside loop") but not drawn, so they cannot be dragged on the
+  page. To remove one, click its line in the markers list (that selects it), press Delete, then Save. To move
+  one, edit its `t` in `song.json` `sync.markers` with the page closed, then open the page and Save (Save
+  re-runs the analyser even with nothing changed). Or move the loop window to include it.
+- Save does not pass `--states`, so a "states need N beats" warning from `new_project.sh` is not repeated.
+- Older projects. One copied before `components/core/timing.js` existed still works on the page: sync.mjs
+  serves the kit's timing module at `/__sync/timing.js` as a fallback. But a `components/` copy from before
+  markers does not know `at: 'drop'` (its engine rejects it), so copy a fresh `components/` in before using
+  markers. `check_brief.mjs` validates with the kit's own rules and the project's component registry, and
+  refuses marker rows when the project's copy is too old (no `components/core/timing.js`): "the project's
+  components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)". An older
+  `index.html` also lacks `window.rebuild(song)`, the template's hook used only by the sync page, so the
+  animation shows the saved grid while you edit and is reloaded after each Save. Its inline `beatT` also
+  ignores swing, while render's sound cues (from `components/core/timing.js`) apply it, so on a swung grid
+  the animation and the sounds disagree on the off-beats until the page uses the kit's `beatTime`.
+- A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
+- The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
+  safe-zone check and sync)
+  refuses any file in the project that is a symlink to somewhere outside it. `new_project.sh` copies files
+  rather than linking them, so its projects are unaffected.
 
 ## Export
 

@@ -26,6 +26,34 @@ node $S/render.mjs demos/04-library-reference --serve  # watch live with audio (
 node $S/render.mjs demos/04-library-reference          # final: demos/04-library-reference/out/video.mp4
 ```
 
+## Syncing
+
+Jack checked the beat grid by ear on the sync page: Tints with the beat clicks over it, next to the live
+animation. The detected grid sounded right, so the nudge stayed at 0, and he pressed Sounds right
+(`checked_by_ear: "2026-10-01"` in the `sync` section of `song.json`). With that set, `check_brief.mjs`
+no longer warns about the low BPM confidence (0.39).
+
+He marked one moment: `snare`, at 1:00.02 in the song (12.66 s into the loop, beat 23), with the note
+"export report button should be pressed". Two rows now use it:
+
+| Table | Before | After |
+|---|---|---|
+| `cursor()` | `{ at: 23.5, target: 'row:0', press: true }` | `{ at: 'snare', target: 'row:0', press: true }` |
+| `states()` | `{ at: 24, use: 'toast', text: 'Report exported', action: 'Open' }` | `{ at: 'snare', offset: 1, use: 'toast', text: 'Report exported', action: 'Open' }` |
+
+The command bar's "Export report" press moved half a beat earlier, from beat 23.5 onto the snare, and the
+toast now follows one beat after it (it used to follow half a beat after the press). Jack watched the
+re-render and signed it off.
+
+To reopen the page from the repo root (it serves on 127.0.0.1 and opens the browser):
+
+```bash
+node skills/motion-video/scripts/sync.mjs demos/04-library-reference
+```
+
+`.source.json` (where the song is) is local and not committed, so on a fresh clone add
+`--song "<your song>"` once. The full guide is the Sync section of `skills/motion-video/SKILL.md`.
+
 ## Exports
 
 The brief lists `**Exports:** reels, x, discord, web, gif`. One command made every file, with audio,

@@ -258,6 +258,7 @@ test('the CLI entry guard works from a path with spaces', () => {
   const home = path.join(root, 'a b');
   mkdirSync(home);
   cpSync(path.join(SKILL, 'scripts'), path.join(home, 'scripts'), { recursive: true });
+  cpSync(path.join(SKILL, 'components', 'core'), path.join(home, 'components', 'core'), { recursive: true });   // render.mjs reads timing.js
   symlinkSync(path.join(SKILL, 'node_modules'), path.join(home, 'node_modules'));
   for (const f of ['render.mjs', 'beat_stills.mjs']) {
     const r = spawnSync('node', [path.join(home, 'scripts', f)], { encoding: 'utf8' });   // no DIR => usage

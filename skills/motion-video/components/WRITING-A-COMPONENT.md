@@ -78,8 +78,8 @@ Prop types: `string`, `number`, `boolean`, `string[]`, `number[]`, `object`, `ob
 | `targets` | every cursor row aimed at this row's hotspots (`{ t, target, press }`) plus, as `target: null`, every other cursor row inside its window; in time order |
 | `cursorAt(t)` | the cursor's position in design px from the stage centre (for drags) |
 | `geo` | this row's resolved `w`, `h`, `r`, `fill`, `ink` (a row can override geometry) |
-| `row` | the raw table row (`row.at` is its beat) |
-| `beat_sec`, `beatT(beat)` | seconds per beat, and a beat number to seconds on the song's measured grid |
+| `row` | the raw table row (`row.at` is its beat; a row placed on a marker, `at: 'drop'`, arrives with `at` already the marker's exact, possibly fractional, beat and `row.marker` holding the name) |
+| `beat_sec`, `beatT(beat)` | seconds per beat, and a beat number (fractional allowed) to seconds on the song's measured grid, with the song's swing applied to fractions (`components/core/timing.js`) |
 | `Springs`, `spring` | the spring maths, and the house spring from the song |
 | `theme`, `hex(role)` | the theme's colour roles, and a role to `[r, g, b]` |
 | `stage`, `loop_sec` | the stage size, and the loop length in seconds (null when the piece does not loop) |
@@ -279,7 +279,9 @@ Springs only, through `ctx.Springs` and the helpers; position and size springs h
 
 ### 10. Props, class names and copy
 
-- Prop names must not be reserved row keys: `at use name w h r fill ink shake badge` (the contract test fails).
+- Prop names must not be reserved row keys: `at offset marker use name w h r fill ink shake badge` (the contract test fails;
+  the list is `RESERVED` in `core/validate.js`). `offset` goes with a marker `at` (`{ at: 'drop', offset: -0.5 }`, in
+  beats) and `marker` is set by the engine on a row placed by a marker.
   Every row accepts these whatever its component (the Row keys table at the top of `CATALOG.md`): `at`, `use`,
   `fill` and `ink` (a theme role or `#rrggbb`, overriding what `geometry` returns), `w`/`h`/`r` (overriding the
   shape's size), `shake: true` (error shake on arrival) and `badge: <n>` (count bubble); `name` is a custom
