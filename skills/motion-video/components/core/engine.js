@@ -48,7 +48,10 @@
 // next row without it fades it back in from its own beat. A hidden first row starts hidden. Hiding changes only
 // visibility: the cursor still follows its path, so presses, targets and inspect(t).cursor x/y are unchanged. A
 // hidden row cannot press (validate rejects it). inspect(t) -> { cursor: { x, y, opacity } }.
-import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage } from './validate.js';
+// The pointer moves on a critically damped spring that settles in 0.8 beat, except into a drag: a press 'down' on a
+// meta.drag hotspot and its 'up' land where they are aimed (within 0.5 design px), so any move that starts too close
+// before one of them is sped up just enough to arrive. A drag component's thumb then starts under the cursor.
+import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage, matchHotspot } from './validate.js';
 import { resolveRows } from './timing.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
@@ -121,10 +124,39 @@ export function createScene(o) {
   // which may depend on the cursor (a slider's release point), so the pointer is read from the cursor
   // rows resolved so far until all of them are.
   const mk = (list, get, opts) => ({ from: get(list[0]), changes: list.slice(1).map((x) => ({ t: beatT(x.at), to: get(x) })), ...opts });
+  // A drag lands where it is aimed: the pointer must be on the hotspot when its press 'down' fires (a drag
+  // component follows the cursor from where it was at the down) and on its release point at the 'up'. The
+  // pointer spring takes 0.8 beat to settle, so a shorter approach would press short of the thumb and carry
+  // that gap through the whole drag. Each pointer move that starts before a landing time is sped up just
+  // enough to be within LAND design px of its target by then; moves with time to spare keep the house spring.
+  const LAND = 0.5;
+  const isDrag = (c) => { const r = c.target && targetRow(rows, c); return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target); };
+  const landings = cursor.flatMap((c, i) => {
+    if (c.press !== 'down' || !isDrag(c)) return [];
+    const up = cursor.slice(i + 1).find((u) => u.press === 'up');
+    return up ? [beatT(c.at), beatT(up.at)] : [beatT(c.at)];
+  }).sort((a, b) => a - b);
+  // Critically damped: what is left of a move of `dist` after dt is dist * (1 + u) * e^-u, u = omega * dt.
+  const land = (dt, dist) => {
+    if (dist <= LAND) return 0;
+    let lo = 0, hi = 100;
+    for (let k = 0; k < 60; k++) { const u = (lo + hi) / 2; if (dist * (1 + u) * Math.exp(-u) > LAND) lo = u; else hi = u; }
+    return hi / dt;
+  };
+  // The pointer tracks (cx, cy) for cursor rows `list`: one omega per move, shared by x and y so the path stays straight.
+  const pointer = (list) => {
+    const changes = list.slice(1).map((c, k) => {
+      const t = beatT(c.at), L = landings.find((l) => l > t);
+      const dist = Math.max(Math.abs(c.x - list[k].x), Math.abs(c.y - list[k].y));
+      return { t, x: c.x, y: c.y, omega: L === undefined ? PTR.omega : Math.max(PTR.omega, land(L - t, dist)) };
+    });
+    const tr = (a) => ({ from: list[0][a], changes: changes.map((c) => ({ t: c.t, to: c[a], omega: c.omega })), ...PTR });
+    return { cx: tr('x'), cy: tr('y') };
+  };
   const C = [];
   let ptr = null;
   const cursorLocal = (t) => {
-    const src = ptr ?? (C.length ? { cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR) } : null);
+    const src = ptr ?? (C.length ? pointer(C) : null);
     return src ? { x: v(src.cx, t), y: v(src.cy, t) } : { x: 0, y: 0 };
   };
   const endOf = (j) => { const r = rows[j]; return r.comp.endState ? r.comp.endState(r.props, ctxOf(j)) : r.props; };
@@ -163,7 +195,7 @@ export function createScene(o) {
     fill: [0, 1, 2].map((k) => mk(G, (s) => hex(s.fill)[k], SHAPE)),
     ink: [0, 1, 2].map((k) => mk(G, (s) => hex(s.ink)[k], SHAPE)),
     zoom: mk(G, zoom, CAM),
-    cx: mk(C, (c) => c.x, PTR), cy: mk(C, (c) => c.y, PTR),
+    ...pointer(C),
     // cursor opacity: a change only where hide flips, so consecutive hidden rows stay hidden
     show: { from: C[0].hide ? 0 : 1, ...HIDE,
       changes: C.flatMap((c, i) => (i && !c.hide !== !C[i - 1].hide ? [{ t: beatT(c.at), to: c.hide ? 0 : 1 }] : [])) },
