@@ -10,6 +10,7 @@ components only, to prove the planner and the component library end to end. No p
 - **Platform and size:** square 1440x1440 (a feed post, same as demo 1).
 - **Length:** 15 s at 109 BPM = round(15 * 109 / 240) = 7 bars = 7 * 240 / 109 = 15.41 s (28 beats, 925 frames at 60 fps). Same as demo 1.
 - **Song:** "Tints (feat. Kendrick Lamar)", Jack's own copy (~/Desktop), local viewing only: a commercial track, so social platforms would likely mute it. Measured 109.00 BPM, confidence 0.39 (alternatives 72.86, 143.9, 87.56); song.json warnings: none. Low confidence, but the grid is the one demo 1 was built and checked on by ear.
+- **Sync:** checked by ear 2026-10-01 (nudge 0: the detected grid sounded right); markers: snare (1:00.02, beat 23; the Export report press lands on it, the toast one beat later).
 - **Window:** `--start-bar 21` at 47.363 s, a section boundary (sections at bars 7, 16, 21, 119) at the start of the strong section, and demo 1's window.
 - **Rules (song.json):** `max_states` 14, `min_hold_beats` 2, spring settle 0.33 s. Strongest accents: beat 5 (.95), 6 (.91), 15 (.88), 19 (.87), 0 (.73), 16 (.68).
 - **Theme:** house theme, no product stylesheet, so every role is the default: canvas #eceae6, surface #ffffff, ink #0b0b0b, muted #8c8883, accent #0b0b0b, Geist. Nothing to remap.
@@ -65,8 +66,8 @@ check, toast rise and unblur, command filtering.
 | 20 | 6.1 | 11.009 | line-chart | cursor hovers point 5, dot and tooltip pop | |
 | 21 | 6.2 | 11.559 | command | collapses to a command bar, types "exp" (21.25 to 21.75) | key x3 |
 | 22 | 6.3 | 12.110 | command | list filtered to two rows; cursor onto row 0 | |
-| 23 | 6.4 | 12.660 | command | presses "Export report" (23.5) | click |
-| 24 | 7.1 | 13.211 | toast | becomes a toast "Report exported" with Open | |
+| 23 | 6.4 | 12.660 | command | presses "Export report" on the snare marker (beat 23) | click |
+| 24 | 7.1 | 13.211 | toast | becomes a toast "Report exported" with Open, one beat after the snare | |
 | 25 | 7.2 | 13.761 | toast | cursor hovers Open | |
 | 26 | 7.3 | 14.312 | button | back to the button (the seam), cursor home | |
 | 27 | 7.4 | 14.862 | button | settles | |
@@ -84,7 +85,7 @@ const states = () => [
   { at: 16, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' },
   { at: 18, use: 'line-chart', label: 'Balance', points: [4, 6, 5, 8, 7, 10, 9, 13] },
   { at: 21, use: 'command', query: 'exp', typeAt: 0.25 },
-  { at: 24, use: 'toast', text: 'Report exported', action: 'Open' },
+  { at: 'snare', offset: 1, use: 'toast', text: 'Report exported', action: 'Open' },
   { at: END - 2, use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
 ];
 const cursor = () => [
@@ -111,7 +112,7 @@ const cursor = () => [
   { at: 19,   x: 200, y: 230 },
   { at: 20,   target: 'point:5' },
   { at: 22,   target: 'row:0' },
-  { at: 23.5, target: 'row:0', press: true },
+  { at: 'snare', target: 'row:0', press: true },   // the press lands on the snare
   { at: 25,   target: 'action' },
   { at: END - 2, x: 140, y: 100 },
 ];

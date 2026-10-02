@@ -65,7 +65,7 @@ const states = () => [
   { at: 16, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' },
   { at: 18, use: 'line-chart', label: 'Balance', points: [4, 6, 5, 8, 7, 10, 9, 13] },
   { at: 21, use: 'command', query: 'exp', typeAt: 0.25 },
-  { at: 24, use: 'toast', text: 'Report exported', action: 'Open' },
+  { at: 'snare', offset: 1, use: 'toast', text: 'Report exported', action: 'Open' },
   { at: END - 2, use: 'button', label: 'Export report', icon: 'upload', fill: 'accent', ink: 'surface' },
 ];
 // CURSOR: where the pointer is from beat `at` (a number, or a marker name with optional `offset`, as in
@@ -98,7 +98,7 @@ const cursor = () => [
   { at: 19,   x: 200, y: 230 },
   { at: 20,   target: 'point:5' },
   { at: 22,   target: 'row:0' },
-  { at: 23.5, target: 'row:0', press: true },
+  { at: 'snare', target: 'row:0', press: true },   // the press lands on the snare
   { at: 25,   target: 'action' },
   { at: END - 2, x: 140, y: 100 },
 ];
