@@ -198,3 +198,46 @@ test('marker rows: t0 is the marker\'s exact beat; offsets and cursor rows resol
   assert.throws(() => make([{ at: 0, use: 'a' }, { at: 'drp', use: 'b' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }],
     { song: msong, beatT }), /motion-kit: states\(\) row 2: unknown marker 'drp' \(did you mean 'drop'\?\)/);
 });
+
+// hide: true fades the cursor out from its row's beat (a quarter-beat critically damped spring, so no overshoot);
+// the next row without it fades it back in. Opacity is a pure function of t, exposed as inspect(t).cursor.opacity.
+test('hide: the cursor fades out from a hidden row and back in from the next visible row; x and y are unchanged', () => {
+  const st = [{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }];
+  const rows = [{ at: 0, x: 0, y: 0 }, { at: 2, x: 80, y: 40, hide: true }, { at: 3, x: -60, y: 20, hide: true }, { at: 6, target: 'item:1' },
+    { at: 7, target: 'item:1', press: true }, { at: 12, x: 0, y: 0 }];
+  const dom = fakeDom();
+  const s = make(st, rows, { dom });
+  const op = (beat) => s.inspect(beat * 0.5).cursor.opacity;
+  assert.equal(op(0), 1); assert.equal(op(1.99), 1, 'visible before the hide row');
+  assert.ok(op(2.1) < 1 && op(2.1) > 0, `fading at 2.1 (${op(2.1)})`);
+  assert.ok(op(3) < 0.02, `about 0 a beat after the hide row (${op(3)})`);
+  assert.ok(op(5.9) < 0.02, `consecutive hidden rows stay hidden (${op(5.9)})`);
+  assert.ok(op(7) > 0.98, `about 1 a beat after the next visible row (${op(7)})`);
+  for (let b = 0; b <= 16; b += 0.01) { const o = op(b); assert.ok(o >= 0 && o <= 1, `opacity ${o} at beat ${b}`); }
+  // seek draws the same opacity it reports
+  s.seek(2.1 * 0.5); assert.equal(dom.cursor.style.opacity, op(2.1));
+  s.seek(1); assert.equal(dom.cursor.style.opacity, 1);
+  // Hiding changes only visibility: the path, hotspots and presses are those of the same table without hide.
+  const plain = make(st, rows.map(({ hide, ...c }) => c));
+  for (let b = 0; b <= 16; b += 0.25) {
+    const a = s.inspect(b * 0.5).cursor, p = plain.inspect(b * 0.5).cursor;
+    assert.equal(a.x, p.x); assert.equal(a.y, p.y);
+  }
+  assert.deepEqual(s.rows[1].ctx.presses, plain.rows[1].ctx.presses);
+  assert.deepEqual(s.sfx, plain.sfx, 'hiding adds and removes no sounds');
+});
+
+test('hide: a hidden first row starts settled and fully transparent; the seam matches; no hide keeps opacity 1', () => {
+  const st = [{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }];
+  const s = make(st, [{ at: 0, x: 0, y: 0, hide: true }, { at: 3, target: 'item:1' }, { at: 4, target: 'item:1', press: true },
+    { at: 8, x: 0, y: 0, hide: true }, { at: 12, x: 0, y: 0, hide: true }]);
+  const op = (beat) => s.inspect(beat * 0.5).cursor.opacity;
+  assert.equal(op(0), 0, 'hidden at t=0, settled');
+  assert.equal(op(2.9), 0);
+  assert.ok(op(4) > 0.98, `glides in visibly from beat 3 (${op(4)})`);
+  assert.ok(op(9) < 0.02, `hidden again a beat after beat 8 (${op(9)})`);
+  assert.ok(Math.abs(op(16) - op(0)) < 1e-6, `the seam: ${op(16)} at the end, ${op(0)} at the start`);
+  for (let b = 0; b <= 16; b += 0.01) { const o = op(b); assert.ok(o >= 0 && o <= 1, `opacity ${o} at beat ${b}`); }
+  const v = make(st, [{ at: 0, x: 0, y: 0 }, { at: 2, x: 80, y: 40, press: true }, { at: 12, x: 0, y: 0 }]);
+  for (let b = 0; b <= 16; b += 0.25) assert.equal(v.inspect(b * 0.5).cursor.opacity, 1);
+});
