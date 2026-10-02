@@ -390,3 +390,28 @@ test('hide: the cursor seam includes hide; an explicit hide: false equals none',
   assert.deepEqual(run(st, [{ at: 0, x: 0, y: 0, hide: true }, { at: 4, x: 9, y: 9 }, { at: 14, x: 0, y: 0, hide: true }]).errors, []);
   assert.deepEqual(run(st, [{ at: 0, x: 0, y: 0, hide: false }, { at: 14, x: 0, y: 0 }]).errors, []);
 });
+
+test('strict: a drag whose approach or move gets under half a beat warns with the row and the beats; enough time stays silent', () => {
+  const RUSHED = /the cursor has only/;
+  // The approach (row 2) gets 0.25 beat before the 'down' (row 3); the move (row 4) gets 0.25 beat before the 'up' (row 5).
+  const short = [{ at: 0, x: 0, y: 0 }, { at: 0.75, target: 'thumb' }, { at: 1, target: 'thumb', press: 'down' },
+    { at: 2.75, target: 'thumb', dx: 40 }, { at: 3, target: 'thumb', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  const w = run(dragStates, short, { strict: true }).warnings.filter((x) => RUSHED.test(x));
+  assert.deepEqual(w, [
+    "cursor() row 3: the cursor has only 0.25 beat to reach 'thumb' before the drag starts; give it about 0.8 beat",
+    'cursor() row 5: the cursor has only 0.25 beat to reach its release point before the drag ends; give it about 0.8 beat']);
+  // Not strict: silent.
+  assert.ok(!run(dragStates, short).warnings.some((x) => RUSHED.test(x)));
+  // Half a beat or more for each: silent.
+  const ok = [{ at: 0, x: 0, y: 0 }, { at: 0.5, target: 'thumb' }, { at: 1, target: 'thumb', press: 'down' },
+    { at: 2, target: 'thumb', dx: 40 }, { at: 3, target: 'thumb', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  assert.ok(!run(dragStates, ok, { strict: true }).warnings.some((x) => RUSHED.test(x)), 'enough time stays silent');
+  // A 'down' row that moves the cursor itself gives it no time at all.
+  const own = run(dragStates, [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'thumb', press: 'down' }, { at: 2, target: 'thumb', dx: 40 },
+    { at: 3, target: 'thumb', dx: 40, press: 'up' }, { at: 14, x: 0, y: 0 }], { strict: true }).warnings;
+  assert.ok(own.includes("cursor() row 2: the cursor has only 0 beat to reach 'thumb' before the drag starts; give it about 0.8 beat"), own.join('\n'));
+  // A short press-and-hold on a hotspot that is not dragged stays silent.
+  const held = run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: 0.75, target: 'button' }, { at: 1, target: 'button', press: 'down' },
+    { at: 3, target: 'button', press: 'up' }, { at: 14, x: 0, y: 0 }], { strict: true }).warnings;
+  assert.ok(!held.some((x) => RUSHED.test(x)), held.join('\n'));
+});

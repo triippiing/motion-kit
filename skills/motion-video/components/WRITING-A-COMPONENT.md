@@ -240,7 +240,9 @@ const k = i >= 0 ? prog(ctx, t, since, 0.5) : 0;   // how far the hover has come
 
 A continuation's list starts with the previous row's aim, re-timed to `t0` and marked `carried`, so a
 hover holds across the row change. `line-chart` (points) and `avatar-stack` are the references.
-`ctx.cursorAt(t)` is only for following the pointer during a drag (`slider`, `player`).
+`ctx.cursorAt(t)` is only for following the pointer during a drag (`slider`, `player`). The engine lands
+the pointer on a `drag` hotspot by its press `'down'` (and on the release point by the `'up'`), however short
+the approach, so following the cursor's movement since the down keeps the thumb under it.
 
 ### 6. Periodic motion uses `loopPeriod`
 

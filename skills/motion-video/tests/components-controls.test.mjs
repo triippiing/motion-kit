@@ -1,7 +1,8 @@
 // components-controls.test.mjs -- behaviour of the Controls group in a real page (button has its own file).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeProject, scene, noFlash } from './harness.mjs';
+import { makeProject, openScene, scene, noFlash } from './harness.mjs';
+import * as slider from '../components/controls/slider.js';
 import { beatStills } from '../scripts/beat_stills.mjs';
 
 const rect = (s, sel) => s.page.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width, cx: r.left + r.width / 2 }; }, sel);
@@ -51,6 +52,141 @@ test('slider: the thumb follows the cursor while dragged; past max the fill sett
     const track1 = await rect(s, '.c-slider[data-row="0"] .sl-track'), fill1 = await rect(s, '.c-slider[data-row="0"] .sl-fill');
     assert.ok(track.w > track1.w + 10, `overstretched while held past max: ${track.w} vs ${track1.w}`);
     assert.ok(Math.abs(fill1.w - track1.w) < 1, `fill back to the full track: ${fill1.w} vs ${track1.w}`);
+  });
+});
+
+// The slider's props as a row resolves them: meta defaults overridden by the row.
+const sliderProps = (row) => ({ ...Object.fromEntries(Object.entries(slider.meta.props).map(([k, v]) => [k, v[1]])), ...row });
+
+test('slider: without a label the geometry and hotspots are what they were before labels', () => {
+  const geo = { w: 640, h: 112, r: 56, fill: 'surface', ink: 'ink' };
+  for (const row of [{}, { label: '' }, { value: 0, icon: 'none' }, { value: 1 }, { value: 150, min: 0, max: 100, overstretch: false }]) {
+    assert.deepEqual(slider.geometry(sliderProps(row)), geo, JSON.stringify(row));
+  }
+  const at = (row) => { const p = sliderProps(row); return ['thumb', 'track'].map((n) => slider.hotspot(n, p, geo).x); };
+  assert.deepEqual(at({}), [-32, 12]);
+  assert.deepEqual(at({ value: 0, icon: 'none' }), [-220, 0]);
+  assert.deepEqual(at({ value: 1 }), [232, 12]);
+  assert.deepEqual(at({ value: 150, min: 0, max: 100 }), [232, 12]);
+});
+
+test('slider: a label widens the shape and puts the thumb and track to its right, inside the shape', () => {
+  for (const icon of ['volume', 'none']) {
+    const p = sliderProps({ label: 'Swing', value: 0.6, min: 0.5, max: 0.75, icon }), geo = slider.geometry(p);
+    assert.ok(geo.w > 640, `wider than the bare slider: ${geo.w}`);
+    assert.equal(geo.h, 112);
+    const labelRight = 40 + 28 * 0.56 * 'Swing'.length - geo.w / 2;
+    for (const n of ['thumb', 'track']) {
+      const h = slider.hotspot(n, p, geo);
+      assert.ok(h && h.x > labelRight && h.x < geo.w / 2, `${icon} ${n} at ${h?.x}, label ends at ${labelRight}, half width ${geo.w / 2}`);
+    }
+    assert.ok(slider.geometry(sliderProps({ label: 'Swing amount', icon })).w > geo.w, 'a longer label is wider still');
+  }
+});
+
+test('slider: with a label the text shows left of the track, the cursor lands on the thumb and a drag still moves it', async () => {
+  await scene({ bars: 2,
+    states: "[{ at: 0, use: 'slider', value: 0.5, label: 'Swing' }, { at: END - 2, use: 'slider', value: 0.5, label: 'Swing' }]",
+    cursor: "[{ at: 0, x: 0, y: 160 }, { at: 0.5, target: 'thumb' }, { at: 1.5, target: 'thumb', press: 'down' }, { at: 2, x: 460, y: 0 }, { at: 3.5, x: 460, y: 0, press: 'up' }, { at: END - 2, x: 0, y: 160 }]" }, async (s, at, bs) => {
+    await at(1.45);
+    const label = await rect(s, '.c-slider[data-row="0"] .sl-label'), track = await rect(s, '.c-slider[data-row="0"] .sl-track');
+    const thumb = await rect(s, '.c-slider[data-row="0"] .sl-thumb'), shape = await rect(s, '.c-slider[data-row="0"]');
+    assert.equal(await s.page.evaluate(() => document.querySelector('.c-slider[data-row="0"] .sl-label').textContent), 'Swing');
+    assert.ok(label.w > 20 && label.r < track.l, `label ${JSON.stringify(label)} left of the track ${JSON.stringify(track)}`);
+    assert.ok(thumb.l > shape.l && thumb.r < shape.r, 'thumb inside the shape');
+    const cx = await s.page.evaluate((t) => window.inspect(t).cursor.x, 1.45 * bs);
+    assert.ok(Math.abs(cx - thumb.cx) < 2, `cursor on the thumb: ${cx} vs ${thumb.cx}`);
+    const pairs = [];
+    for (const b of [2.05, 2.1, 2.15, 2.2]) {
+      await at(b);
+      pairs.push({ cx: await s.page.evaluate((t) => window.inspect(t).cursor.x, b * bs), th: (await rect(s, '.c-slider[data-row="0"] .sl-thumb')).cx });
+    }
+    assert.ok(pairs.at(-1).th - pairs[0].th > 20, `the thumb moved: ${JSON.stringify(pairs)}`);
+    for (const p of pairs) assert.ok(Math.abs((p.th - p.cx) - (pairs[0].th - pairs[0].cx)) < 1, `thumb follows the cursor: ${JSON.stringify(pairs)}`);
+    await at(3.4);
+    const held = await rect(s, '.c-slider[data-row="0"] .sl-track');
+    await at(4.5);
+    const back = await rect(s, '.c-slider[data-row="0"] .sl-track'), fill = await rect(s, '.c-slider[data-row="0"] .sl-fill');
+    assert.ok(held.w > back.w + 10, `overstretched while held past max: ${held.w} vs ${back.w}`);
+    assert.ok(Math.abs(fill.w - back.w) < 1, `fill back to the full track: ${fill.w} vs ${back.w}`);
+  });
+});
+
+test('slider: a continuation with a new label crossfades old out and new in', async () => {
+  const dir = makeProject({ bars: 2,
+    states: "[{ at: 0, use: 'slider', value: 0.6, label: 'Swing' }, { at: 2, use: 'slider', value: 0.6, label: 'Tempo' }, { at: END - 2, use: 'slider', value: 0.6, label: 'Swing' }]",
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' });
+  const s = await openScene(dir);
+  try {
+    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
+    const labels = () => s.page.evaluate(() => [...document.querySelectorAll('.c-slider[data-row="1"] .sl-label')]
+      .map((e) => ({ text: e.textContent, o: Number(e.style.opacity) })));
+    await s.seek(2 * bs + 0.12 * bs);
+    const mid = await labels();
+    assert.deepEqual(mid.map((r) => r.text), ['Swing', 'Tempo']);
+    for (const r of mid) assert.ok(r.o > 0 && r.o < 1, `mid-swap opacity of ${r.text}: ${r.o}`);
+    await s.seek(3.8 * bs);
+    const done = await labels();
+    assert.ok(done[0].o < 0.01 && done[1].o > 0.99, `settled: ${JSON.stringify(done)}`);
+    assert.equal(await s.page.evaluate(() => document.querySelectorAll('.c-slider[data-row="0"] .sl-label').length), 1, 'row 0 has one label');
+    assert.equal(await s.page.evaluate(() => document.querySelectorAll('.c-slider[data-row="2"] .sl-label').length), 2, 'the last row crossfades back');
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+});
+
+// Continuation a -> b (row 1 at beat 2): at mid-swap and once settled, every row-1 label with any opacity ends
+// left of the icon and the track; returns the labels' text at each moment.
+async function labelSwap(a, b) {
+  const dir = makeProject({ bars: 2,
+    states: `[{ at: 0, use: 'slider', value: 0.6, ${a} }, { at: 2, use: 'slider', value: 0.6, ${b} }, { at: END - 2, use: 'slider', value: 0.6, ${a} }]`,
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' });
+  const s = await openScene(dir), seen = [];
+  try {
+    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
+    for (const beat of [2.12, 3.8]) {
+      await s.seek(beat * bs);
+      const r = await s.page.evaluate(() => {
+        const box = (e) => e && e.getBoundingClientRect(), row = document.querySelector('.c-slider[data-row="1"]');
+        const labels = [...row.querySelectorAll('.sl-label')].map((e) => ({ text: e.textContent, o: Number(e.style.opacity || 1), r: box(e).right, w: box(e).width }));
+        return { labels, icon: box(row.querySelector('.ico'))?.left ?? Infinity, track: box(row.querySelector('.sl-track')).left };
+      });
+      for (const l of r.labels.filter((l) => l.o > 0.001)) {
+        assert.ok(l.w > 40 && l.r <= Math.min(r.icon, r.track), `${a} -> ${b} at beat ${beat}: ${JSON.stringify(l)} overlaps icon ${r.icon} / track ${r.track}`);
+      }
+      seen.push(r.labels.filter((l) => l.o > 0.001).map((l) => l.text));
+    }
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+  return seen;
+}
+
+test('slider: label to no label drops the old label; no label to a label fades it in clear of the icon and track', async () => {
+  assert.deepEqual(await labelSwap("label: 'Swing'", "label: ''"), [[], []]);
+  assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: '', icon: 'none'"), [[], []]);
+  assert.deepEqual(await labelSwap("label: ''", "label: 'Swing'"), [['Swing'], ['Swing']]);
+  // The previous label is laid out with this row's icon.
+  assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: 'Tempo'"), [['Swing', 'Tempo'], ['Tempo']]);
+});
+
+test('slider: the unlabelled layout keeps its inline positions', async () => {
+  await scene({ bars: 2,
+    states: "[{ at: 0, use: 'slider' }, { at: END - 2, use: 'slider' }]",
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' }, async (s, at) => {
+    await at(1);
+    const st = await s.page.evaluate(() => {
+      const q = (sel) => document.querySelector(`.c-slider[data-row="0"] ${sel}`).style;
+      return { track: [q('.sl-track').left, q('.sl-track').width], fill: [q('.sl-fill').left, q('.sl-fill').width], thumb: q('.sl-thumb').left, icon: q('.ico').left };
+    });
+    assert.deepEqual(st, { track: ['112px', '440px'], fill: ['112px', '176px'], thumb: '270px', icon: '40px' });
+  });
+});
+
+test('slider: no label element without a label', async () => {
+  await scene({ bars: 2,
+    states: "[{ at: 0, use: 'slider', value: 0.5 }, { at: END - 2, use: 'slider', value: 0.5, label: '' }]",
+    cursor: '[{ at: 0, x: 0, y: 160 }, { at: END - 2, x: 0, y: 160 }]' }, async (s, at) => {
+    await at(1);
+    assert.equal(await s.page.evaluate(() => document.querySelectorAll('.sl-label').length), 0);
   });
 });
 

@@ -120,7 +120,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** A value is dragged: volume, brightness, an amount.
 
-**Motion:** Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value.
+**Motion:** Between a press 'down' on the thumb and the next 'up' the thumb follows the cursor. Dragged past an end (overstretch), the track stretches with a rubber band; on release the value springs back inside. A following slider row continues from the released value (write it as its `value`) and glides to its own value if that differs. The thumb hotspot aims at the row's written value. A `label` sits left of the track (the shape widens to fit it); a following slider row with a different label crossfades it.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -129,6 +129,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `max` | `number` | `1` |
 | `overstretch` | `boolean` | `true` |
 | `icon` | `enum:volume\|none` | `"volume"` |
+| `label` | `string` | `""` |
 
 **Hotspots:** `thumb`, `track`  
 **Drag:** `thumb` (a drag is three cursor rows: down, move, up)  
