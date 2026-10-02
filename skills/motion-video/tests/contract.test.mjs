@@ -5,7 +5,7 @@ import Springs from '../../../shared/springs.js';
 import { registry } from '../components/index.js';
 import { typeOk, validate, RESERVED } from '../components/core/validate.js';
 import { collect, catalogMd } from '../scripts/build_catalog.mjs';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const COMP = path.join(import.meta.dirname, '..', 'components');
@@ -118,3 +118,11 @@ for (const [name, c] of Object.entries(registry)) {
     assert.deepEqual(r.errors, []);
   });
 }
+
+test("demo 04's components/core is byte-identical to the library's", () => {
+  const demo = path.resolve(COMP, '../../../demos/04-library-reference/components/core');
+  const files = readdirSync(demo);
+  assert.ok(files.length > 0);
+  for (const f of files)
+    assert.ok(readFileSync(path.join(demo, f)).equals(readFileSync(path.join(COMP, 'core', f))), `demos/04-library-reference/components/core/${f} differs from the library's (copy it in)`);
+});
