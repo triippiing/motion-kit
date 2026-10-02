@@ -42,7 +42,8 @@ He marked one moment: `snare`, at 1:00.02 in the song (12.66 s into the loop, be
 | `states()` | `{ at: 24, use: 'toast', text: 'Report exported', action: 'Open' }` | `{ at: 'snare', offset: 1, use: 'toast', text: 'Report exported', action: 'Open' }` |
 
 The command bar's "Export report" press moved half a beat earlier, from beat 23.5 onto the snare, and the
-toast stays one beat after it. Jack watched the re-render and signed it off.
+toast now follows one beat after it (it used to follow half a beat after the press). Jack watched the
+re-render and signed it off.
 
 To reopen the page from the repo root (it serves on 127.0.0.1 and opens the browser):
 

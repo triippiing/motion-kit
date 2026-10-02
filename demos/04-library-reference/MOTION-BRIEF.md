@@ -66,7 +66,7 @@ check, toast rise and unblur, command filtering.
 | 20 | 6.1 | 11.009 | line-chart | cursor hovers point 5, dot and tooltip pop | |
 | 21 | 6.2 | 11.559 | command | collapses to a command bar, types "exp" (21.25 to 21.75) | key x3 |
 | 22 | 6.3 | 12.110 | command | list filtered to two rows; cursor onto row 0 | |
-| 23 | 6.4 | 12.660 | command | presses "Export report" on the snare marker (beat 23) | click |
+| 23 | snare | 12.660 | command | presses "Export report" on the snare marker (beat 23) | click |
 | 24 | 7.1 | 13.211 | toast | becomes a toast "Report exported" with Open, one beat after the snare | |
 | 25 | 7.2 | 13.761 | toast | cursor hovers Open | |
 | 26 | 7.3 | 14.312 | button | back to the button (the seam), cursor home | |
