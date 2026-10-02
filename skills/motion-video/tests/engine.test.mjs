@@ -241,3 +241,36 @@ test('hide: a hidden first row starts settled and fully transparent; the seam ma
   const v = make(st, [{ at: 0, x: 0, y: 0 }, { at: 2, x: 80, y: 40, press: true }, { at: 12, x: 0, y: 0 }]);
   for (let b = 0; b <= 16; b += 0.25) assert.equal(v.inspect(b * 0.5).cursor.opacity, 1);
 });
+
+// Drags land where they are aimed, within a cap. 'd' is a component whose 'box' hotspot is dragged (meta.drag).
+// Its shape is 200x100, so the camera zoom is 2.4 and inspect's x is 720 + 2.4 * design x; the box sits at x 10.
+const dragBox = { ...box('d'), meta: { ...box('d').meta, drag: ['box'] } };
+const makeDrag = (cursor) => make([{ at: 0, use: 'd' }, { at: 12, use: 'd' }], cursor, { registry: { ...registry, d: dragBox } });
+const PTR_OMEGA = Springs.fromSettle(0.8 * 0.5, 1);
+const designX = (s, t) => (s.inspect(t).cursor.x - 720) / 2.4;
+
+test('drag landing: a move into a drag press is sped up at most 4x the house spring, so a very short approach does not snap', () => {
+  // 0.1 beat to cover 290 px: landing it within 0.5 px would need about 12x; the cap holds it at 4x.
+  const s = makeDrag([{ at: 0, x: 300, y: -5 }, { at: 3.9, target: 'box' }, { at: 4, target: 'box', press: 'down' },
+    { at: 5, target: 'box', dx: 100 }, { at: 6, target: 'box', dx: 100, press: 'up' }, { at: 12, x: 300, y: -5 }]);
+  const w = 4 * PTR_OMEGA, t0 = 3.9 * 0.5;
+  for (const tau of [0, 0.01, 0.03, 0.05, 0.1, 0.2, 0.4]) {
+    const want = 10 + 290 * (1 + w * tau) * Math.exp(-w * tau);
+    assert.ok(Math.abs(designX(s, t0 + tau) - want) < 1e-6, `tau ${tau}: ${designX(s, t0 + tau)} vs the capped spring ${want}`);
+  }
+  assert.ok(designX(s, 2) - 10 > 1, `the capped move arrives a little short at the down rather than snapping: ${designX(s, 2)}`);
+});
+
+test('drag landing: a click approach and drag moves with time to spare keep the house spring', () => {
+  // A press: true click half a beat after its approach (clicks are not landed), then a drag with 2 beats to arrive and 2 to move.
+  const rows = [{ at: 0, x: 300, y: -5 }, { at: 1.5, target: 'box' }, { at: 2, target: 'box', press: true }, { at: 3, x: -200, y: 40 },
+    { at: 4, target: 'box' }, { at: 6, target: 'box', press: 'down' }, { at: 7, target: 'box', dx: 50 }, { at: 9, target: 'box', dx: 50, press: 'up' },
+    { at: 12, x: 300, y: -5 }];
+  const s = makeDrag(rows);
+  // The house path: every move on the pointer's own spring (what the engine did before drags were landed).
+  const C = s.cursorRows, house = (a) => ({ from: C[0][a], changes: C.slice(1).map((c) => ({ t: c.at * 0.5, to: c[a] })), omega: PTR_OMEGA, zeta: 1 });
+  for (let t = 0; t <= 6; t += 0.05) {
+    const want = Springs.track(t, house('x')).value;
+    assert.ok(Math.abs(designX(s, t) - want) < 1e-6, `t ${t.toFixed(2)}: ${designX(s, t)} vs the house spring ${want}`);
+  }
+});

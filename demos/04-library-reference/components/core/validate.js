@@ -113,6 +113,12 @@ export function pressRow(rows, c) {
   return (c.target && targetRow(rows, c)) || rows[activeIndex(rows, c.at)];
 }
 
+// A press aimed at one of its row's drag hotspots (meta.drag): with 'down', a drag, not a press-and-hold.
+export function isDrag(rows, c) {
+  const r = c.target && targetRow(rows, c);
+  return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target);
+}
+
 // Every hotspot name that resolves on row r: its plain hotspots, and each family ('tab:<item>') tried with
 // every string in the row's props and the integers 0..99, so a message can list what is really there.
 function resolvable(r) {
@@ -257,8 +263,16 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
   if (!Array.isArray(cursor) || !cursor.length) errors.push('cursor() must return at least one row');
   else {
     if (cursor[0].at !== 0) errors.push('the first cursor row must be at beat 0');
-    // A 'down' aimed at one of its row's drag hotspots (meta.drag): a drag, not a press-and-hold.
-    const isDrag = (c) => { const r = c.target && targetRow(rows, c); return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target); };
+    // Strict: the pointer settles in 0.8 beat. The engine speeds a move into a drag's 'down' or 'up' up so it lands
+    // (at most 4x), but a move that starts under half a beat before the press still snaps or presses short. The
+    // move is the latest cursor row up to i that changes position; none (the cursor rests from row 0) is fine.
+    const SHORT = 0.5;
+    const rushed = (i) => {
+      let j = i;
+      while (j > 0 && spot(cursor[j]) === spot(cursor[j - 1])) j--;
+      const gap = cursor[i].at - cursor[j].at;
+      return j > 0 && gap < SHORT ? Math.round(gap * 100) / 100 : null;
+    };
     let open = null, openAt = null, openRow = -1, openIdx = -1, openDrag = false;
     cursor.forEach((c, i) => {
       if (i && c.at < cursor[i - 1].at) errors.push(`cursor rows must be in ascending beat order (beat ${B(c)})`);
@@ -271,7 +285,10 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       if (c.hide !== undefined && typeof c.hide !== 'boolean') errors.push(`hide at beat ${B(c)} should be true or false, got ${describe(c.hide)}`);
       // A hidden cursor only travels: it cannot click, nor start or end a drag.
       if (c.hide === true && c.press !== undefined) errors.push(`cursor() row ${i + 1}: a hidden cursor cannot press (remove hide or press)`);
-      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`); open = c.at; openAt = B(c); openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(c); }
+      if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`); open = c.at; openAt = B(c); openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(rows, c);
+        const g = strict && openDrag ? rushed(i) : null;
+        if (g !== null) warnings.push(`cursor() row ${i + 1}: the cursor has only ${g} beat to reach '${c.target}' before the drag starts; give it about 0.8 beat`);
+      }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${B(c)} has no 'down' before it`);
         else {
@@ -286,6 +303,8 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
             warnings.push(`drag from beat ${openAt} to ${B(c)} never moves: add a cursor row between the press 'down' and the 'up' that moves the cursor (the 'up' row's own move starts only after the release)`);
           if (openDrag && spot(c) !== spot(cursor[i - 1]))
             warnings.push(`press 'up' at beat ${B(c)} also moves the cursor, but that move starts only after the release; give the 'up' row the same position as the row before it`);
+          else if (strict && openDrag && rushed(i) !== null)
+            warnings.push(`cursor() row ${i + 1}: the cursor has only ${rushed(i)} beat to reach its release point before the drag ends; give it about 0.8 beat`);
         }
         open = null;
       }

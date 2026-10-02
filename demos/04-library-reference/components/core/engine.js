@@ -48,10 +48,12 @@
 // next row without it fades it back in from its own beat. A hidden first row starts hidden. Hiding changes only
 // visibility: the cursor still follows its path, so presses, targets and inspect(t).cursor x/y are unchanged. A
 // hidden row cannot press (validate rejects it). inspect(t) -> { cursor: { x, y, opacity } }.
-// The pointer moves on a critically damped spring that settles in 0.8 beat, except into a drag: a press 'down' on a
-// meta.drag hotspot and its 'up' land where they are aimed (within 0.5 design px), so any move that starts too close
-// before one of them is sped up just enough to arrive. A drag component's thumb then starts under the cursor.
-import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage, matchHotspot } from './validate.js';
+// The pointer moves on a critically damped spring that settles in 0.8 beat, except into a drag: a move that starts too
+// close before a press 'down' on a meta.drag hotspot, or before its 'up', is sped up so it lands where it is aimed (to
+// about 0.5 design px per move), and a drag component's thumb starts under the cursor. The speed-up is capped at 4x the
+// house spring (a 0.2 beat settle): a move of a few hundred px given less than about 0.3 beat arrives a little short
+// rather than snapping. Strict validation (check_brief) warns when a drag's move gets less than half a beat.
+import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage, isDrag } from './validate.js';
 import { resolveRows } from './timing.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
@@ -128,11 +130,11 @@ export function createScene(o) {
   // component follows the cursor from where it was at the down) and on its release point at the 'up'. The
   // pointer spring takes 0.8 beat to settle, so a shorter approach would press short of the thumb and carry
   // that gap through the whole drag. Each pointer move that starts before a landing time is sped up just
-  // enough to be within LAND design px of its target by then; moves with time to spare keep the house spring.
-  const LAND = 0.5;
-  const isDrag = (c) => { const r = c.target && targetRow(rows, c); return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target); };
+  // enough to be within about LAND design px of its target by then, but never past MAX_SPEEDUP times the house
+  // spring (a snap reads worse than a short miss); moves with time to spare keep the house spring.
+  const LAND = 0.5, MAX_SPEEDUP = 4;
   const landings = cursor.flatMap((c, i) => {
-    if (c.press !== 'down' || !isDrag(c)) return [];
+    if (c.press !== 'down' || !isDrag(rows, c)) return [];
     const up = cursor.slice(i + 1).find((u) => u.press === 'up');
     return up ? [beatT(c.at), beatT(up.at)] : [beatT(c.at)];
   }).sort((a, b) => a - b);
@@ -148,7 +150,7 @@ export function createScene(o) {
     const changes = list.slice(1).map((c, k) => {
       const t = beatT(c.at), L = landings.find((l) => l > t);
       const dist = Math.max(Math.abs(c.x - list[k].x), Math.abs(c.y - list[k].y));
-      return { t, x: c.x, y: c.y, omega: L === undefined ? PTR.omega : Math.max(PTR.omega, land(L - t, dist)) };
+      return { t, x: c.x, y: c.y, omega: L === undefined ? PTR.omega : Math.min(MAX_SPEEDUP * PTR.omega, Math.max(PTR.omega, land(L - t, dist))) };
     });
     const tr = (a) => ({ from: list[0][a], changes: changes.map((c) => ({ t: c.t, to: c[a], omega: c.omega })), ...PTR });
     return { cx: tr('x'), cy: tr('y') };
