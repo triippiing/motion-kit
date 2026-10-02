@@ -346,3 +346,17 @@ test('messages round a marker row\'s beat and name the marker', () => {
     [{ at: 0, x: 0, y: 0 }, { at: 'drop', offset: 0.1, press: 'sideways', x: 0, y: 0 }, { at: 14, x: 0, y: 0 }]);
   assert.deepEqual(r.errors, ["w at beat 9.47 ('drop') should be a number >= 0, got -1", "press at beat 9.47 ('drop') should be true, 'down' or 'up'"]);
 });
+
+test('quiet beats: a marker row within 1/8 beat of a whole beat counts for it; the tolerance is bounded; numbers unchanged', () => {
+  // Cursor rows leave 6 and 7 free; the toast row starts inside beat 6, so it decides whether 7 is quiet.
+  const at = (beat) => ({ ...song, markers: [{ name: 'snare', song_t: 60, t: beat * 0.5, in_loop: true }] });
+  const cursor = [...[0, 1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 13].map((b) => ({ at: b, x: b % 2, y: 0 })), { at: 14, x: 0, y: 0 }];
+  const quiet = (states, s) => validate({ states, cursor, registry, song: s, strict: true }).warnings.find((w) => /quiet beats/.test(w));
+  const rows = (row) => loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'button', label: 'B' }, row]);
+  // Marker 1 ms before beat 6 (5.998), row at offset 1 (6.998): sounds on beat 7, so 7 is busy.
+  assert.equal(quiet(rows({ at: 'snare', offset: 1, use: 'toast' }), at(5.998)), undefined);
+  // 0.2 beats off (6.8): too far from 7, which stays quiet.
+  assert.match(quiet(rows({ at: 'snare', offset: 1, use: 'toast' }), at(5.8)), /: 7;/);
+  // A numeric row at 6.998 gets no tolerance: 7 stays quiet.
+  assert.match(quiet(rows({ at: 6.998, use: 'toast' }), song), /: 7;/);
+});

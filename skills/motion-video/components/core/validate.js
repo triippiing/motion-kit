@@ -314,7 +314,12 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
     });
     if (song.rules.max_states && states.length - 1 > song.rules.max_states) warnings.push(`${states.length - 1} states exceeds the song's max_states (${song.rules.max_states})`);
     if (END != null) {
-      const busy = new Set([...states, ...(cursor ?? [])].map((r) => Math.floor(r.at)));
+      // A row placed by a marker sits where the ear put it, which can be a hair before the beat it sounds on: it
+      // also counts for the nearest whole beat when within 1/8 beat of it.
+      const busy = new Set([...states, ...(cursor ?? [])].flatMap((r) => {
+        const near = Math.round(r.at);
+        return r.marker && Math.abs(r.at - near) <= 0.125 ? [Math.floor(r.at), near] : [Math.floor(r.at)];
+      }));
       // In a loop, beats after the last row starts settle into the seam, so they are quiet by design.
       const last = loop ? Math.min(END - 1, Math.floor(states.at(-1).at)) : END - 1;
       const quiet = []; for (let b = 0; b <= last; b++) if (!busy.has(b)) quiet.push(b);
