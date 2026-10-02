@@ -1,6 +1,6 @@
 # Direction
 
-Adapted from the open prompt template by zero (@twoclipping): https://x.com/twoclipping/status/2103273003555402193.
+Adapted from the open prompt template by zero ([@twoclipping](https://x.com/twoclipping)).
 The look, build rules and gotchas below are theirs, lightly generalised. Credit them when you share work made this way.
 
 ## Look

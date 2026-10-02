@@ -5,7 +5,7 @@ motion-kit stands on other people's work. Thank you to all of them.
 ## Ideas and design
 
 - **zero ([@twoclipping](https://x.com/twoclipping))**: the open "motion design" prompt template
-  ([post](https://x.com/twoclipping/status/2103273003555402193)) this whole kit is built around:
+  this whole kit is built around:
   one shape that never cuts, a cursor that drives every change, springs everywhere, the
   beat grid, subframe motion blur and a looping last frame. `skills/motion-design/references/direction.md`
   adapts its direction, build rules and gotchas, and `demos/01-reference` recreates its sequence.

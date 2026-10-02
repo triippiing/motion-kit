@@ -10,7 +10,7 @@ Remotion or Lottie: every video frame is a pure function of time, so the same pa
 the same loop every time and re-times to any song.
 
 The look and build rules adapt the open prompt template by
-zero ([@twoclipping](https://x.com/twoclipping/status/2103273003555402193)): one shape that never cuts,
+zero ([@twoclipping](https://x.com/twoclipping)): one shape that never cuts,
 a cursor that drives every change, springs everywhere, and a last frame identical to the first.
 
 Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.html>

@@ -2065,7 +2065,7 @@ The look and rules are in `references/direction.md`; read it before planning.
 ```markdown
 # Direction
 
-Adapted from @twoclipping's open prompt template (x.com/twoclipping/status/2103273003555402193).
+Adapted from @twoclipping's open prompt template (x.com/twoclipping).
 
 ## Look
 - Dribbble-level UI motion. **One shape, never cut**: every state is the same element

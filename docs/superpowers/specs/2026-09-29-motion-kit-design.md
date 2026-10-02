@@ -11,7 +11,7 @@ Status: implemented (see the historical note above)
 ## Purpose
 
 Turn the "code-only motion design" approach (source: @twoclipping prompt template,
-x.com/twoclipping/status/2103273003555402193) into reusable Claude Code skills Jack
+x.com/twoclipping) into reusable Claude Code skills Jack
 can call in future projects, for two uses:
 
 1. **Promo videos** for their projects — a single morphing UI shape, cursor-driven,
