@@ -751,7 +751,6 @@ wave.addEventListener('wheel', (e) => {
   S.follow = false;
 }, { passive: false });
 
-// overview: drag the window, or click outside it to jump there
 // overview: a click (under 4 px of movement) moves the playhead there and centres the view on it (a seek while
 // playing, a blip while stopped); a drag that starts on the view's window pans the view and leaves the playhead
 over.addEventListener('pointerdown', (e) => {

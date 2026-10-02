@@ -128,7 +128,9 @@ const chains = new Map();
 // Validation lives in the analyser alone; its exit code decides the error: 2 (bad input: an invalid sync value, a
 // loop window off the song) throws UsageError (HTTP 400), as does a missing or moved song; any other exit, or an
 // analyser that cannot start, throws SaveError (HTTP 500). Either way song.json, song.json.bak and clip.wav are as
-// they were. `python` is the interpreter (tests swap it).
+// they were, with one exception: "saved, but the previous song.json could not be kept as song.json.bak" (a
+// SaveError) comes after the analyser succeeded, so the new song.json and clip.wav stay and song.json.bak is the one
+// from before. `python` is the interpreter (tests swap it).
 export function saveSync(dir, sync, { python = 'python3' } = {}) {
   const root = path.resolve(dir);
   const next = (chains.get(root) ?? Promise.resolve()).then(() => doSave(root, sync, python));
