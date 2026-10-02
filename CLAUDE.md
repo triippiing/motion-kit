@@ -184,7 +184,8 @@ example, edge cases), `geometry` (the shape's size and colours), `mount` (build 
 (a pure function of `t`), `hotspot` (where the cursor lands), and optionally `sfx` and `endState` (the
 props after its presses, which the next row of the same component starts from as `ctx.prev`). Row 0 is
 shown settled so the loop seam matches; hover comes from `ctx.targets`; anything periodic takes its
-period from `loopPeriod`.
+period from `loopPeriod`. A cursor row with `hide: true` fades the cursor out from its beat (it keeps moving, and
+`inspect(t).cursor.opacity` reports it); the next row without it fades it back in; a hidden row cannot press.
 
 After adding or changing a component: `node $S/build_catalog.mjs` (regenerates `components/index.js` and
 `CATALOG.md`; `npm test` fails when they are stale), `node $S/gallery.mjs --only NAME --stills` (its
@@ -228,7 +229,7 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
   timers, `Date.now()`, or variables written by an earlier frame. Frames render in parallel
   pages in any order; impurity shows up as flicker. `seek` must not wrap `t` (the renderer does).
 - **Page contract:** `window.ready` (promise), `window.STAGE = {width, height}` set by the time
-  ready resolves, `window.seek(t)`, `window.inspect(t) -> {cursor: {x, y}}`, `window.SFX = [{beat, file, gain}]`.
+  ready resolves, `window.seek(t)`, `window.inspect(t) -> {cursor: {x, y, opacity}}`, `window.SFX = [{beat, file, gain}]`.
 - **Loop seam:** last STATES/CURSOR row repeats the first, at least 2 beats before the end.
 - **Timing comes from the song:** `beatT(beat)` (uses measured `cue_t`, and swing from `sync`; one definition in
   `components/core/timing.js`), never hard-coded seconds. A moment the user marked is `at: 'name'`, not a guessed beat.
