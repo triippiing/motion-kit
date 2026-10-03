@@ -11,17 +11,13 @@ import { UsageError } from '../scripts/render.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const SCRIPT = path.join(SKILL, 'scripts', 'sync.mjs');
-const temps = [], servers = [];
-after(async () => {
-  for (const s of servers) await s.close();
-  for (const d of temps) rmSync(d, { recursive: true, force: true });
-});
+const servers = [];   // temp dirs are tempDir's (removed at exit, kept with MK_KEEP_TMP=1); servers are closed here
+after(async () => { for (const s of servers) await s.close(); });
 
 // A 4-bar project (20 s click track at 120 BPM, beside it as ../beat.wav) whose loop starts at bar 2, so a nudge
 // keeps the window inside the song. The analyser has written .source.json.
 function project() {
   const dir = makeProject({ bars: 4 });
-  temps.push(path.dirname(dir));
   execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'),
     '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
   return dir;
@@ -348,4 +344,6 @@ test('analyserTimeout: MK_ANALYSER_TIMEOUT in ms, else 120 s', () => {
   assert.equal(analyserTimeout({}), 120_000);
   assert.equal(analyserTimeout({ MK_ANALYSER_TIMEOUT: '5000' }), 5000);
   for (const bad of ['abc', '0', '-1', '']) assert.equal(analyserTimeout({ MK_ANALYSER_TIMEOUT: bad }), 120_000, bad);
+  // past 2**31-1 ms Node fires setTimeout after 1 ms, so the value is capped there
+  assert.equal(analyserTimeout({ MK_ANALYSER_TIMEOUT: '1e12' }), 2 ** 31 - 1);
 });

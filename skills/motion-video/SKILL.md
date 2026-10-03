@@ -153,7 +153,7 @@ as a backstop.
 If anything fails, the previous `song.json` is put back and the page shows the error. If the song has
 moved, the error says `... record where the song is with: node sync.mjs DIR --song PATH`: run
 `node scripts/sync.mjs DIR --song /new/path/song.mp3` and Save again.
-If the analyser runs longer than 120 s (MK_ANALYSER_TIMEOUT, in ms, changes it), Save stops it and reports the error with the files unchanged.
+If the analyser runs longer than 120 s (MK_ANALYSER_TIMEOUT, in ms, changes it), Save stops it, puts the previous song.json back and reports the error.
 
 The `sync` section it writes:
 

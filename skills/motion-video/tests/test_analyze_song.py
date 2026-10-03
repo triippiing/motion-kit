@@ -438,6 +438,16 @@ class ClickTrackCliTests(unittest.TestCase):
         self.assertIn("error:", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
 
+    def test_cli_out_of_range_input_is_a_clean_error(self):
+        # inf BPM looped forever, 1e9 BPM all but hung, --seconds inf raised OverflowError
+        for args in (["inf"], ["1e9"], ["120", "--seconds", "inf"]):
+            with self.subTest(args=args):
+                r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(self.tmp / "b.wav"), *args],
+                                   capture_output=True, text=True, timeout=20)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("error:", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

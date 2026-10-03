@@ -74,7 +74,8 @@ function run(cmd, args, { timeoutMs = 0 } = {}) {
 // How long Save lets the analyser run: MK_ANALYSER_TIMEOUT (ms) when it is a positive number, else 120 s.
 export function analyserTimeout(env = process.env) {
   const ms = Number(env.MK_ANALYSER_TIMEOUT);
-  return env.MK_ANALYSER_TIMEOUT && Number.isFinite(ms) && ms > 0 ? ms : 120_000;
+  // past 2**31-1 ms Node's setTimeout fires after 1 ms, so a huge value is capped there
+  return env.MK_ANALYSER_TIMEOUT && Number.isFinite(ms) && ms > 0 ? Math.min(ms, 2 ** 31 - 1) : 120_000;
 }
 
 // The analyser's message: its last `error: ...` line (argparse prefixes the program name), else the tail of stderr.
@@ -106,7 +107,8 @@ async function doSave(root, sync, python, timeoutMs) {
     await writeJsonAtomic(songFile, { ...current, sync });
     const r = await run(python, [ANALYSER, song, '--out', root, '--bars', String(loop.bars), '--fps', String(fps),
       '--start-near', String(loop.start_sec)], { timeoutMs });
-    if (r.timedOut) {
+    // a timer that fires as the analyser exits 0 must not undo its work (a killed child has code null)
+    if (r.timedOut && r.code !== 0) {
       await rename(bakTmp, songFile);
       throw new SaveError(`the analyser took longer than ${+(timeoutMs / 1000).toFixed(1)} s and was stopped; song.json is unchanged`);
     }

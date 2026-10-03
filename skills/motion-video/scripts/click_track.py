@@ -2,6 +2,7 @@
 """click_track.py OUT BPM [--seconds 40] -- a synthetic beat: a hi-hat-like click on every beat and a 55 Hz kick
 on each downbeat (every 4th). For tests, the gallery, and trying the kit with no music to hand."""
 import argparse
+import math
 import sys
 import wave
 
@@ -36,14 +37,27 @@ def click_track(path, bpm, seconds=40.0, offset=0.37, noise=0.001, hat=0.3, seed
     return path
 
 
+def finite_float(text):
+    try:
+        v = float(text)
+    except ValueError:
+        v = math.nan
+    if not math.isfinite(v):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text!r}")
+    return v
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("out")
-    ap.add_argument("bpm", type=float)
-    ap.add_argument("--seconds", type=float, default=40.0)
+    ap.add_argument("bpm", type=finite_float)
+    ap.add_argument("--seconds", type=finite_float, default=40.0)
     a = ap.parse_args(argv)
-    if not (a.bpm > 0 and a.seconds > 0):
-        ap.error("BPM and --seconds must be positive")
+    # a huge BPM all but hangs the click loop and a huge --seconds the buffer, so both are kept to a sane range
+    if not 1 <= a.bpm <= 1000:
+        ap.error(f"BPM must be from 1 to 1000, got {a.bpm:g}")
+    if not 0 < a.seconds <= 3600:
+        ap.error(f"--seconds must be above 0 and at most 3600, got {a.seconds:g}")
     try:
         click_track(a.out, a.bpm, seconds=a.seconds)
     except OSError as e:
