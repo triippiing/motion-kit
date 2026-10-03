@@ -26,6 +26,6 @@ test('isMain: its own path, through a symlink, a missing path, no argv[1]', () =
 
 test('no script repeats the old realpathSync(process.argv[1]) guard', () => {
   for (const f of readdirSync(SCRIPTS).filter((n) => n.endsWith('.mjs'))) {
-    assert.doesNotMatch(readFileSync(path.join(SCRIPTS, f), 'utf8'), /realpathSync\(process\.argv\[1\]\)/, f);
+    assert.doesNotMatch(readFileSync(path.join(SCRIPTS, f), 'utf8'), /realpathSync\(\s*process\.argv/, f);
   }
 });

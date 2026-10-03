@@ -19,7 +19,7 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Preview render | `node scripts/render.mjs DIR --preview` |
 | Section render (`--from`/`--to` are seconds) | `node scripts/render.mjs DIR --from 4 --to 8 --preview` |
 | Final render | `node scripts/render.mjs DIR` → `DIR/out/video.mp4` |
-| Check a brief's beat table | `node scripts/check_brief.mjs DIR [--no-loop]` |
+| Check a brief's beat table | `node scripts/check_brief.mjs DIR [--no-loop]`: strict validation of the tables, then a frame check in Chromium (cursor past the stage edges, text past or cut off in its shape, and the safe zones when there is an Exports line); fix every error, resolve every warning. The table checks include: typing (input `text`, command `query`) still going when the next row starts (error); a `'down'`/`'up'` pair on a custom state gets the drag rules; a `press: true` click with under half a beat to arrive (warning: add an approach row aimed at the target first); duplicate keyed entries such as two bar-chart labels "Mon" (warning; aiming the cursor at one is an error) |
 | Export for where it will be posted | `node scripts/export.mjs DIR --for reels,x,discord,web [--silent]` → `DIR/out/exports/` |
 | Safe-zone previews (bands over the zones) | `node scripts/export.mjs DIR --for reels,tiktok --guides` |
 | Safe-zone check on its own | `node scripts/safezones.mjs DIR --for reels,tiktok [--samples beats\|half]` |
@@ -36,6 +36,10 @@ props; the cursor aims at its hotspots with `target:`.
 - `components/CATALOG.md`: every component with its picture, when to use it, how it moves, props and hotspots. Pick from here first.
 - `components/RECIPES.md`: five complete 7-bar sequences (onboarding, checkout, dashboard, AI reply, settings) to start from.
 - `components/WRITING-A-COMPONENT.md`: how to add one when the library lacks it.
+- Text stays inside the shape: the frame check (`scripts/framecheck.mjs`, run by check_brief) reports words that
+  run past it or are cut off, measuring the words' own line boxes. `data-overhang` on an element (a tooltip above
+  its point) is an opt-in hook for component authors (no built-in component uses it today); it only silences that
+  check: `#shape` clips its overflow, so the element is still cut at the shape's edge.
 
 ## Build loop
 
@@ -220,6 +224,11 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   the project's copy is too old (its `components/core/validate.js` does not list `'hide'` in `CURSOR_KEYS`, or its
   `core/engine.js` never reads `.hide`): "the project's components/ copy predates hide; copy a fresh components/ in
   (see SKILL.md, Older projects)". The safe-zone check skips the cursor while it is hidden (opacity under 0.05).
+- Older projects and the typing and duplicate checks. A `components/` copy from before them lacks `meta.typing` and
+  `meta.unique`, so `check_brief.mjs` silently skips those two checks for it (typing that overruns its row, duplicate
+  keyed entries). Copying a fresh `components/` in can make the page refuse a table that rendered before (typing that
+  overruns its row, or a cursor aimed at a duplicate entry); the error says what to change. An `index.html` without
+  table markers now gets the "index.html has no table markers" note on every `check_brief.mjs` run.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)
@@ -311,8 +320,8 @@ with `--silent` or use a licensed track. Negated or licence wording ("not a comm
 for commercial use") does not count.
 
 **Safe zones.** Reels, TikTok and Shorts cover the bottom and sides with captions and buttons (the feed,
-chat and web presets have none). `check_brief.mjs` checks the brief's tables against them only when the
-brief has an `**Exports:**` line (it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts)); each issue is a warning, to resolve or justify.
+chat and web presets have none). `check_brief.mjs` checks the brief's tables against them when the
+brief has an `**Exports:**` line, in the same Chromium frame check it always runs; each issue is a warning, to resolve or justify.
 To check a project on its own: `node scripts/safezones.mjs DIR --for reels,tiktok` (exit 1 when anything
 enters a zone, e.g. "beat 12: shape extends 40 px into the Instagram Reels bottom zone"). To see them:
 `node scripts/export.mjs DIR --for reels,tiktok --guides` renders a half-size preview per preset with

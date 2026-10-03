@@ -91,7 +91,7 @@ test('progress: a continuation animates the fill from the previous value', async
     // reads 31%), not 0 or 80
     await at(4.02);
     const n = parseInt(await pct(), 10);
-    assert.ok(n >= 30 && n <= 35, `${n}%`);
+    assert.ok(n >= 30 && n <= 32, `${n}%`);
     await at(5.8);
     assert.equal(await pct(), '80%');
   });
@@ -122,3 +122,25 @@ for (const [what, row] of [['loader (spinner)', "use: 'loader'"], ['loader (dots
     assert.equal(r.seam.ok, true, r.seam.notes.join('; '));
   });
 }
+
+test('badge: the same count on consecutive rows stays put across the change', async () => {
+  await scene({ bars: 2, states: `[{ at: 0, use: 'button' }, { at: 2, use: 'button', badge: 3 }, { at: 4, use: 'button', label: 'Next', badge: 3 }, { at: END - 2, use: 'button' }]`, cursor: STILL }, async (s, at) => {
+    for (const b of [3.5, 3.9, 4.0, 4.1, 4.3]) {
+      await at(b);
+      const o = await s.page.evaluate(() => Math.max(...[...document.querySelectorAll('.mk-badge')].map((e) => Number(e.style.opacity))));
+      assert.ok(o > 0.99, `badge fully shown at beat ${b}, got ${o}`);
+    }
+  });
+});
+
+test('badge: a changed count keeps the bubble and pops the number', async () => {
+  await scene({ bars: 2, states: `[{ at: 0, use: 'button' }, { at: 2, use: 'button', badge: 3 }, { at: 4, use: 'button', label: 'Next', badge: 4 }, { at: END - 2, use: 'button' }]`, cursor: STILL }, async (s, at) => {
+    const shown = () => s.page.evaluate(() => [...document.querySelectorAll('.mk-badge')].filter((e) => Number(e.style.opacity) > 0.5).map((e) => [e.textContent, e.style.transform]));
+    await at(3.9); assert.deepEqual((await shown()).map(([t]) => t), ['3']);
+    await at(4.1);
+    const s1 = await shown();
+    assert.deepEqual(s1.map(([t]) => t), ['4'], 'the new count is on at once');
+    assert.match(s1[0][1], /scale\((1\.0[5-9]|1\.1\d*)/, 'and pops (scale above 1)');
+    await at(4.6); assert.match((await shown())[0][1], /scale\(1\)/, 'settled');
+  });
+});

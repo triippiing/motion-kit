@@ -334,10 +334,44 @@ test('Save: a hung analyser is stopped after the timeout; song.json is unchanged
 
 test('Save: an analyser that ignores SIGTERM is killed', async () => {
   const dir = project();
+  const before = read(dir, 'song.json');
   const t0 = Date.now();
   const e = await saveSync(dir, { nudge_ms: -10 }, { python: fakePython("trap '' TERM\nsleep 30"), timeoutMs: 300 }).catch((x) => x);
   assert.ok(e instanceof SaveError, String(e));
   assert.ok(Date.now() - t0 < 10_000, `took ${Date.now() - t0} ms`);
+  assert.match(e.message, /^the analyser took longer than 0\.3 s and was stopped; song\.json is unchanged$/);
+  assert.deepEqual(read(dir, 'song.json'), before);
+});
+
+// Ctrl+C on the server stops an analyser still running (it runs in its own process group, so the signal alone
+// would not reach it) and puts the previous song.json back. The fake analyser's argv carries a marker so pgrep
+// finds only this test's process.
+test('CLI: SIGINT stops a running analyser; song.json is unchanged', { timeout: 30_000 }, async () => {
+  const dir = project();
+  const before = read(dir, 'song.json');
+  const marker = `mk-orphan-${process.pid}-${Date.now()}`;
+  const python = fakePython(`exec python3 -c 'import time; time.sleep(30)' ${marker}`);
+  const running = () => spawnSync('pgrep', ['-f', marker]).status === 0;
+  const until = async (ok, ms) => { for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) if (ok()) return true; return ok(); };
+  const child = spawn('node', [SCRIPT, dir, '--no-open', '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, MK_ANALYSER_PYTHON: python, MK_ANALYSER_TIMEOUT: '60000' } });
+  try {
+    const url = await new Promise((resolve, reject) => {
+      let out = '';
+      child.stdout.on('data', (c) => { out += c; const m = /sync page: (http:\/\/127\.0\.0\.1:\d+\/__sync)\n/.exec(out); if (m) resolve(m[1]); });
+      child.on('exit', (code) => reject(new Error(`exited ${code}`)));
+    });
+    post(url, { nudge_ms: -10 }).catch(() => {});   // the server goes away mid-request
+    assert.ok(await until(running, 10_000), 'the fake analyser started');
+    const code = await new Promise((resolve) => { child.on('exit', (c) => resolve(c)); child.kill('SIGINT'); });
+    assert.equal(code, 130);
+    assert.ok(await until(() => !running(), 3000), 'the analyser is still running after the server exited');
+    assert.deepEqual(read(dir, 'song.json'), before);
+    assert.ok(!existsSync(path.join(dir, 'song.json.bak.tmp')), 'song.json.bak.tmp is left behind');
+  } finally {
+    child.kill('SIGKILL');
+    spawnSync('pkill', ['-KILL', '-f', marker]);
+  }
 });
 
 test('analyserTimeout: MK_ANALYSER_TIMEOUT in ms, else 120 s', () => {

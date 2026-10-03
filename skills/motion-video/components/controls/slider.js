@@ -31,7 +31,8 @@ export function geometry(p) {
   return { w: Math.min(1200, PAD_L + textW(p.label, 30) + GAP + (p.icon !== 'none' ? ICON_W : 0) + TRACK + PAD_R), h: 112, r: 56, fill: 'surface', ink: 'ink' };
 }
 
-// One label, laid out for this row (p): a fading previous label takes this row's frame and icon.
+// One label, laid out for row p in a frame w wide. A fading previous label keeps its own row's layout (its full
+// width, not squeezed to an ellipsis stub in a shorter new row); the shape clips it as it shrinks.
 function label(parent, text, p, w, h, cls) {
   const l = el(parent, 'span', { class: `sl-label ${cls}` }, text);
   const end = trackLeft(p, w) - (p.icon !== 'none' ? ICON_W : 0) - GAP;
@@ -46,7 +47,7 @@ export function mount(root, p, ctx) {
   if (p.icon !== 'none') Object.assign(icon(f, p.icon, 36).style, { position: 'absolute', left: `${p.label ? trackLeft(p, w) - ICON_W : 40}px`, top: `${(h - 36) / 2}px` });
   // A changed label on a continuation: the previous one too, to fade out under the new one. A row
   // without a label has no room for it, so the old label goes with the previous layer.
-  if (p.label && ctx.continues && changed(ctx.prev, p) && ctx.prev.label) label(f, ctx.prev.label, p, w, h, 'sl-prev');
+  if (p.label && ctx.continues && changed(ctx.prev, p) && ctx.prev.label) label(f, ctx.prev.label, ctx.prev, geometry(ctx.prev).w, h, 'sl-prev');
   if (p.label) label(f, p.label, p, w, h, 'sl-cur');
   const bar = { position: 'absolute', top: `${(h - 10) / 2}px`, height: '10px', borderRadius: '5px' };
   Object.assign(el(f, 'div', { class: 'sl-track' }).style, bar, { background: 'var(--muted)' });

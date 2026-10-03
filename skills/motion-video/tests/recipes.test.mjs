@@ -47,13 +47,14 @@ for (const r of recipes) {
   });
 }
 
-test('the first recipe renders its first bar to video', async () => {
-  const r = recipes[0];
-  const dir = makeProject({ bars: 7, bpm: 120, states: source(r.code, 'states'), cursor: source(r.code, 'cursor') });
-  const out = await render(dir, { preview: true, from: 0, to: 2, workers: 2 });
-  const frames = Number(probe(out).streams.find((s) => s.codec_type === 'video').nb_read_frames);
-  assert.ok(frames >= 110 && frames <= 125, `about 2 s at 60 fps (got ${frames} frames)`);
-});
+for (const r of recipes) {
+  test(`${r.title}: renders its first bar to video`, async () => {
+    const dir = makeProject({ bars: 7, bpm: 120, states: source(r.code, 'states'), cursor: source(r.code, 'cursor') });
+    const out = await render(dir, { preview: true, from: 0, to: 2, workers: 2 });
+    const frames = Number(probe(out).streams.find((s) => s.codec_type === 'video').nb_read_frames);
+    assert.ok(frames >= 110 && frames <= 125, `about 2 s at 60 fps (got ${frames} frames)`);
+  });
+}
 
 test('the WRITING-A-COMPONENT.md template is a working component (meta, geometry, hotspot, endState, example)', async () => {
   const guide = readFileSync(path.join(import.meta.dirname, '..', 'components', 'WRITING-A-COMPONENT.md'), 'utf8');

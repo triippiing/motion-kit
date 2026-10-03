@@ -390,7 +390,7 @@ class SyncTests(unittest.TestCase):
             phase = (start + b["cue_t"] - 0.37) % beat
             self.assertLess(min(phase, beat - phase), beat / 8)
 
-    def test_short_song_window_choice_is_unchanged(self):
+    def test_short_song_window_prefers_sections_that_fit(self):
         # a section start is still preferred without a user grid when its window fits (20 s: bar 6);
         # in the 16 s songs the Node harness uses, the only section's window runs off the song, so the
         # pick stays inside, and with a nudge too

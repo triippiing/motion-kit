@@ -11,7 +11,11 @@
 // Save writes the user's sync section into song.json and re-runs analyze_song.py on the original song (its path is
 // in DIR/.source.json), so song.json and clip.wav are rebuilt with the same bars, fps and loop window. The previous
 // song.json is kept as song.json.bak; on failure it is put back. --song PATH records where the song is now.
+// MK_ANALYSER_PYTHON (CLI only) is the interpreter Save runs the analyser with (default python3; tests swap it).
+// When the server exits (Ctrl+C, SIGTERM or otherwise) it stops any analyser still running and puts that save's
+// previous song.json back.
 import { spawn } from 'node:child_process';
+import { renameSync } from 'node:fs';
 import { copyFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { serve, inside, TYPES, UsageError } from './render.mjs';
@@ -50,12 +54,19 @@ async function writeJsonAtomic(file, value) {
   await rename(tmp, file);
 }
 
+// Process groups of analysers still running, so the CLI can stop them when it exits.
+const live = new Set();
+// Saves whose analyser has not finished (root -> files): song.json holds the new sync over the old beats until then,
+// so a CLI exit puts the previous song.json back.
+const saving = new Map();
+
 // Runs a command; resolves { code, stdout, stderr, timedOut } (code null and `error` set when it could not start).
 // After timeoutMs the whole process group gets SIGTERM, then SIGKILL 2 s later: a child of the command could
 // otherwise hold its pipes open and keep 'close' from ever firing.
 function run(cmd, args, { timeoutMs = 0 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, { detached: true, env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` } });
+    if (child.pid) live.add(child.pid);
     let stdout = '', stderr = '', timedOut = false, killer = null;
     const signal = (sig) => { try { process.kill(-child.pid, sig); } catch { /* already gone */ } };
     const timer = timeoutMs > 0 ? setTimeout(() => {
@@ -63,7 +74,7 @@ function run(cmd, args, { timeoutMs = 0 } = {}) {
       signal('SIGTERM');
       killer = setTimeout(() => signal('SIGKILL'), 2000);
     }, timeoutMs) : null;
-    const done = (r) => { clearTimeout(timer); clearTimeout(killer); resolve({ ...r, timedOut }); };
+    const done = (r) => { live.delete(child.pid); clearTimeout(timer); clearTimeout(killer); resolve({ ...r, timedOut }); };
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', (c) => { stderr += c; });
     child.on('error', (error) => done({ code: null, stdout, stderr, error }));
@@ -103,6 +114,7 @@ async function doSave(root, sync, python, timeoutMs) {
   }
   sync = staleCheck(current.sync, sync);
   await copyFile(songFile, bakTmp);
+  saving.set(root, { bakTmp, songFile });
   try {
     await writeJsonAtomic(songFile, { ...current, sync });
     const r = await run(python, [ANALYSER, song, '--out', root, '--bars', String(loop.bars), '--fps', String(fps),
@@ -121,7 +133,7 @@ async function doSave(root, sync, python, timeoutMs) {
     // a failure of our own (not the analyser's) also puts the previous song.json back
     if (await stat(bakTmp).then(() => true, () => false)) await rename(bakTmp, songFile);
     throw e instanceof UsageError || e instanceof SaveError ? e : new SaveError(e.message);
-  }
+  } finally { saving.delete(root); }
   // the analyser succeeded: the new song.json and clip.wav stay, whatever happens to the backup
   try { await rename(bakTmp, `${songFile}.bak`); } catch (e) {
     await rm(bakTmp, { force: true });
@@ -195,7 +207,7 @@ async function servePage(req, res) {
   } catch { res.writeHead(404); res.end(); }
 }
 
-async function saveRoute(req, res, root) {
+async function saveRoute(req, res, root, python) {
   // JSON only: a cross-site form or text/plain post cannot send it without a CORS preflight, which this server fails
   if (!/^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')) {
     req.resume();
@@ -210,14 +222,15 @@ async function saveRoute(req, res, root) {
   const sync = body?.sync;
   if (sync === null || typeof sync !== 'object' || Array.isArray(sync)) return sendJson(res, 400, { error: 'the body must be {"sync": {...}} with sync an object' });
   try {
-    sendJson(res, 200, await saveSync(root, sync));
+    sendJson(res, 200, await saveSync(root, sync, { python }));
   } catch (e) {
     sendJson(res, e instanceof UsageError ? 400 : 500, { error: e.message });
   }
 }
 
 // Serves DIR with the sync routes on 127.0.0.1. `song` first records the song's path in DIR/.source.json.
-export async function startSync(dir, { port = 0, song } = {}) {
+// `python` is the analyser's interpreter for Save (undefined: saveSync's default).
+export async function startSync(dir, { port = 0, song, python } = {}) {
   const root = path.resolve(dir);
   if (!(await stat(path.join(root, 'song.json')).then((s) => s.isFile(), () => false))) {
     throw new UsageError(`${root} is not a motion-video project (no song.json); make one with new_project.sh`);
@@ -227,7 +240,7 @@ export async function startSync(dir, { port = 0, song } = {}) {
     if (!(await stat(abs).then((s) => s.isFile(), () => false))) throw new UsageError(`--song ${song}: no such file`);
     await writeJsonAtomic(path.join(root, '.source.json'), { path: abs });
   }
-  const routes = { 'GET /__sync': servePage, 'GET /__sync/': servePage, 'POST /__sync/save': saveRoute };
+  const routes = { 'GET /__sync': servePage, 'GET /__sync/': servePage, 'POST /__sync/save': (req, res, root) => saveRoute(req, res, root, python) };
   const { server } = await serve(root, port, { routes });
   return { server, url: `http://127.0.0.1:${server.address().port}/__sync`,
     close: () => new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections?.(); }) };
@@ -253,7 +266,7 @@ async function main() {
   const { dir, port, noOpen, song } = parseArgs(process.argv.slice(2));
   if (!dir) throw new UsageError(USAGE);
   let started;
-  try { started = await startSync(dir, { port, song }); } catch (e) {
+  try { started = await startSync(dir, { port, song, python: process.env.MK_ANALYSER_PYTHON || undefined }); } catch (e) {
     if (e.code === 'EADDRINUSE') throw new UsageError(`port ${port} is in use; pass another --port`);
     throw e;
   }
@@ -265,7 +278,19 @@ async function main() {
   }
 }
 
+// The analyser runs in its own process group, so a signal to the server does not reach it: stop it here, and put
+// back the song.json of any save it was running for (synchronous: this runs on exit).
+function stopAnalysers() {
+  for (const pgid of live) { try { process.kill(-pgid, 'SIGTERM'); } catch { /* already gone */ } }
+  live.clear();
+  for (const { bakTmp, songFile } of saving.values()) { try { renameSync(bakTmp, songFile); } catch { /* best effort */ } }
+  saving.clear();
+}
+
 if (isMain(import.meta.url)) {
+  process.on('exit', stopAnalysers);
+  // a handler replaces the default exit on these signals, so exit with the shell's code for them
+  for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) process.on(sig, () => { stopAnalysers(); process.exit(code); });
   main().catch((e) => {
     console.error(`error: ${e.message}`);
     if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);

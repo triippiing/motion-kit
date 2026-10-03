@@ -7,6 +7,7 @@ export const meta = {
   motion: 'A press on an item sends the pill there with two edges (settling in 0.22 s, no overshoot): the leading edge moves first, so the pill stretches and settles, and quick reversals stay inside the dock. The active item turns ink, the others muted. A following dock row continues from the last pressed item (write it as its `active`) and travels on arrival if `active` differs.',
   props: { items: ['string[]', ['Today', 'Plan', 'Calendar', 'Retirement', 'Settings']], active: ['string', 'Plan'], icons: ['string[]', ['home', 'trend', 'calendar', 'wallet', 'settings']] },
   hotspots: ['item:<label>'],
+  unique: { items: true },
   choices: { active: 'items' },
   hotspotExample: { 'item:<label>': 'item:Calendar' },
   sounds: [],

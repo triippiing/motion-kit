@@ -207,6 +207,72 @@ test('line-chart: a point hovered before a continuation keeps its tooltip across
   });
 });
 
+test('line-chart: moving from point A to point B fades A out while B pops in', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:2' }, { at: 4.5, target: 'point:5' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at) => {
+    await at(4.6);   // 0.1 beat after the aim moves: both visible
+    const tips = await s.page.evaluate(() => [...document.querySelectorAll('.c-line-chart .lc-tip, .c-line-chart .lc-tip-out')].map((e) => [e.textContent, Number(e.style.opacity)]));
+    const a = tips.find(([t]) => t === '5'), b = tips.find(([t]) => t === '10');   // default points: [4,6,5,8,7,10,9,13]
+    assert.ok(a && a[1] > 0.05 && a[1] < 0.95, `A fading: ${JSON.stringify(tips)}`);
+    assert.ok(b && b[1] > 0.05, `B popping: ${JSON.stringify(tips)}`);
+    await at(4.8);
+    const out = await s.page.evaluate(() => Number(document.querySelector('.c-line-chart .lc-tip-out').style.opacity));
+    assert.ok(out < 0.01, 'A gone after 0.2 beat');
+  });
+});
+
+test('line-chart: hopping between points faster than they pop never flashes the outgoing point', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:1' }, { at: 3.25, target: 'point:3' }, { at: 3.5, target: 'point:5' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    const rows = await s.page.evaluate((bs) => {
+      const out = [];
+      for (let j = 0; j <= 120; j++) {
+        const beat = 2.9 + j / 100;
+        window.seek(beat * bs);
+        const cur = document.querySelector('.c-line-chart .lc-tip'), o = document.querySelector('.c-line-chart .lc-tip-out');
+        out.push([beat.toFixed(2), cur.textContent, Number(cur.style.opacity), o.textContent, Number(o.style.opacity)]);
+      }
+      return out;
+    }, bs);
+    const last = {};   // each point's tooltip opacity the last time it was the current one
+    let prev = null;
+    for (const [beat, ct, co, ot, oo] of rows) {
+      if (ot && prev && prev[3] === ot) assert.ok(oo - prev[4] <= 0.05, `outgoing ${ot} rises at ${beat}: ${prev[4]} -> ${oo}`);
+      if (ot) assert.ok(oo <= (last[ot] ?? 0) + 0.02, `outgoing ${ot} at ${beat} is ${oo}, above its ${last[ot]} at the switch`);
+      if (ct) last[ct] = co;
+      prev = [beat, ct, co, ot, oo];
+    }
+    assert.ok(rows.some(([, , , ot, oo]) => ot === '6' && oo > 0.05), 'point 1 is seen fading out');
+  });
+});
+
+test('line-chart: leaving the point the hover prop already shows keeps its tooltip up', async () => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 4 }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'point:4' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at) => {
+    for (const b of [4.5, 4.6, 4.7, 4.8, 5]) { await at(b); assert.ok(await num(s, '.c-line-chart .lc-tip', 'opacity') > 0.95, `kept at ${b}`); }
+  });
+});
+
+test('line-chart: a hover prop taking over from a faded cursor hover fades in, not snaps', async () => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 4 }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'point:1' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    // the cursor hover fades out from 4.5 over 0.2 beat; the hover prop (due at 3.6) then fades in
+    const o = [];
+    for (const b of [4.71, 4.8, 4.9, 5.2]) { await at(b); o.push(await num(s, '.c-line-chart .lc-tip', 'opacity')); }
+    assert.ok(o[0] < 0.5, `starts low, got ${o}`);
+    assert.ok(o[3] > 0.95, `reaches full, got ${o}`);
+    assert.ok(o[1] <= o[2] && o[2] <= o[3], `rises, got ${o}`);
+    // the four samples above miss a snap between them: no 0.01 beat step may jump the tooltip up by more than 0.2
+    const steps = await s.page.evaluate((bs) => {
+      const out = [];
+      for (let beat = 4.5; beat <= 5.2 + 1e-9; beat += 0.01) { window.seek(beat * bs); out.push(Number(document.querySelector('.c-line-chart .lc-tip').style.opacity)); }
+      return out;
+    }, bs);
+    const jump = Math.max(...steps.slice(1).map((v, j) => v - steps[j]));
+    assert.ok(jump < 0.2, `fades in without a snap, largest step ${jump}`);
+  });
+});
+
 test('goal: a continuation from a zero target never shows a runaway percentage', async () => {
   await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2450, target: 0 }, { at: 4, use: 'goal', saved: 2450, target: 4000 }${BACK}]`, cursor: STILL }, async (s, at, bs) => {
     const texts = await s.page.evaluate(([a, b, bs]) => {
@@ -238,3 +304,28 @@ test('bar-chart: a continuation after a press keeps the pressed bar highlighted'
   await noFlash({ use: 'bar-chart', a: "highlight: ''", b: "highlight: 'Wed'", press: 'bar:Wed', read: (row) =>
     [...document.querySelectorAll(`.c-bar-chart[data-row="${row}"] .bc-bar`)].map((e) => [e.classList.contains('bc-hl'), e.style.background]) });
 });
+
+// A continuation between two real targets, however far apart: the shown percentage stays between the two rows'
+// own percentages (no snap to a full bar or a tiny one), and the bar agrees with the figure throughout.
+for (const [name, a, b] of [['grows twentyfold', [100, 200], [3000, 4000]], ['shrinks twentyfold', [2450, 4000], [150, 200]]]) {
+  test(`goal: a target that ${name} eases between the rows' own percentages, bar in step`, async () => {
+    await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: ${a[0]}, target: ${a[1]} }, { at: 4, use: 'goal', saved: ${b[0]}, target: ${b[1]} }${BACK}]`, cursor: STILL }, async (s, at, bs) => {
+      const got = await s.page.evaluate(([bs]) => {
+        const out = [];
+        for (let beat = 4; beat <= 5.6 + 1e-9; beat += 0.05) {
+          window.seek(beat * bs);
+          const f = document.querySelector('.c-goal[data-row="2"] .gl-fill');
+          out.push({ beat, text: document.querySelector('.c-goal[data-row="2"] .gl-text').textContent,
+            fill: parseFloat(f.style.width) / parseFloat(f.parentElement.style.width) });
+        }
+        return out;
+      }, [bs]);
+      const pa = Math.round((a[0] / a[1]) * 100), pb = Math.round((b[0] / b[1]) * 100);
+      for (const g of got) {
+        const pct = Number(/(\d+)%$/.exec(g.text)[1]);
+        assert.ok(pct >= Math.min(pa, pb) - 1 && pct <= Math.max(pa, pb) + 1, `beat ${g.beat.toFixed(2)}: ${g.text} outside ${pa}%..${pb}%`);
+        assert.ok(Math.abs(g.fill * 100 - pct) <= 1, `beat ${g.beat.toFixed(2)}: bar ${(g.fill * 100).toFixed(1)}% vs ${g.text}`);
+      }
+    });
+  });
+}

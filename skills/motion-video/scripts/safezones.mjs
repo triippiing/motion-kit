@@ -10,10 +10,10 @@
 // Consecutive samples in the same zone are one issue: "beats 12-13.5: shape extends 40 px into the Instagram Reels
 // bottom zone". Prints each issue; exit 1 when there are any, 0 when none, 2 on bad input.
 // Also the home of the preset helpers export.mjs and check_brief.mjs share, and of the guides overlay (render.mjs --guides).
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { beatTime, openProject, UsageError } from './render.mjs';
+import { UsageError } from './render.mjs';
+import { checkFrames } from './framecheck.mjs';
 import { didYouMean } from '../components/core/validate.js';
 import { isMain } from './is_main.mjs';
 
@@ -64,91 +64,14 @@ export function scaledMargins(p, stage) {
   return Object.values(m).some((v) => v > 0) ? m : null;
 }
 
-const EDGES = ['top', 'bottom', 'left', 'right'], PARTS = ['shape', 'cursor'];
-
-// How far a box ({ left, top, right, bottom }, stage px) reaches into each margin of a W x H stage.
-function intrusions(box, m, W, H) {
-  const px = { top: m.top - box.top, bottom: box.bottom - (H - m.bottom), left: m.left - box.left, right: box.right - (W - m.right) };
-  return EDGES.filter((e) => m[e] > 0 && px[e] >= 1).map((edge) => ({ edge, px: Math.round(px[edge]) }));
-}
-
-// Runs in the page: seek, then the shape's box and the cursor's in stage px (relative to #stage, which the
-// viewport matches at device scale 1, so CSS px are stage px; getBoundingClientRect includes the camera zoom and the
-// cursor's own scale). The cursor box runs from its tip (window.inspect) to the far corner of the arrow the engine
-// draws (#cursor path: 23 x 33 px right of and below the tip at scale 1); a page without that path counts the tip.
-// A cursor hidden by a `hide` row (inspect's opacity under 0.05) is not on screen, so it counts for no zone; a page
-// whose inspect has no opacity (older projects) is always visible.
-function measure(t) {
-  window.seek(t);
-  const shape = document.querySelector('#shape');
-  if (!shape) return null;
-  const st = document.querySelector('#stage')?.getBoundingClientRect() ?? { left: 0, top: 0 };
-  const b = shape.getBoundingClientRect();
-  const box = b.width > 0 && b.height > 0 ? { left: b.left - st.left, top: b.top - st.top, right: b.right - st.left, bottom: b.bottom - st.top } : null;
-  const c = typeof window.inspect === 'function' ? window.inspect(t)?.cursor : null;
-  if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y)) return { shape: box, cursor: null };
-  if (Number.isFinite(c.opacity) && c.opacity < 0.05) return { shape: box, cursor: null };
-  const a = document.querySelector('#cursor path')?.getBoundingClientRect();
-  const cursor = { left: c.x, right: c.x, top: c.y, bottom: c.y };
-  if (a && a.width > 0) Object.assign(cursor, { right: Math.max(c.x, a.right - st.left), bottom: Math.max(c.y, a.bottom - st.top) });
-  return { shape: box, cursor };
-}
-
 // { issues: [{ preset, beat, through, t, part, edge, px }], notes } -- `beat` is where a run of samples in the zone
-// starts, `through` where it ends, px the deepest it reaches. `tables` (a brief's states()/cursor() code) is
-// spliced into index.html as served, so a brief is checked before it is built; notes say when that was not possible.
-// `loop` (a boolean) overrides project.json's "loop" as served (check_brief --no-loop).
-export async function checkSafeZones(dir, { presets, samples = 'half', tables, loop } = {}) {
-  const root = path.resolve(dir);
-  if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
-  if (!['beats', 'half'].includes(samples)) throw new UsageError(`samples must be "beats" or "half", got "${samples}"`);
-  const P = await loadPresets();
-  const names = resolvePresets(P, presets);
-  const design = await designStage(root);
-  let song;
-  try { song = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8')); }
-  catch (e) { throw new UsageError(`song.json is not valid JSON: ${e.message}`); }
-  if (!Array.isArray(song?.beats)) throw new UsageError('song.json has no beats list (re-run analyze_song.py)');
-  const D = song.loop?.duration_sec ?? Infinity;
-  const beats = [];
-  for (let b = 0; b < song.beats.length; b++) beats.push(...(samples === 'half' ? [b, b + 0.5] : [b]));
-  const at = beats.map((beat) => ({ beat, t: beatTime(song, beat) })).filter((s) => s.t <= D + 1e-9);
-
-  const groups = new Map();
-  for (const name of names) {
-    const stage = presetStage(P, name, design), m = scaledMargins(P.presets[name], stage);
-    if (!m) continue;
-    const key = stage.join('x');
-    if (!groups.has(key)) groups.set(key, { stage, checks: [] });
-    groups.get(key).checks.push({ name, m });
-  }
-
-  const issues = [], notes = [];
-  for (const { stage, checks } of groups.values()) {
-    const proj = await openProject(root, { workers: 1, stage, tables, loop });
-    try {
-      if (tables && !proj.tablesSpliced && !notes.length) notes.push("index.html has no table markers, so the safe-zone check used index.html's own tables, not the brief's");
-      const [W, H] = stage, page = proj.pages[0];
-      const open = new Map();   // `${preset}/${part}/${edge}` -> the issue its run is building
-      for (let i = 0; i < at.length; i++) {
-        const got = await page.evaluate(measure, at[i].t);
-        if (proj.errors.length) throw proj.errors[0];
-        if (!got) throw new Error('the safe-zone check needs the template\'s #shape element; index.html has none');
-        for (const { name, m } of checks) for (const part of PARTS) {
-          if (!got[part]) continue;
-          for (const { edge, px } of intrusions(got[part], m, W, H)) {
-            const key = `${name}/${part}/${edge}`, run = open.get(key);
-            if (run && run.last === i - 1) { run.through = at[i].beat; run.px = Math.max(run.px, px); run.last = i; continue; }
-            const issue = { preset: name, beat: at[i].beat, through: at[i].beat, t: Math.round(at[i].t * 1000) / 1000, part, edge, px, last: i };
-            open.set(key, issue); issues.push(issue);
-          }
-        }
-      }
-    } finally { await proj.close(); }
-  }
-  issues.sort((a, b) => names.indexOf(a.preset) - names.indexOf(b.preset) || a.beat - b.beat
-    || PARTS.indexOf(a.part) - PARTS.indexOf(b.part) || EDGES.indexOf(a.edge) - EDGES.indexOf(b.edge));
-  return { issues: issues.map(({ last, ...i }) => i), notes };
+// starts, `through` where it ends, px the deepest it reaches. The page is sampled by framecheck.mjs (shared with
+// check_brief's frame check); `tables` (a brief's states()/cursor() code) is spliced into index.html as served, so a
+// brief is checked before it is built; notes say when that was not possible. `loop` (a boolean) overrides
+// project.json's "loop" as served (check_brief --no-loop).
+export async function checkSafeZones(dir, opts = {}) {
+  const r = await checkFrames(dir, { ...opts, frame: false });
+  return { issues: r.issues.map(({ kind, ...i }) => i), notes: r.notes };
 }
 
 // "beat 12: shape extends 40 px into the Instagram Reels bottom zone" (or "beats 12-13.5: ..." for a run).

@@ -132,6 +132,16 @@ test('command: a continuation that replaces the query springs the rows open inst
   });
 });
 
+test('command: a continuation that extends the query at once still springs the rows', async () => {
+  await scene({ bars: 2, states: `[{ at: 0, use: 'button' }, { at: 2, use: 'command', query: '' }, { at: 4, use: 'command', query: 'exp', typeAt: -1 }, { at: END - 2, use: 'button' }]`, cursor: STILL }, async (s, at) => {
+    // 'Invite teammate' stops matching 'exp': its row collapses over ~0.3 beat from beat 4, not at once
+    const h = async (b) => { await at(b); return s.page.evaluate(() => parseFloat(document.querySelector('.c-command[data-row="2"] .cm-row[data-item="Invite teammate"]').style.height)); };
+    const h0 = await h(4.02), h1 = await h(4.6);
+    assert.ok(h0 > 10, `still collapsing just after the row starts, got ${h0}`);
+    assert.ok(h1 < 1, `collapsed by 0.6 beat, got ${h1}`);
+  });
+});
+
 test('command: a continuation with the same query keeps the caret blinking', async () => {
   await scene({ bars: 2, states: "[{ at: 0, use: 'command', query: 'exp', typeAt: 0 }, { at: 2, use: 'command', query: 'exp' }, { at: END - 2, use: 'command', query: 'exp', typeAt: 0 }]", cursor: STILL }, async (s, at, bs) => {
     const seen = (row, a, b) => s.page.evaluate(([row, a, b, bs]) => {

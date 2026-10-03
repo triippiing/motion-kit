@@ -13,7 +13,7 @@ import { fixture, probe } from './fixtures.mjs';
 import { tempDir } from './tmp.mjs';
 import { beatTime, FFMPEG, newestSource, render, rendererId, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
-import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
+import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, loudnormArgs, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = tempDir('mk-export-');
@@ -58,15 +58,18 @@ const duration = (f) => Number(probe(f).format.duration);
 const loopSec = (dir) => JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.duration_sec;
 // The audio stream's own duration, and its timestamp holes (players hear silence, the audio after it
 // late): a packet starting more than 1 ms from where the previous one ended (webm), or a packet before
-// the last one stretched more than 1 ms past the first packet's length (mp4 stores the hole that way).
+// the last one stretched more than 1 ms past the median packet length (mp4 stores the hole that way).
 function audioTrack(file) {
   const run = (e) => execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'a:0', '-show_entries', e,
     '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim();
   const pkts = run('packet=pts_time,duration_time').split('\n').map((l) => l.split(',').map(Number));
+  // an N/A time or duration would make every comparison false and hide a gap
+  assert.ok(pkts.every(([t, d]) => Number.isFinite(t) && Number.isFinite(d)), `${file}: a packet time or duration is not a number`);
+  const lens = pkts.map(([, d]) => d).sort((a, b) => a - b), median = lens[Math.floor(lens.length / 2)];
   const gaps = pkts.slice(1).flatMap(([t], i) => {
     const [t0, d0] = pkts[i], end = t0 + d0;
     if (Math.abs(t - end) > 0.001) return [`${end.toFixed(4)}->${t.toFixed(4)}`];
-    return d0 - pkts[0][1] > 0.001 ? [`${t0.toFixed(4)} lasts ${d0.toFixed(4)}`] : [];
+    return d0 - median > 0.001 ? [`${t0.toFixed(4)} lasts ${d0.toFixed(4)}`] : [];
   });
   return { duration: Number(run('stream=duration')), gaps };
 }
@@ -618,4 +621,14 @@ test('a licensed track in the brief gets no commercial warning in the manifest; 
     brief('**Song:** "Tints", a commercial track, so social platforms would likely mute it.');
     assert.equal((await commercial()).length, 1);
   });
+});
+
+// loudnorm's EOF frame leaves a timestamp hole unless asetpts restamps after it (131c5d6).
+test('loudnormArgs ends its filter with asetpts=N/SR/TB', async () => {
+  const wav = path.join(TMP, 'sine.wav');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=f=440:d=1', wav]);
+  const a = await loudnormArgs(wav, { lufs: -14, truePeak: -1 });
+  assert.equal(a.skipped, false);
+  assert.equal(a[0], '-af');
+  assert.ok(a[1].endsWith(',asetpts=N/SR/TB'), a[1]);
 });

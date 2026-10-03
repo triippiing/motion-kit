@@ -55,6 +55,12 @@ export const meta = {
   choices: { active: 'items' },  // only if a prop selects from a list prop: { selectionProp: listProp }; strict
                                  // validation warns when the selection (a string, or each of a string[]) is
                                  // not in the list (an empty string means none)
+  typing: 'text',           // only if a string prop types in from typeAt at perChar beats a character (both
+                            // number props); validate errors when the last character lands on or after the
+                            // next row's beat (a continuation that extends the text counts only the new ones)
+  unique: { items: true },  // only if a hotspot family finds its entry by key in a list prop: { listProp: true }
+                            // for a string[], { listProp: 'field' } for that field of an object[]; validate
+                            // warns on a duplicate key and errors when the cursor aims at one (it finds the first)
 };
 export function geometry(props, ctx) { return { w, h, r, fill: 'surface', ink: 'ink' }; }
 export function mount(layer, props, ctx) { /* build DOM once */ }
@@ -137,7 +143,7 @@ const changed = (a, b) => a.label !== b.label;
 export function mount(root, p, ctx) {
   Object.assign(el(root, 'div', { class: 'tag-bg' }).style, { position: 'absolute', inset: '0' });
   const box = el(root, 'div', { class: 'tag-box' });
-  Object.assign(box.style, { display: 'grid', placeItems: 'center' });
+  Object.assign(box.style, { position: 'absolute', inset: '0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', placeItems: 'center' });
   if (ctx.continues && changed(ctx.prev, p)) label(box, ctx.prev, 'tag-prev');
   label(box, p, 'tag-cur');
 }
@@ -168,7 +174,9 @@ What each part is doing:
 - **`plan`** is the state over time as data: where the row starts, and every change with its time.
   `render` and `endState` both read it, so they can never disagree.
 - **`endState`** tells the next row of the same component where this one ended (after its presses).
-- **`mount`** builds both the previous label (only when it changed) and the new one, stacked in one grid cell.
+- **`mount`** builds both the previous label (only when it changed) and the new one, stacked in one grid cell
+  the size of the layer (the shape), not of its widest content: a cell sized by a long old label would
+  centre a shorter new one in that width, off the shape.
 - **`render`** computes everything from `t`: the fill blend on a spring track, the press dip with
   `pressDepth`, the old label fading out at `ctx.t0` and the new one fading in just after.
 - **`hotspot`** is where the cursor tip lands, as an offset from the shape centre; aim at the thing
@@ -278,6 +286,10 @@ component may use at all (captions only), and 22 design px is the legibility bar
 viewer must read (body copy, labels, values). Icons come from
 `icon(parent, name, size)` (24-unit grid, stroke 2, round caps): one stroke weight everywhere.
 Springs only, through `ctx.Springs` and the helpers; position and size springs have zeta 1.
+Text stays inside the shape: check_brief's frame check reports words that run past it or are cut off.
+An element meant to sit outside the shape, like a tooltip above its point, can carry `data-overhang` so the
+frame check does not report it: an opt-in hook for your component (no built-in component uses it today). `#shape`
+still clips its overflow, so the element is cut off at the shape's edge all the same.
 
 ### 10. Props, class names and copy
 
@@ -301,7 +313,9 @@ empty text, very long text and the most items you allow. A family hotspot (`'ite
 `hotspotExample` naming a real one, so the contract test can resolve it. A dragged family goes into
 `drag` exactly as written in `hotspots` (`drag: ['handle:<i>']`). A prop that picks from a list prop
 (tabs' `active` from `items`, chip-row's `selected` from `chips`) is declared in `choices`, and the
-contract test checks both names are real props.
+contract test checks both names are real props. A prop typed in character by character is named in
+`typing` (with number props `typeAt` and `perChar`), and a list a family hotspot finds its entry in by
+key (`indexOf`, `find`) is declared in `unique` (bar-chart's `{ bars: 'label' }`, tabs' `{ items: true }`).
 
 ## Helpers (`components/core/helpers.js`)
 

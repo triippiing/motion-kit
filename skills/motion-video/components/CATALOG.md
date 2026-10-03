@@ -22,7 +22,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `ink` | the shape's text colour: a theme role or `#rrggbb`; overrides the component's own |
 | `w`, `h`, `r` | the shape's width, height and corner radius in design px (1440 stage), numbers >= 0; override the component's size |
 | `shake` | `true`: an error shake when the row arrives |
-| `badge` | a number: a count bubble on the shape's top-right corner for the row; 0 shows none |
+| `badge` | a number: a count bubble on the shape's top-right corner for the row; it stays on across consecutive badge rows, popping when the count changes; 0 shows none |
 | `hide` | cursor rows: fades the cursor out from this beat; the next row without it fades it back in; cannot press |
 
 ## Controls
@@ -111,7 +111,7 @@ Every row accepts these keys whatever its component (they are never component pr
 **Sounds:** key
 
 ```js
-{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25 }
+{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25, perChar: 0.2 }
 ```
 
 ### slider
@@ -404,7 +404,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** A value over time: a portfolio, a balance, a weekly total.
 
-**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere; a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
+**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere, including at another point (which pops in as the old one fades); a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first; a `hover` that takes over from a cursor hover fades in after it (leaving the point `hover` already shows keeps its tooltip up). A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -534,7 +534,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** An app is driven from the keyboard: jump to a page, run an action, find a setting.
 
-**Motion:** The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).
+**Motion:** The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on, or with `typeAt: -1` arrives at once; any other query replaces it on arrival; either way the rows spring to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).
 
 | Prop | Type | Default |
 |---|---|---|
