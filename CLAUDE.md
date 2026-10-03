@@ -129,7 +129,8 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   seconds with an optional `note`, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
   original song (path from `DIR/.source.json`) with the project's bars and fps and `--start-near` the loop
   start, re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
-  naming `sync.mjs DIR --song PATH`.
+  naming `sync.mjs DIR --song PATH`. If the analyser runs longer than 120 s (MK_ANALYSER_TIMEOUT, in ms,
+  changes it), Save stops it and reports the error with the files unchanged.
 - **The ear wins:** once a nudge or tempo is set, beats sit on the even grid (`cue_t` equals `t`, no
   snapping to detected hits). A nudge, tempo or meter change clears `checked_by_ear`; swing does not.
 - **Markers in tables:** `{ at: 'drop', ... }` or `{ at: 'drop', offset: -0.5, ... }` (offset in beats) lands

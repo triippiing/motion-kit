@@ -1,11 +1,12 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
-import { saveSync, startSync, SaveError } from '../scripts/sync.mjs';
+import { analyserTimeout, saveSync, startSync, SaveError } from '../scripts/sync.mjs';
+import { tempDir } from './tmp.mjs';
 import { UsageError } from '../scripts/render.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -314,4 +315,37 @@ test('checked_by_ear: a carried-over date is dropped when the grid changes; a ne
   // a meter or bpm change with the stored date: dropped
   r = await saveSync(dir, { swing: 0.6, nudge_ms: -20, meter: '3/4', checked_by_ear: '2026-10-01' });
   assert.ok(!('checked_by_ear' in r.song.sync));
+});
+
+// A stand-in for python3 that runs a shell body instead of the analyser.
+function fakePython(body) {
+  const f = path.join(tempDir('mk-fakepy-'), 'python3');
+  writeFileSync(f, `#!/bin/sh\n${body}\n`);
+  chmodSync(f, 0o755);
+  return f;
+}
+
+test('Save: a hung analyser is stopped after the timeout; song.json is unchanged and the next Save runs', async () => {
+  const dir = project();
+  const before = read(dir, 'song.json');
+  const e = await saveSync(dir, { nudge_ms: -10 }, { python: fakePython('sleep 30'), timeoutMs: 300 }).catch((x) => x);
+  assert.ok(e instanceof SaveError, String(e));
+  assert.equal(e.message, 'the analyser took longer than 0.3 s and was stopped; song.json is unchanged');
+  assert.deepEqual(read(dir, 'song.json'), before);
+  const { song: next } = await saveSync(dir, { nudge_ms: -10 });
+  assert.equal(next.sync.nudge_ms, -10);
+});
+
+test('Save: an analyser that ignores SIGTERM is killed', async () => {
+  const dir = project();
+  const t0 = Date.now();
+  const e = await saveSync(dir, { nudge_ms: -10 }, { python: fakePython("trap '' TERM\nsleep 30"), timeoutMs: 300 }).catch((x) => x);
+  assert.ok(e instanceof SaveError, String(e));
+  assert.ok(Date.now() - t0 < 10_000, `took ${Date.now() - t0} ms`);
+});
+
+test('analyserTimeout: MK_ANALYSER_TIMEOUT in ms, else 120 s', () => {
+  assert.equal(analyserTimeout({}), 120_000);
+  assert.equal(analyserTimeout({ MK_ANALYSER_TIMEOUT: '5000' }), 5000);
+  for (const bad of ['abc', '0', '-1', '']) assert.equal(analyserTimeout({ MK_ANALYSER_TIMEOUT: bad }), 120_000, bad);
 });

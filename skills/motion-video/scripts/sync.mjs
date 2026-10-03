@@ -50,16 +50,31 @@ async function writeJsonAtomic(file, value) {
   await rename(tmp, file);
 }
 
-// Runs a command; resolves { code, stdout, stderr } (code null and `error` set when it could not start).
-function run(cmd, args) {
+// Runs a command; resolves { code, stdout, stderr, timedOut } (code null and `error` set when it could not start).
+// After timeoutMs the whole process group gets SIGTERM, then SIGKILL 2 s later: a child of the command could
+// otherwise hold its pipes open and keep 'close' from ever firing.
+function run(cmd, args, { timeoutMs = 0 } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` } });
-    let stdout = '', stderr = '';
+    const child = spawn(cmd, args, { detached: true, env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` } });
+    let stdout = '', stderr = '', timedOut = false, killer = null;
+    const signal = (sig) => { try { process.kill(-child.pid, sig); } catch { /* already gone */ } };
+    const timer = timeoutMs > 0 ? setTimeout(() => {
+      timedOut = true;
+      signal('SIGTERM');
+      killer = setTimeout(() => signal('SIGKILL'), 2000);
+    }, timeoutMs) : null;
+    const done = (r) => { clearTimeout(timer); clearTimeout(killer); resolve({ ...r, timedOut }); };
     child.stdout.on('data', (c) => { stdout += c; });
     child.stderr.on('data', (c) => { stderr += c; });
-    child.on('error', (error) => resolve({ code: null, stdout, stderr, error }));
-    child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.on('error', (error) => done({ code: null, stdout, stderr, error }));
+    child.on('close', (code) => done({ code, stdout, stderr }));
   });
+}
+
+// How long Save lets the analyser run: MK_ANALYSER_TIMEOUT (ms) when it is a positive number, else 120 s.
+export function analyserTimeout(env = process.env) {
+  const ms = Number(env.MK_ANALYSER_TIMEOUT);
+  return env.MK_ANALYSER_TIMEOUT && Number.isFinite(ms) && ms > 0 ? ms : 120_000;
 }
 
 // The analyser's message: its last `error: ...` line (argparse prefixes the program name), else the tail of stderr.
@@ -73,7 +88,7 @@ function analyserMessage({ code, stderr, error }) {
   return stderr.trim().slice(-500) || `the analyser exited with code ${code}`;
 }
 
-async function doSave(root, sync, python) {
+async function doSave(root, sync, python, timeoutMs) {
   if (sync === null || typeof sync !== 'object' || Array.isArray(sync)) throw new UsageError('sync must be an object');
   const song = await sourceSong(root);
   const songFile = path.join(root, 'song.json'), bakTmp = `${songFile}.bak.tmp`;
@@ -90,7 +105,11 @@ async function doSave(root, sync, python) {
   try {
     await writeJsonAtomic(songFile, { ...current, sync });
     const r = await run(python, [ANALYSER, song, '--out', root, '--bars', String(loop.bars), '--fps', String(fps),
-      '--start-near', String(loop.start_sec)]);
+      '--start-near', String(loop.start_sec)], { timeoutMs });
+    if (r.timedOut) {
+      await rename(bakTmp, songFile);
+      throw new SaveError(`the analyser took longer than ${+(timeoutMs / 1000).toFixed(1)} s and was stopped; song.json is unchanged`);
+    }
     if (r.code !== 0) {
       // the analyser writes song.json and clip.wav atomically, so on failure only our own sync write is undone
       await rename(bakTmp, songFile);
@@ -130,9 +149,10 @@ const chains = new Map();
 // they were, with one exception: "saved, but the previous song.json could not be kept as song.json.bak" (a
 // SaveError) comes after the analyser succeeded, so the new song.json and clip.wav stay and song.json.bak is the one
 // from before. `python` is the interpreter (tests swap it).
-export function saveSync(dir, sync, { python = 'python3' } = {}) {
+// An analyser still running after timeoutMs (MK_ANALYSER_TIMEOUT, default 120 s) is stopped: a SaveError, files as they were.
+export function saveSync(dir, sync, { python = 'python3', timeoutMs = analyserTimeout() } = {}) {
   const root = path.resolve(dir);
-  const next = (chains.get(root) ?? Promise.resolve()).then(() => doSave(root, sync, python));
+  const next = (chains.get(root) ?? Promise.resolve()).then(() => doSave(root, sync, python, timeoutMs));
   chains.set(root, next.catch(() => {}));
   return next;
 }
