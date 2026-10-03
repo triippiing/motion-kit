@@ -11,11 +11,12 @@
 // Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
 // is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js).
 // A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
-import { readFileSync, existsSync, realpathSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 import { validate } from '../components/core/validate.js';
+import { isMain } from './is_main.mjs';
 
 const SECTIONS = ['## Request', '## Decisions', '## Moments', '## Beat table'];
 
@@ -152,7 +153,7 @@ export async function checkBrief(dir, opts = {}) {
   return { errors, warnings };
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   const [dir, ...opts] = process.argv.slice(2);
   const bad = opts.find((o) => o !== '--no-loop');
   if (bad) { console.error(`error: unknown option "${bad}" (usage: check_brief.mjs PROJECT [--no-loop])`); process.exit(2); }

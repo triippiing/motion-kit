@@ -13,10 +13,9 @@
 // song.json is kept as song.json.bak; on failure it is put back. --song PATH records where the song is now.
 import { spawn } from 'node:child_process';
 import { copyFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { serve, inside, TYPES, UsageError } from './render.mjs';
+import { isMain } from './is_main.mjs';
 
 // The analyser ran but failed for a reason other than bad input: a 500.
 export class SaveError extends Error {}
@@ -244,7 +243,7 @@ async function main() {
   }
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error(`error: ${e.message}`);
     if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);

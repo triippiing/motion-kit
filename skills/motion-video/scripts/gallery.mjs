@@ -4,13 +4,14 @@
 // (2 beats each), then back to rest. Starting from rest gives every example a real entrance.
 // --stills writes components/docs-images/<name>.png (480 px) from a settled frame of each example.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect } from './build_catalog.mjs';
 import { scaffold } from './scaffold.mjs';
 import { openProject, shoot, FFMPEG } from './render.mjs';
+import { isMain } from './is_main.mjs';
 import { beatTime } from '../components/core/timing.js';
 
 const COMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'components');
@@ -52,7 +53,7 @@ export function parseArgs(argv) {
   return o;
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   let args;
   try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`error: ${e.message}`); process.exit(2); }
   const { out, only, stills } = args;

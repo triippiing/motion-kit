@@ -24,6 +24,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime } from '../components/core/timing.js';
+import { isMain } from './is_main.mjs';
 
 // A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
 export class UsageError extends Error {}
@@ -394,7 +395,7 @@ async function main() {
   console.log(await render(dir, { preview: !!o.preview, out: o.out, sub, workers, from, to, stage, guides: o.guides }));
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error(`error: ${e.message}`);
     if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);

@@ -10,12 +10,12 @@
 // Consecutive samples in the same zone are one issue: "beats 12-13.5: shape extends 40 px into the Instagram Reels
 // bottom zone". Prints each issue; exit 1 when there are any, 0 when none, 2 on bad input.
 // Also the home of the preset helpers export.mjs and check_brief.mjs share, and of the guides overlay (render.mjs --guides).
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime, openProject, UsageError } from './render.mjs';
 import { didYouMean } from '../components/core/validate.js';
+import { isMain } from './is_main.mjs';
 
 const DEFAULT_PRESETS = path.resolve(import.meta.dirname, '..', 'presets.json');
 
@@ -207,7 +207,7 @@ async function main() {
   process.exit(issues.length ? 1 : 0);
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error(`error: ${e.message}`);
     if (e instanceof UsageError && !e.message.startsWith('usage:')) console.error(USAGE);
