@@ -2,9 +2,10 @@
 // build_catalog.mjs -- generate components/index.js and components/CATALOG.md from each component's meta.
 //   node build_catalog.mjs            write both
 //   node build_catalog.mjs --check    exit 1 if either is stale
-import { readdirSync, readFileSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { isMain } from './is_main.mjs';
 
 const COMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'components');
 const GROUPS = [['controls', 'Controls'], ['feedback', 'Feedback'], ['data', 'Data and content'], ['chrome', 'App chrome']];
@@ -65,7 +66,7 @@ export function catalogMd(list) {
   return L.join('\n');
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   const list = await collect();
   const files = { 'index.js': indexJs(list), 'CATALOG.md': catalogMd(list) };
   if (process.argv.includes('--check')) {

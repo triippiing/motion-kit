@@ -26,14 +26,14 @@
 //
 // renders one guides preview per chosen preset with safe margins (render.mjs --guides: translucent bands over its
 // zones, out/shapes/<W>x<H>/preview-guides-<preset>.mp4) for checking by eye, and exports nothing.
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime, newestSource, render, renderStamp, stampPath, UsageError } from './render.mjs';
 import { designStage, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
 import { briefCommercial } from './check_brief.mjs';
 import { aacWithinPeak, capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
+import { isMain } from './is_main.mjs';
 
 // A size cap the numbers show cannot be met before encoding: bad input for this project (exit 2), but not a
 // usage mistake. A cap missed only after encoding (two-pass retry, GIF tries, webm/jpg check) is a plain Error (exit 1).
@@ -298,7 +298,7 @@ async function main() {
   console.log(`manifest: ${path.join(path.resolve(dir), 'out', 'exports', 'manifest.json')}`);
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   main().catch((e) => {
     console.error(`error: ${e.message}`);
     if (e instanceof UsageError && !(e instanceof CapError) && !e.message.startsWith('usage:')) console.error(USAGE);

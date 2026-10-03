@@ -2,14 +2,14 @@
 // ~/.claude/skills/motion-video is a symlink to this repo), not silently do nothing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
+import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
-const link = path.join(mkdtempSync(path.join(tmpdir(), 'mk-symlink-')), 'motion-video');
+const link = path.join(tempDir('mk-symlink-'), 'motion-video');
 symlinkSync(SKILL, link);
 const run = (script, args) => spawnSync('node', [path.join(link, 'scripts', script), ...args], { encoding: 'utf8' });
 

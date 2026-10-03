@@ -6,11 +6,13 @@ import { spawnSync } from 'node:child_process';
 import { gallery, parseArgs } from '../scripts/gallery.mjs';
 import { openScene } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { tempDir } from './tmp.mjs';
 
 test('every component renders purely (same DOM whatever came before) and the gallery loops', async () => {
-  const { dir, plays } = await gallery();
+  const { dir, plays } = await gallery({ root: tempDir('mk-gallery-') });
   const s = await openScene(dir);
   try {
     assert.deepEqual(s.errors, []);
@@ -52,4 +54,32 @@ test('gallery --only x --stills without OUT checks the names first (no OUT calle
   const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), '--only', 'nope', '--stills'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^error: --only names no known component: nope/);
+});
+
+test('gallery.mjs imports nothing from tests/', () => {
+  const src = readFileSync(path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), 'utf8');
+  assert.doesNotMatch(src, /from '\.\.\/tests\//);
+});
+
+test('gallery OUT leaves no temp project behind', () => {
+  const temps = () => readdirSync(tmpdir()).filter((n) => n.startsWith('mk-gallery-')).sort();
+  const out = path.join(tempDir('mk-gout-'), 'g');
+  const before = temps();
+  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), out, '--only', 'button'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(existsSync(path.join(out, 'index.html')), 'the project is in OUT');
+  assert.deepEqual(temps(), before);
+});
+
+// With no OUT and no --stills the project is the output: it stays and its path is printed.
+test('gallery with no OUT and no --stills prints a project that exists', () => {
+  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), '--only', 'button'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const printed = r.stdout.trim().split('\n').at(-1);
+  try {
+    assert.ok(existsSync(path.join(printed, 'index.html')), `no index.html in ${printed}`);
+    assert.match(path.basename(path.dirname(printed)), /^mk-gallery-/);
+  } finally {
+    if (path.basename(path.dirname(printed)).startsWith('mk-gallery-')) rmSync(path.dirname(printed), { recursive: true, force: true });
+  }
 });

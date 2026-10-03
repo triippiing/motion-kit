@@ -1,23 +1,22 @@
 // export.mjs: stage override, shape grouping, per-preset encodes, loudness, --silent, warnings, manifest,
 // size caps (two-pass, step-down, errors), web outputs (mp4, webm, poster) and GIF.
 // Tiny test presets (MOTION_PRESETS) and small stages keep the renders and encodes quick.
-import test, { after, before } from 'node:test';
+import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 import { beatTime, FFMPEG, newestSource, render, rendererId, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
 import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
-const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
-const temps = [TMP];   // temp dirs this file makes; removed when it ends
-after(() => { for (const d of temps) rmSync(d, { recursive: true, force: true }); });
+const TMP = tempDir('mk-export-');
 const zero = { top: 0, bottom: 0, left: 0, right: 0 };
 const preset = (o) => ({ label: o.name, group: 'test', fps: 30, maxSeconds: null, maxMB: null, video: { codec: 'h264', crf: 26, profile: 'high' },
   audio: { codec: 'aac', kbps: 96, lufs: -14, truePeak: -1 }, safe: zero, public: true, source: 'https://example.com/spec', checked: '2026-09-30',
@@ -57,6 +56,20 @@ const video = (f) => streams(f).find((s) => s.codec_type === 'video');
 const hasAudio = (f) => streams(f).some((s) => s.codec_type === 'audio');
 const duration = (f) => Number(probe(f).format.duration);
 const loopSec = (dir) => JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.duration_sec;
+// The audio stream's own duration, and its timestamp holes (players hear silence, the audio after it
+// late): a packet starting more than 1 ms from where the previous one ended (webm), or a packet before
+// the last one stretched more than 1 ms past the first packet's length (mp4 stores the hole that way).
+function audioTrack(file) {
+  const run = (e) => execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'a:0', '-show_entries', e,
+    '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim();
+  const pkts = run('packet=pts_time,duration_time').split('\n').map((l) => l.split(',').map(Number));
+  const gaps = pkts.slice(1).flatMap(([t], i) => {
+    const [t0, d0] = pkts[i], end = t0 + d0;
+    if (Math.abs(t - end) > 0.001) return [`${end.toFixed(4)}->${t.toFixed(4)}`];
+    return d0 - pkts[0][1] > 0.001 ? [`${t0.toFixed(4)} lasts ${d0.toFixed(4)}`] : [];
+  });
+  return { duration: Number(run('stream=duration')), gaps };
+}
 // Integrated loudness via ffmpeg's ebur128, independent of media.mjs.
 function lufs(file) {
   const r = spawnSync(FFMPEG, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128', '-f', 'null', '-'], { encoding: 'utf8' });
@@ -145,6 +158,10 @@ test('each export has the preset size, fps, codecs and duration', () => {
     assert.equal(Number(v.nb_read_frames), Math.round(D * fps), `${name} frames`);
     assert.ok(a, `${name} has audio`);
     assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `${name} duration ${p.format.duration} vs loop ${D}`);
+    // the audio itself, so a longer video stream cannot hide an audio track that overruns the loop
+    const at = audioTrack(f);
+    assert.ok(Math.abs(at.duration - D) <= 0.05, `${name} audio duration ${at.duration} vs loop ${D}`);
+    assert.deepEqual(at.gaps, [], `${name} audio has no timestamp gap`);
   }
   const codecs = execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-show_entries', 'stream=codec_name,profile', '-of', 'csv=p=0',
     abs(file('reels'))], { encoding: 'utf8' });
@@ -234,7 +251,7 @@ test('the renderer id changes with ffmpeg or Chromium, so their renders are not 
   const opts = { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1200/chrome' };
   appendFileSync(path.join(dir, 'components', 'core', 'timing.js'), '\n// edited\n');
   assert.notEqual(await rendererId(dir, opts), base, "the project's timing.js is hashed");
-  const skill = mkdtempSync(path.join(tmpdir(), 'mk-skill-')); temps.push(skill);
+  const skill = tempDir('mk-skill-');
   cpSync(path.join(SKILL, 'scripts'), path.join(skill, 'scripts'), { recursive: true });
   cpSync(path.join(SKILL, 'components', 'core'), path.join(skill, 'components', 'core'), { recursive: true });
   symlinkSync(path.join(SKILL, 'node_modules'), path.join(skill, 'node_modules'));
@@ -349,8 +366,7 @@ test('commercial music on a public preset warns', () => {
 });
 
 test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill dir', () => {
-  const linkDir = mkdtempSync(path.join(tmpdir(), 'mk-symlink-'));
-  temps.push(linkDir);
+  const linkDir = tempDir('mk-symlink-');
   const link = path.join(linkDir, 'motion-video');
   symlinkSync(SKILL, link);
   const cli = (...args) => spawnSync('node', [path.join(link, 'scripts', 'export.mjs'), ...args], { encoding: 'utf8', env: { ...process.env, MOTION_PRESETS: PRESETS } });
@@ -506,6 +522,7 @@ test('web writes mp4 (faststart), webm (vp9/opus) and a poster jpg from a settle
   assert.deepEqual([webm.vcodec, webm.acodec, webm.width, webm.height, webm.fps], ['vp9', 'opus', 256, 256, 60]);
   assert.deepEqual([v.width, v.height, v.r_frame_rate], [256, 256, '60/1']);
   assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `webm duration ${p.format.duration}`);
+  assert.deepEqual(audioTrack(abs(webm)).gaps, [], 'webm audio has no timestamp gap');
   assert.ok(Number.isFinite(webm.lufs), 'webm loudness measured');
   assert.ok(webm.warnings.some((w) => /commercial music/.test(w)), 'webm carries the audio, so the commercial warning');
   // poster: beat 1 + half a beat, from the song's beat times (cue_t when present); the half beat now spans the

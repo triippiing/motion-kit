@@ -1,31 +1,10 @@
-// harness.mjs -- scaffold a real project with given tables and open it in Chromium.
-// Tables are JS source strings (so they can use END), spliced into the template's table block.
+// harness.mjs -- scaffold a real project with given tables in a temp dir and open it in Chromium.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { openProject } from '../scripts/render.mjs';
+import { scaffold } from '../scripts/scaffold.mjs';
+import { tempDir } from './tmp.mjs';
 
-const SKILL = path.resolve(import.meta.dirname, '..');
-const START = '// ---------------- the three tables you edit ----------------';
-const END_MARK = '// ------------------------------------------------------------';
-
-export function makeProject({ states, cursor, bars = 4, bpm = 120, extraSfx = '[]', content = '{}', size } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), 'mk-'));
-  const song = path.join(root, 'beat.wav');
-  execFileSync('python3', ['-c', `import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})\nfrom test_analyze_song import click_track\nclick_track(${JSON.stringify(song)}, ${bpm}, seconds=${Math.ceil((bars * 4 * 60) / bpm) + 12})`]);
-  const dir = path.join(root, 'p');
-  execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [dir, song, '--bars', String(bars), ...(size ? ['--size', size] : [])], { stdio: 'pipe' });
-  if (states) {
-    const f = path.join(dir, 'index.html'), html = readFileSync(f, 'utf8');
-    const a = html.indexOf(START), b = html.indexOf(END_MARK, a);
-    if (a < 0 || b < 0) throw new Error(`harness: template table markers not found in ${f} (expected "${START}" then "${END_MARK}")`);
-    const tables = `${START}\nconst states = () => ${states};\nconst cursor = () => ${cursor};\nconst extraSfx = () => ${extraSfx};\nconst content = ${content};\n`;
-    writeFileSync(f, html.slice(0, a) + tables + html.slice(b));
-  }
-  return dir;
-}
+export const makeProject = (opts) => scaffold(tempDir('mk-'), opts);
 
 export async function openScene(dir) {
   const proj = await openProject(dir, { workers: 1 });

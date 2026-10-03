@@ -4,18 +4,22 @@
 // (2 beats each), then back to rest. Starting from rest gives every example a real entrance.
 // --stills writes components/docs-images/<name>.png (480 px) from a settled frame of each example.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collect } from './build_catalog.mjs';
-import { makeProject } from '../tests/harness.mjs';
+import { scaffold } from './scaffold.mjs';
 import { openProject, shoot, FFMPEG } from './render.mjs';
+import { isMain } from './is_main.mjs';
 import { beatTime } from '../components/core/timing.js';
 
 const COMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'components');
 const REST = "name: 'rest', w: 160, h: 160, r: 80";
 
-export async function gallery({ only = null } = {}) {
+// Builds the gallery project inside ROOT (a directory the caller owns and removes).
+export async function gallery({ only = null, root } = {}) {
+  if (!root) throw new Error('gallery: root (the directory to build the project in) is required');
   let list = await collect();
   if (only) list = list.filter((c) => only.includes(c.meta.name));
   if (!list.length) throw new Error('no components to show');
@@ -27,7 +31,7 @@ export async function gallery({ only = null } = {}) {
   const bars = Math.ceil((plays.length * 2 + 4) / 4);
   const states = `[\n  { at: 0, ${REST} },\n${plays.map((p) => `  { at: ${p.at}, ${p.src} },`).join('\n')}\n  { at: END - 2, ${REST} },\n]`;
   const cursor = '[\n  { at: 0, x: 300, y: 320 },\n  { at: END - 2, x: 300, y: 320 },\n]';
-  const dir = makeProject({ states, cursor, bars });
+  const dir = scaffold(root, { states, cursor, bars });
   return { dir, list, plays };
 }
 
@@ -49,7 +53,7 @@ export function parseArgs(argv) {
   return o;
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   let args;
   try { args = parseArgs(process.argv.slice(2)); } catch (e) { console.error(`error: ${e.message}`); process.exit(2); }
   const { out, only, stills } = args;
@@ -58,23 +62,30 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
     const bad = only.filter((n) => !names.includes(n));
     if (bad.length || !only.length) { console.error(`error: --only names no known component: ${bad.join(', ') || '(empty)'} (have: ${names.join(', ')})`); process.exit(2); }
   }
-  const { dir, plays } = await gallery({ only });
-  if (out) execFileSync('cp', ['-R', dir + '/.', out]);
-  if (stills) {
-    mkdirSync(path.join(COMP, 'docs-images'), { recursive: true });
-    const proj = await openProject(dir, { workers: 1 });
-    const song = proj.song;
-    // Thumbnails show the component alone; the gallery's resting cursor would sit clipped at the edge.
-    await proj.pages[0].evaluate(() => { document.querySelector('#cursor').style.display = 'none'; });
-    for (const p of plays.filter((p) => p.kind === 'example')) {
-      const t = beatTime(song, p.at + 1 + 0.4);
-      const png = await shoot(proj.pages[0], t);
-      const f = path.join(COMP, 'docs-images', `${p.name}.png`);
-      writeFileSync(f + '.full.png', png);
-      execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', f + '.full.png', '-vf', 'scale=480:-1', f]);
-      execFileSync('rm', [f + '.full.png']);
+  // With no OUT and no --stills the project itself is the output, so it stays and its path is printed.
+  const root = mkdtempSync(path.join(tmpdir(), 'mk-gallery-'));
+  const keep = !out && !stills;
+  try {
+    const { dir, plays } = await gallery({ only, root });
+    if (out) execFileSync('cp', ['-R', dir + '/.', out]);
+    if (stills) {
+      mkdirSync(path.join(COMP, 'docs-images'), { recursive: true });
+      const proj = await openProject(dir, { workers: 1 });
+      const song = proj.song;
+      // Thumbnails show the component alone; the gallery's resting cursor would sit clipped at the edge.
+      await proj.pages[0].evaluate(() => { document.querySelector('#cursor').style.display = 'none'; });
+      for (const p of plays.filter((p) => p.kind === 'example')) {
+        const t = beatTime(song, p.at + 1 + 0.4);
+        const png = await shoot(proj.pages[0], t);
+        const f = path.join(COMP, 'docs-images', `${p.name}.png`);
+        writeFileSync(f + '.full.png', png);
+        execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', f + '.full.png', '-vf', 'scale=480:-1', f]);
+        execFileSync('rm', [f + '.full.png']);
+      }
+      await proj.close();
     }
-    await proj.close();
+    console.log(out ?? (stills ? path.join(COMP, 'docs-images') : dir));
+  } finally {
+    if (!keep) rmSync(root, { recursive: true, force: true });
   }
-  console.log(dir);
 }

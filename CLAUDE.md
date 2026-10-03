@@ -94,9 +94,11 @@ Details worth knowing:
 - Vertical pieces: the template's cursor rest `x: 240, y: 280` sits in the Reels/TikTok/Shorts bottom and
   right zones; rest nearer the centre, e.g. `x: 140, y: 100`.
 - The loop window: unless you pass `--start-bar N`, `analyze_song.py` picks the loudest N-bar window,
-  preferring one that starts on a detected section boundary (listed in `song.json` `sections`). To move
-  it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json, clip.wav
-  and .source.json; song.json's `sync` section is kept, see Syncing).
+  preferring one that starts on a detected section boundary (listed in `song.json` `sections`) and one that
+  ends inside the song. To move it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B`
+  (rewrites only song.json, clip.wav and .source.json; song.json's `sync` section is kept, see Syncing).
+  A window that still runs past the song's end (chosen with --start-bar or --start-near) gets a
+  silence-padded clip.wav and a warning.
 - Re-timing to a different song: delete `sync` from song.json first (its nudge, tempo and markers were set
   by ear against the old song; the analyser keeps and applies it whatever the song).
 - Loop length vs states: each state holds at least `rules.min_hold_beats`, so `max_states` = beats / min hold.
@@ -110,7 +112,7 @@ lacks and keeps the house value), use `--map accent=--brand` when it picks the w
 
 No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 ```bash
-python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
+python3 <clone>/skills/motion-video/scripts/click_track.py beat.wav 120 --seconds 30
 ```
 
 ## Syncing
@@ -129,7 +131,8 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   seconds with an optional `note`, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
   original song (path from `DIR/.source.json`) with the project's bars and fps and `--start-near` the loop
   start, re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
-  naming `sync.mjs DIR --song PATH`.
+  naming `sync.mjs DIR --song PATH`. If the analyser runs longer than 120 s (MK_ANALYSER_TIMEOUT, in ms,
+  changes it), Save stops it, puts the previous song.json back and reports the error.
 - **The ear wins:** once a nudge or tempo is set, beats sit on the even grid (`cue_t` equals `t`, no
   snapping to detected hits). A nudge, tempo or meter change clears `checked_by_ear`; swing does not.
 - **Markers in tables:** `{ at: 'drop', ... }` or `{ at: 'drop', offset: -0.5, ... }` (offset in beats) lands
@@ -277,7 +280,9 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
                                   sync.mjs (the sync page's server: GET /__sync, POST /__sync/save; reuses render.mjs serve(),
-                                  which refuses files symlinked from outside the project)
+                                  which refuses files symlinked from outside the project), click_track.py (synthetic
+                                  beat), scaffold.mjs (a project from tables on a click track; gallery + tests),
+                                  is_main.mjs (the entry guard every script uses)
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
                                   nudge, tap tempo, meter, swing, markers, Save); tested by tests/sync-page.test.mjs
 skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
@@ -311,7 +316,10 @@ npm test          # all Node suites + Python unittest (a few minutes; renders re
 node --test skills/motion-video/tests/render.test.mjs   # one suite
 ```
 
-Tests use synthetic click tracks (`test_analyze_song.click_track`) and tiny fixture projects
+Test temp dirs are removed when each test file ends; `MK_KEEP_TMP=1 npm test` keeps them (their paths
+are printed) for a look after a failure.
+
+Tests use synthetic click tracks (`scripts/click_track.py`) and tiny fixture projects
 (`skills/motion-video/tests/fixtures.mjs`), so they need no song and no network except the
 template's Google Fonts request.
 

@@ -14,34 +14,7 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
-
-SR = 44100
-
-
-def click_track(path, bpm, seconds=40.0, offset=0.37, noise=0.001, hat=0.3, seed=0):
-    """Hi-hat-like click on every beat, a 55 Hz kick on each downbeat (every 4th)."""
-    rng = np.random.default_rng(seed)
-    x = np.zeros(int(seconds * SR))
-    beat = 60.0 / bpm
-    i = 0
-    while offset + i * beat < seconds - 0.3:
-        s = int((offset + i * beat) * SR)
-        n = int(0.04 * SR)
-        tt = np.arange(n) / SR
-        x[s:s + n] += hat * np.exp(-tt * 120) * rng.standard_normal(n)
-        if i % 4 == 0:
-            m = int(0.2 * SR)
-            tk = np.arange(m) / SR
-            x[s:s + m] += 0.9 * np.exp(-tk * 18) * np.sin(2 * np.pi * 55 * tk)
-        i += 1
-    x += noise * rng.standard_normal(len(x))
-    pcm = (np.clip(x, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SR)
-        w.writeframes(pcm.tobytes())
-    return path
+from click_track import SR, click_track  # noqa: E402,F401  (also imported from here by older commands)
 
 
 class AnalyzeTests(unittest.TestCase):
@@ -142,6 +115,41 @@ class AnalyzeTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("error:", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
+
+    def overrun_track(self):
+        """120 BPM (a bar is 2 s): ten bars from the first click, then 1.6 s of an eleventh, so the grid's last bar
+        ends about 0.4 s past the audio. The last 3.6 s are louder, so a free pick favours the final window."""
+        p = click_track(self.tmp / "over.wav", 120, seconds=0.37 + 20 + 1.6)
+        with wave.open(str(p)) as w:
+            x = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float)
+        x[-int(3.6 * SR):] *= 3
+        with wave.open(str(p), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            w.writeframes(np.clip(x, -32768, 32767).astype("<i2").tobytes())
+        return p, len(x) / SR
+
+    def test_free_pick_skips_windows_past_the_end(self):
+        p, song_sec = self.overrun_track()
+        loop = A.analyze(p, bars=2)["loop"]
+        self.assertLessEqual(loop["start_sec"] + loop["duration_sec"], song_sec)
+
+    def test_forced_overrun_pads_the_clip_and_warns(self):
+        p, song_sec = self.overrun_track()
+        out = self.tmp / "o"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(A.main([str(p), "--out", str(out), "--bars", "2", "--start-near", "1e6"]), 0)
+        song = json.loads((out / "song.json").read_text())
+        loop = song["loop"]
+        self.assertGreater(loop["start_sec"] + loop["duration_sec"], song_sec)  # the case under test
+        self.assertTrue(any("past the end of the song" in w for w in song["rules"]["warnings"]), song["rules"]["warnings"])
+        with wave.open(str(out / "clip.wav")) as w:
+            self.assertLessEqual(abs(w.getnframes() - round(loop["duration_sec"] * 48000)), 1)
+
+    def test_no_padding_warning_when_the_loop_fits(self):
+        song = A.analyze(click_track(self.tmp / "c.wav", 120, seconds=30), bars=2)
+        self.assertFalse(any("past the end" in w for w in song["rules"]["warnings"]))
 
 
 class SyncTests(unittest.TestCase):
@@ -383,12 +391,15 @@ class SyncTests(unittest.TestCase):
             self.assertLess(min(phase, beat - phase), beat / 8)
 
     def test_short_song_window_choice_is_unchanged(self):
-        # the 16 s songs the Node harness uses: the loudest section start is still preferred without a
-        # user grid, and with a nudge the pick skips windows that would run off the song
+        # a section start is still preferred without a user grid when its window fits (20 s: bar 6);
+        # in the 16 s songs the Node harness uses, the only section's window runs off the song, so the
+        # pick stays inside, and with a nudge too
+        longer = A.analyze(str(click_track(self.d / "longer.wav", 120, seconds=20)), bars=2)
+        self.assertTrue(longer["sections"])
+        self.assertIn(longer["loop"]["start_bar"], [s["bar"] for s in longer["sections"]])
         short = str(click_track(self.d / "short.wav", 120, seconds=16))
         plain = A.analyze(short, bars=2)
-        self.assertTrue(plain["sections"])
-        self.assertIn(plain["loop"]["start_bar"], [s["bar"] for s in plain["sections"]])
+        self.assertLessEqual(plain["loop"]["start_sec"] + plain["loop"]["duration_sec"], 16.0)
         self.assertEqual(A.analyze(short, bars=2, sync={"nudge_ms": 0})["loop"], plain["loop"])
         nudged = A.analyze(short, bars=2, sync={"nudge_ms": 10})
         self.assertLessEqual(nudged["loop"]["start_sec"] + nudged["loop"]["duration_sec"], 16.0)
@@ -405,6 +416,37 @@ class SyncTests(unittest.TestCase):
         song = self.song()
         self.assertNotIn("sync", song)
         self.assertNotIn("markers", song)
+
+
+class ClickTrackCliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_cli_writes_a_wav_of_the_asked_length(self):
+        out = self.tmp / "beat.wav"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "120", "--seconds", "5"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with wave.open(str(out)) as w:
+            self.assertEqual(w.getnframes(), 5 * 44100)
+
+    def test_cli_bad_bpm_is_a_clean_error(self):
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(self.tmp / "b.wav"), "0"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("error:", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_cli_out_of_range_input_is_a_clean_error(self):
+        # inf BPM looped forever, 1e9 BPM all but hung, --seconds inf raised OverflowError
+        for args in (["inf"], ["1e9"], ["120", "--seconds", "inf"]):
+            with self.subTest(args=args):
+                r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(self.tmp / "b.wav"), *args],
+                                   capture_output=True, text=True, timeout=20)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("error:", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
 
 
 if __name__ == "__main__":

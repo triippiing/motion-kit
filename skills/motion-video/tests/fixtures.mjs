@@ -1,12 +1,12 @@
-import { mkdtempSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { FFMPEG } from '../scripts/render.mjs';
+import { tempDir } from './tmp.mjs';
 
 // A tiny project: 64x64 stage, 1s loop, 4 beats. `body` is the seek implementation.
 export function fixture({ seek = 'document.body.style.background = "#808080";', sfx = null, beats = null, name = 'fx proj (1)' } = {}) {
-  const dir = path.join(mkdtempSync(path.join(tmpdir(), 'mv-')), name);
+  const dir = path.join(tempDir('mv-'), name);
   mkdirSync(path.join(dir, 'sfx'), { recursive: true });
   const song = {
     fps: 60, beat_sec: 0.25, beats_per_bar: 4,

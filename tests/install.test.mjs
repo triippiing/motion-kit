@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import { tempDir } from '../skills/motion-video/tests/tmp.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const run = (dest) => spawnSync(path.join(ROOT, 'install.sh'), ['--link-only'], { env: { ...process.env, CLAUDE_SKILLS_DIR: dest }, encoding: 'utf8' });
 
 test('links every skill and is idempotent', () => {
-  const dest = mkdtempSync(path.join(tmpdir(), 'skills-'));
+  const dest = tempDir('skills-');
   for (let i = 0; i < 2; i++) assert.equal(run(dest).status, 0);
   for (const name of ['motion-design', 'motion-video', 'motion-ui']) {
     const p = path.join(dest, name);
@@ -19,7 +19,7 @@ test('links every skill and is idempotent', () => {
 });
 
 test('refuses to replace a real directory', () => {
-  const dest = mkdtempSync(path.join(tmpdir(), 'skills-'));
+  const dest = tempDir('skills-');
   mkdirSync(path.join(dest, 'motion-ui'));
   const r = run(dest);
   assert.equal(r.status, 1);

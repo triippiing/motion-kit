@@ -2,8 +2,7 @@
 // and the template component in components/WRITING-A-COMPONENT.md honours the module contract.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import Springs from '../../../shared/springs.js';
 import path from 'node:path';
@@ -13,6 +12,7 @@ import { registry } from '../components/index.js';
 import { render } from '../scripts/render.mjs';
 import { makeProject, openScene } from './harness.mjs';
 import { probe } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 const md = readFileSync(path.join(import.meta.dirname, '..', 'components', 'RECIPES.md'), 'utf8');
 // Each recipe: a "### Title" heading, then its one ```js block.
@@ -60,7 +60,7 @@ test('the WRITING-A-COMPONENT.md template is a working component (meta, geometry
   const blocks = [...guide.matchAll(/```js\n(\/\/ tag\.js[\s\S]*?)```/g)];
   assert.equal(blocks.length, 1, 'one ```js block starting "// tag.js"');
   const helpers = pathToFileURL(path.join(import.meta.dirname, '..', 'components', 'core', 'helpers.js')).href;
-  const f = path.join(mkdtempSync(path.join(tmpdir(), 'tag-')), 'tag.js');
+  const f = path.join(tempDir('tag-'), 'tag.js');
   writeFileSync(f, blocks[0][1].replace("'../core/helpers.js'", `'${helpers}'`));
   const c = await import(pathToFileURL(f).href), m = c.meta;
   for (const k of ['name', 'group', 'useWhen', 'motion', 'example']) assert.ok(typeof m[k] === 'string' && m[k].length, `meta.${k}`);
