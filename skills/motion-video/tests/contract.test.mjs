@@ -12,9 +12,13 @@ const COMP = path.join(import.meta.dirname, '..', 'components');
 const ROLES = /^(canvas|surface|ink|muted|accent|pos|neg|#[0-9a-f]{6})$/i;
 // Anything that makes render depend on more than t. Comments are stripped first (strings are kept,
 // so a CSS 'transition: ...' string still counts).
-// transition/animation as a CSS property in any spelling: 'transition: ...', style.transition =, transitionDuration.
-const IMPURE = /\b(?:transition|animation)|Date\.now|new\s+Date\s*\(\s*\)|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
+// transition/animation as a CSS property or API: 'transition: ...', style.transition =, transitionDuration,
+// getAnimations; not identifiers that merely start with the word (transitionTime, animationStep).
+// new Date with an argument is a fixed date; new Date, new Date; and new Date() are the clock.
+const IMPURE = /\b(?:transition|animation)(?:Duration|Delay|TimingFunction|Property|Name|IterationCount|Direction|FillMode|PlayState)?\b(?!\w)|\bgetAnimations\b|Date\.now|new\s+Date\b(?!\s*\(\s*[^)\s])|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
 const code = (src) => src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => str ?? '');
+// A component that really calls ctx.cursorAt (a mention in a comment does not count).
+const readsCursor = (src) => /\bctx\.cursorAt\b/.test(code(src));
 
 test('shared code and every component file read no clock and use no CSS transitions', async () => {
   const files = ['core/helpers.js', 'core/engine.js', 'modifiers.js', ...(await collect()).map((c) => c.file)];
@@ -26,6 +30,14 @@ test('shared code and every component file read no clock and use no CSS transiti
   assert.doesNotMatch(code('x = 1; // setTimeout in a comment\n/* Date.now */'), IMPURE, 'comments ignored');
   assert.doesNotMatch(code("d = new Date(week + 'T00:00:00Z')"), IMPURE, 'a fixed date is not the clock');
   for (const bad of ['d = new Date()', 'e.style.transition = x', 'Object.assign(e.style, { transitionDuration: 1 })', "e.style.animation = 'spin 1s'"]) assert.match(code(bad), IMPURE, bad);
+  for (const ok of ['const transitionTime = 2', 'animationStep(x)', 'let transitions = []']) assert.doesNotMatch(code(ok), IMPURE, ok);
+  assert.match(code('d = new Date'), IMPURE, 'new Date without parentheses is the clock too');
+  assert.match(code('d = new Date;'), IMPURE);
+});
+
+test('the cursorAt rule ignores comments', () => {
+  assert.equal(readsCursor('// ctx.cursorAt is not used'), false);
+  assert.equal(readsCursor('const p = ctx.cursorAt(t);'), true);
 });
 
 const theme = { canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b' }; // house: no pos/neg
@@ -81,7 +93,7 @@ for (const [name, c] of Object.entries(registry)) {
     for (const [k, [ty, def]] of Object.entries(m.props)) assert.ok(typeOk(ty, def), `default of ${k} matches ${ty}`);
     for (const k of Object.keys(m.props)) assert.ok(!RESERVED.has(k), `prop "${k}" is a reserved row key (${[...RESERVED].join(', ')})`);
     const src = readFileSync(path.join(COMP, m.group, `${name}.js`), 'utf8');
-    if (/cursorAt/.test(src)) assert.ok(m.drag, 'a component that reads ctx.cursorAt is dragged: list its drag hotspots in meta.drag');
+    if (readsCursor(src)) assert.ok(m.drag, 'a component that reads ctx.cursorAt is dragged: list its drag hotspots in meta.drag');
     if (m.drag !== undefined) {
       assert.ok(Array.isArray(m.drag) && m.drag.length, 'meta.drag is a non-empty array of hotspots');
       for (const d of m.drag) assert.ok(m.hotspots.includes(d), `meta.drag entry "${d}" is one of the hotspots (${m.hotspots.join(', ')})`);
