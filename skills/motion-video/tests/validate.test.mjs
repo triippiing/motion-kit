@@ -456,7 +456,12 @@ test('strict: a click with under half a beat to arrive warns', () => {
 test('duplicate keyed entries warn; aiming at one is an error', () => {
   const bars = [{ label: 'Mon', value: 1 }, { label: 'Mon', value: 2 }];
   const states = loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'chart', bars }, { at: 4, use: 'button' }]);
-  assert.match(run(states).warnings.join('\n'), /chart at beat 2 has duplicate bars labels \("Mon"\); the cursor and hover can only reach the first/);
+  assert.ok(run(states).warnings.includes('chart at beat 2 has duplicate labels ("Mon"); the cursor and hover can only reach the first'), run(states).warnings.join('\n'));
+  // A plain string list names the list itself.
+  const menu = fake('menu', { items: ['string[]', ['A']] }, ['item:<item>']);
+  menu.meta.unique = { items: true };
+  const items = validate({ states: loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'menu', items: ['A', 'B', 'A', 'B'] }, { at: 4, use: 'button' }]), cursor: [{ at: 0, x: 0, y: 0 }, { at: 14, x: 0, y: 0 }], registry: { ...registry, menu }, song });
+  assert.ok(items.warnings.includes('menu at beat 2 has duplicate items ("A", "B"); the cursor and hover can only reach the first'), items.warnings.join('\n'));
   const aim = [{ at: 0, x: 0, y: 0 }, { at: 3, target: 'bar:Mon' }, { at: 14, x: 0, y: 0 }];
   assert.match(run(states, aim).errors.join('\n'), /cursor target "bar:Mon" at beat 3 names a duplicate label of chart; it reaches the first "Mon" only/);
 });

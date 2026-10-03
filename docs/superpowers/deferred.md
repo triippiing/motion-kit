@@ -32,7 +32,7 @@ purity scan, renders every recipe in tests, and closed most of F1's review lefto
   than `#shape` is not seen; demo 04 is clean by a manual audit only; `data-overhang` may be moot because `#shape`
   clips its overflow anyway.
 - validate: the rushed-click rule compares target names, not positions; input's cut-off guard is untested now;
-  the "duplicate bars labels" wording reads awkwardly; a custom press-and-hold now warns (as the spec intends).
+  a custom press-and-hold now warns (as the spec intends).
 - line-chart: a `hover` prop point is still replaced at once when the cursor aims at another point; a dip on the
   same point could stay up.
 - line-chart: the tooltip drops when the hover prop is due under half a beat before the cursor leaves; the leave
