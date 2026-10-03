@@ -32,3 +32,19 @@ sub-project F (hardening) unless noted.
   cursorAt regex also matches comments.
 - `new Date` without parentheses is not caught by the purity scan.
 - Recipes: only the first recipe renders to MP4 in tests (all five are seeked in Chromium).
+
+## Left over from F1's reviews (2026-10-03; for F2)
+- tmp.test.mjs: the SIGINT test hangs (rather than fails) if the child never prints; the crash test is vacuous
+  when no dir is made (assert the `mk-tmptest-` name); the MK_KEEP_TMP test does not check exit status.
+- gallery.mjs: no `error:` / exit 2 wrapper around `gallery()` (a failure prints a stack trace and, in keep mode,
+  leaves its `mk-gallery-` dir); gallery.test's first test shares the `mk-gallery-` prefix with the leak test.
+- is_main.test: the old-guard regex matches one spelling only; no CLI test with a missing argv[1].
+- sync.mjs Save: Ctrl+C on the server orphans a running analyser (own process group; a hung one then has no
+  limit; track live groups and SIGTERM them on exit); no backstop if a setsid grandchild holds the pipe; a kill
+  between the analyser's two replaces can leave a new clip.wav and hidden `.clip.wav.*` temp files; the SIGTERM
+  test does not check song.json or the message.
+- test_analyze_song: rename `test_short_song_window_choice_is_unchanged`; the components-feedback progress band
+  (30 to 35%) could be 30 to 32%; no fade where the song really ends on an overrun; sub-ms overrun boundary untested.
+- export.test gap check: assert packet durations are finite (N/A would pass silently); use the median packet as
+  the reference; a unit test pinning `asetpts` in loudnormArgs.
+- Plan snippets in docs/superpowers/plans/2026-10-03-hardening-f1.md are bash-only (zsh mis-splits them).
