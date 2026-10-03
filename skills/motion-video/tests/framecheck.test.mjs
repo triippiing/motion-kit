@@ -51,3 +51,19 @@ test('the same overflowing text shown twice in one frame is still one grouped is
   assert.equal(t[0].beat, 0);
   assert.ok(t[0].through > 7);
 });
+
+// A label slot as tall as the shape is not text past the shape: only the words' own line boxes count. Both were
+// false warnings measured on the element box (Dashboard tour, Settings change, demo 04).
+const REST_CURSOR = '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]';
+test('the shape settling a px short of a full-height label slot is not text past its shape', async () => {
+  // bar-chart -> tabs: the height spring dips about 3 px under the tabs' 100 px while the tab slots are 100 px.
+  const bars = "[{ label: 'Mon', value: 32 }, { label: 'Tue', value: 41 }, { label: 'Wed', value: 38 }]";
+  const r = await run(`[{ at: 0, use: 'bar-chart', label: 'Orders', bars: ${bars} }, { at: 2, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' }, { at: END - 2, use: 'bar-chart', label: 'Orders', bars: ${bars} }]`, REST_CURSOR);
+  assert.deepEqual(kinds(r, 'text'), []);
+});
+
+test('a label sliding in inside a full-height slot is not text past its shape', async () => {
+  // button -> status: the status label's slot slides up 10 px as it enters, its box briefly past the bottom edge.
+  const r = await run(`[${REST}, { at: 2, use: 'status', level: 'warn', text: 'Syncing' }, ${BACK}]`, REST_CURSOR);
+  assert.deepEqual(kinds(r, 'text'), []);
+});

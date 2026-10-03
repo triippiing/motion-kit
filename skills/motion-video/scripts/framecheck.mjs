@@ -44,16 +44,32 @@ export function measure(t) {
   // Text: every element in #shape with its own text. Skipped when (nearly) invisible: its opacity times every
   // ancestor's up to #shape under 0.05 (a crossfade), zero size, or marked data-overhang (a deliberate overhang,
   // e.g. a tooltip above its point). px are stage px: CSS px times the element's on-screen scale.
+  // "Past its shape" measures the text's own line boxes (a Range over its text nodes), not the element's box: a
+  // label is often a slot as tall as the shape, so a shape spring settling a px short of the row's size, or the
+  // label's entrance slide, would push the empty slot past the edge while the words sit well inside. An element
+  // that clips its overflow shows only what is inside its box, so the text is cut to that box (and reported as
+  // clipped instead).
   const texts = [];
   if (box) for (const e of shape.querySelectorAll('*')) {
-    if (![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    const nodes = [...e.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
+    if (!nodes.length) continue;
     if (e.closest('[data-overhang]')) continue;
     let o = 1;
     for (let a = e; a && a !== shape.parentElement; a = a.parentElement) o *= Number(getComputedStyle(a).opacity);
     const r = e.getBoundingClientRect();
     if (o < 0.05 || r.width === 0 || r.height === 0) continue;
     const scale = e.offsetWidth ? r.width / e.offsetWidth : 1;
-    const over = Math.max(0, b.left - r.left, r.right - b.right, b.top - r.top, r.bottom - b.bottom);
+    const g = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity }, range = document.createRange();
+    for (const n of nodes) {
+      range.selectNodeContents(n);
+      for (const q of range.getClientRects()) if (q.width > 0 && q.height > 0)
+        Object.assign(g, { left: Math.min(g.left, q.left), top: Math.min(g.top, q.top), right: Math.max(g.right, q.right), bottom: Math.max(g.bottom, q.bottom) });
+    }
+    if (g.left === Infinity) continue;
+    const cs = getComputedStyle(e);
+    if (cs.overflowX !== 'visible') Object.assign(g, { left: Math.max(g.left, r.left), right: Math.min(g.right, r.right) });
+    if (cs.overflowY !== 'visible') Object.assign(g, { top: Math.max(g.top, r.top), bottom: Math.min(g.bottom, r.bottom) });
+    const over = Math.max(0, b.left - g.left, g.right - b.right, b.top - g.top, g.bottom - b.bottom);
     const clip = Math.max(0, (e.scrollWidth - e.clientWidth) * scale);
     if (over >= 1 || clip >= 1) texts.push({ text: e.textContent.trim(), over: Math.round(over), clip: Math.round(clip) });
   }
