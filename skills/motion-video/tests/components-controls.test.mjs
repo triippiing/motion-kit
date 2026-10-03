@@ -285,7 +285,7 @@ test('input: a 4-bar loop at 128 bpm starting and ending on a finished input pas
   assert.equal(r.seam.ok, true, r.seam.notes.join('; '));
 });
 
-test('slider: a long label giving way to a short one leaves no stub past the new layout', async () => {
+test('slider: a long label giving way to a short one: the old label keeps its own width (no ellipsized stub)', async () => {
   const long = 'A very long slider label that keeps going', short = 'Gain';
   const STILL = '[{ at: 0, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]';
   await scene({ bars: 2, states: `[{ at: 0, use: 'button' }, { at: 2, use: 'slider', label: '${long}', icon: 'none' }, { at: 4, use: 'slider', label: '${short}', icon: 'none' }, { at: END - 2, use: 'button' }]`, cursor: STILL }, async (s, at) => {
