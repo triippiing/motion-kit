@@ -58,6 +58,20 @@ const video = (f) => streams(f).find((s) => s.codec_type === 'video');
 const hasAudio = (f) => streams(f).some((s) => s.codec_type === 'audio');
 const duration = (f) => Number(probe(f).format.duration);
 const loopSec = (dir) => JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.duration_sec;
+// The audio stream's own duration, and its timestamp holes (players hear silence, the audio after it
+// late): a packet starting more than 1 ms from where the previous one ended (webm), or a packet before
+// the last one stretched more than 1 ms past the first packet's length (mp4 stores the hole that way).
+function audioTrack(file) {
+  const run = (e) => execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-select_streams', 'a:0', '-show_entries', e,
+    '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim();
+  const pkts = run('packet=pts_time,duration_time').split('\n').map((l) => l.split(',').map(Number));
+  const gaps = pkts.slice(1).flatMap(([t], i) => {
+    const [t0, d0] = pkts[i], end = t0 + d0;
+    if (Math.abs(t - end) > 0.001) return [`${end.toFixed(4)}->${t.toFixed(4)}`];
+    return d0 - pkts[0][1] > 0.001 ? [`${t0.toFixed(4)} lasts ${d0.toFixed(4)}`] : [];
+  });
+  return { duration: Number(run('stream=duration')), gaps };
+}
 // Integrated loudness via ffmpeg's ebur128, independent of media.mjs.
 function lufs(file) {
   const r = spawnSync(FFMPEG, ['-hide_banner', '-nostats', '-i', file, '-af', 'ebur128', '-f', 'null', '-'], { encoding: 'utf8' });
@@ -146,6 +160,10 @@ test('each export has the preset size, fps, codecs and duration', () => {
     assert.equal(Number(v.nb_read_frames), Math.round(D * fps), `${name} frames`);
     assert.ok(a, `${name} has audio`);
     assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `${name} duration ${p.format.duration} vs loop ${D}`);
+    // the audio itself, so a longer video stream cannot hide an audio track that overruns the loop
+    const at = audioTrack(f);
+    assert.ok(Math.abs(at.duration - D) <= 0.05, `${name} audio duration ${at.duration} vs loop ${D}`);
+    assert.deepEqual(at.gaps, [], `${name} audio has no timestamp gap`);
   }
   const codecs = execFileSync(FFMPEG.replace(/ffmpeg$/, 'ffprobe'), ['-v', 'error', '-show_entries', 'stream=codec_name,profile', '-of', 'csv=p=0',
     abs(file('reels'))], { encoding: 'utf8' });
@@ -507,6 +525,7 @@ test('web writes mp4 (faststart), webm (vp9/opus) and a poster jpg from a settle
   assert.deepEqual([webm.vcodec, webm.acodec, webm.width, webm.height, webm.fps], ['vp9', 'opus', 256, 256, 60]);
   assert.deepEqual([v.width, v.height, v.r_frame_rate], [256, 256, '60/1']);
   assert.ok(Math.abs(Number(p.format.duration) - D) <= 0.05, `webm duration ${p.format.duration}`);
+  assert.deepEqual(audioTrack(abs(webm)).gaps, [], 'webm audio has no timestamp gap');
   assert.ok(Number.isFinite(webm.lufs), 'webm loudness measured');
   assert.ok(webm.warnings.some((w) => /commercial music/.test(w)), 'webm carries the audio, so the commercial warning');
   // poster: beat 1 + half a beat, from the song's beat times (cue_t when present); the half beat now spans the

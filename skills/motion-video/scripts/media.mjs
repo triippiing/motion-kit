@@ -83,8 +83,10 @@ export async function loudnormArgs(file, { lufs, truePeak }) {
   const m = JSON.parse(err.slice(err.lastIndexOf('{'), err.lastIndexOf('}') + 1));
   const measured = { I: num(m.input_i), TP: num(m.input_tp), LRA: num(m.input_lra), thresh: num(m.input_thresh), offset: num(m.target_offset) };
   if (!(measured.I >= -50)) return Object.assign([], { skipped: true, measured });
+  // asetpts restamps from the sample count: at input EOF loudnorm emits a partial frame but advances pts a
+  // full 100 ms frame, leaving a hole (silence, then late audio) of up to 100 ms
   const f = `loudnorm=${target}:measured_I=${measured.I}:measured_TP=${measured.TP}:measured_LRA=${measured.LRA}`
-    + `:measured_thresh=${measured.thresh}:offset=${measured.offset}:linear=true,aresample=48000`;
+    + `:measured_thresh=${measured.thresh}:offset=${measured.offset}:linear=true,aresample=48000,asetpts=N/SR/TB`;
   return Object.assign(['-af', f], { skipped: false, measured });
 }
 
