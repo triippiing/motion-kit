@@ -116,6 +116,41 @@ class AnalyzeTests(unittest.TestCase):
         self.assertIn("error:", r.stderr)
         self.assertNotIn("Traceback", r.stderr)
 
+    def overrun_track(self):
+        """120 BPM (a bar is 2 s): ten bars from the first click, then 1.6 s of an eleventh, so the grid's last bar
+        ends about 0.4 s past the audio. The last 3.6 s are louder, so a free pick favours the final window."""
+        p = click_track(self.tmp / "over.wav", 120, seconds=0.37 + 20 + 1.6)
+        with wave.open(str(p)) as w:
+            x = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float)
+        x[-int(3.6 * SR):] *= 3
+        with wave.open(str(p), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SR)
+            w.writeframes(np.clip(x, -32768, 32767).astype("<i2").tobytes())
+        return p, len(x) / SR
+
+    def test_free_pick_skips_windows_past_the_end(self):
+        p, song_sec = self.overrun_track()
+        loop = A.analyze(p, bars=2)["loop"]
+        self.assertLessEqual(loop["start_sec"] + loop["duration_sec"], song_sec)
+
+    def test_forced_overrun_pads_the_clip_and_warns(self):
+        p, song_sec = self.overrun_track()
+        out = self.tmp / "o"
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(A.main([str(p), "--out", str(out), "--bars", "2", "--start-near", "1e6"]), 0)
+        song = json.loads((out / "song.json").read_text())
+        loop = song["loop"]
+        self.assertGreater(loop["start_sec"] + loop["duration_sec"], song_sec)  # the case under test
+        self.assertTrue(any("past the end of the song" in w for w in song["rules"]["warnings"]), song["rules"]["warnings"])
+        with wave.open(str(out / "clip.wav")) as w:
+            self.assertLessEqual(abs(w.getnframes() - round(loop["duration_sec"] * 48000)), 1)
+
+    def test_no_padding_warning_when_the_loop_fits(self):
+        song = A.analyze(click_track(self.tmp / "c.wav", 120, seconds=30), bars=2)
+        self.assertFalse(any("past the end" in w for w in song["rules"]["warnings"]))
+
 
 class SyncTests(unittest.TestCase):
     """The user's sync section in song.json: kept across re-runs and applied to the grid."""
@@ -356,12 +391,15 @@ class SyncTests(unittest.TestCase):
             self.assertLess(min(phase, beat - phase), beat / 8)
 
     def test_short_song_window_choice_is_unchanged(self):
-        # the 16 s songs the Node harness uses: the loudest section start is still preferred without a
-        # user grid, and with a nudge the pick skips windows that would run off the song
+        # a section start is still preferred without a user grid when its window fits (20 s: bar 6);
+        # in the 16 s songs the Node harness uses, the only section's window runs off the song, so the
+        # pick stays inside, and with a nudge too
+        longer = A.analyze(str(click_track(self.d / "longer.wav", 120, seconds=20)), bars=2)
+        self.assertTrue(longer["sections"])
+        self.assertIn(longer["loop"]["start_bar"], [s["bar"] for s in longer["sections"]])
         short = str(click_track(self.d / "short.wav", 120, seconds=16))
         plain = A.analyze(short, bars=2)
-        self.assertTrue(plain["sections"])
-        self.assertIn(plain["loop"]["start_bar"], [s["bar"] for s in plain["sections"]])
+        self.assertLessEqual(plain["loop"]["start_sec"] + plain["loop"]["duration_sec"], 16.0)
         self.assertEqual(A.analyze(short, bars=2, sync={"nudge_ms": 0})["loop"], plain["loop"])
         nudged = A.analyze(short, bars=2, sync={"nudge_ms": 10})
         self.assertLessEqual(nudged["loop"]["start_sec"] + nudged["loop"]["duration_sec"], 16.0)

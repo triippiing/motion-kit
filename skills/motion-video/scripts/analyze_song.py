@@ -238,10 +238,10 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     elif start_near is not None:
         start = min(range(last_start + 1), key=lambda b: abs(times[j + b * bpb] - start_near))
     else:
-        # a user grid can push the first or last bars off the song: pick among windows that fit
-        # (without one, the pick is exactly as it always was)
+        # prefer windows inside the song: a grid's first or last bar can sit past the audio
+        # (a nudge, or just the detected last bar); if none fits, every window is a candidate
         fits = [b for b in range(last_start + 1)
-                if not user_grid or (times[j + b * bpb] >= 0 and times[j + b * bpb] + duration <= song_sec)]
+                if times[j + b * bpb] >= 0 and times[j + b * bpb] + duration <= song_sec]
         fits = fits or list(range(last_start + 1))
         score = lambda b: float(np.mean(bar_rms[b:b + bars]))
         preferred = [b for b in sections if b in fits]
@@ -254,9 +254,9 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     if start_sec < 0:
         raise SongError("the loop window would start before the song (move it with --start-bar); "
                         "--start-near SEC also moves the loop window")
-    # the detected grid's last bar may end a little past the audio (the clip is then short), as it always
-    # has; a user grid is held to the song
-    if user_grid and start_sec + duration > song_sec:
+    overrun = start_sec + duration - song_sec
+    # a user grid is held to the song; a detected one may end past it (the clip is then padded, with a warning)
+    if user_grid and overrun > 0:
         raise SongError("the loop window would end past the end of the song (move it with --start-bar); "
                         "--start-near SEC also moves the loop window")
     beats = []
@@ -289,6 +289,8 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
                             f"({bpm / 2:.1f}) and put an event on every other beat.")
     if confidence < 0.2:
         warnings.append(f"low beat confidence ({confidence:.2f}): check the beat stills against the music by ear.")
+    if overrun >= 0.001:
+        warnings.append(f"the loop runs {overrun * 1000:.0f} ms past the end of the song; clip.wav is padded with silence")
     if states is not None and states > max_states:
         need = math.ceil(states * min_hold / bpb)
         warnings.append(f"{states} states need {states * min_hold} beats at {min_hold} beats each; "
@@ -318,9 +320,11 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
 
 
 def write_clip(src, start_sec, duration_sec, out_path):
-    fade = f"afade=t=in:d=0.01,afade=t=out:st={duration_sec - 0.01:.6f}:d=0.01"
+    # pad with silence to the exact loop length (a loop can end past the song), then fade both ends
+    af = (f"apad=whole_dur={duration_sec:.6f},afade=t=in:d=0.01,"
+          f"afade=t=out:st={duration_sec - 0.01:.6f}:d=0.01")
     r = subprocess.run([ffmpeg_bin(), "-v", "error", "-y", "-ss", f"{start_sec:.6f}", "-i", str(src),
-                        "-t", f"{duration_sec:.6f}", "-af", fade, "-ar", "48000", "-ac", "2",
+                        "-t", f"{duration_sec:.6f}", "-af", af, "-ar", "48000", "-ac", "2",
                         "-c:a", "pcm_s16le", str(out_path)], capture_output=True)
     if r.returncode != 0:
         raise SongError(f"could not write clip: {r.stderr.decode(errors='replace')[:300]}")

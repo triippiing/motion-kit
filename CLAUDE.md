@@ -94,9 +94,11 @@ Details worth knowing:
 - Vertical pieces: the template's cursor rest `x: 240, y: 280` sits in the Reels/TikTok/Shorts bottom and
   right zones; rest nearer the centre, e.g. `x: 140, y: 100`.
 - The loop window: unless you pass `--start-bar N`, `analyze_song.py` picks the loudest N-bar window,
-  preferring one that starts on a detected section boundary (listed in `song.json` `sections`). To move
-  it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B` (rewrites only song.json, clip.wav
-  and .source.json; song.json's `sync` section is kept, see Syncing).
+  preferring one that starts on a detected section boundary (listed in `song.json` `sections`) and one that
+  ends inside the song. To move it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B`
+  (rewrites only song.json, clip.wav and .source.json; song.json's `sync` section is kept, see Syncing).
+  A window that still runs past the song's end (chosen with --start-bar or --start-near) gets a
+  silence-padded clip.wav and a warning.
 - Re-timing to a different song: delete `sync` from song.json first (its nudge, tempo and markers were set
   by ear against the old song; the analyser keeps and applies it whatever the song).
 - Loop length vs states: each state holds at least `rules.min_hold_beats`, so `max_states` = beats / min hold.

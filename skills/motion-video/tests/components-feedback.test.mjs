@@ -87,8 +87,11 @@ test('progress: the fill reaches the value and the percentage reads it', async (
 test('progress: a continuation animates the fill from the previous value', async () => {
   await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'progress', value: 0.3 }, { at: 4, use: 'progress', value: 0.8 }${BACK}]`, cursor: STILL }, async (s, at) => {
     const pct = () => s.page.evaluate(() => document.querySelector('.c-progress[data-row="2"] .pg-pct').textContent);
+    // just after the continuation starts, the fill is still near the previous value (a cue a few ms early
+    // reads 31%), not 0 or 80
     await at(4.02);
-    assert.equal(await pct(), '30%');
+    const n = parseInt(await pct(), 10);
+    assert.ok(n >= 30 && n <= 35, `${n}%`);
     await at(5.8);
     assert.equal(await pct(), '80%');
   });
