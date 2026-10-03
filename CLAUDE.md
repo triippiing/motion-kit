@@ -163,9 +163,10 @@ strict mode (every row holds `rules.min_hold_beats`, at most `rules.max_states` 
 on every beat, the loop seam; typing (input `text`, command `query`) that would still be typing when the next row
 starts is an error; a press `'down'`/`'up'` pair on a custom-state row gets the drag rules (stay in one row: error;
 must move: warning); a `press: true` click with under half a beat for the cursor to arrive warns, as a rushed drag
-does; duplicate keyed entries (bar-chart labels, tabs, dropdown, chip-row, dock and sheet items) warn, and a cursor
-aimed at a duplicated one is an error), then, once those pass, a frame check in Chromium (the cursor going past the stage
-edges, text running past or cut off in its shape, and the chosen presets' safe zones; each a warning). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
+does; duplicate keyed entries (bar-chart labels, tabs, dropdown and dock items, chip-row chips, sheet actions) warn,
+and a cursor aimed at a duplicated one is an error). Once those pass, it runs a frame check in Chromium (the cursor
+going past the stage edges, text running past or cut off in its shape, and the chosen presets' safe zones; each a
+warning). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
 loop gets `"loop": false` in `DIR/project.json` (or `check_brief.mjs DIR --no-loop`).
 
 ## Components
@@ -249,8 +250,9 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
 - **Text stays inside the shape:** the frame check measures the words' own line boxes. An element meant to sit
-  outside the shape (a tooltip above its point) carries `data-overhang`; that only silences the frame check:
-  `#shape` clips its overflow, so the element is still cut off at the shape's edge.
+  outside the shape (a tooltip above its point) can carry `data-overhang`, an opt-in hook for component authors (no
+  built-in component uses it today); it only silences the frame check: `#shape` clips its overflow, so the element is
+  still cut off at the shape's edge.
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and

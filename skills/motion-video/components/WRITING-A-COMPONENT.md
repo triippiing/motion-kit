@@ -287,8 +287,9 @@ viewer must read (body copy, labels, values). Icons come from
 `icon(parent, name, size)` (24-unit grid, stroke 2, round caps): one stroke weight everywhere.
 Springs only, through `ctx.Springs` and the helpers; position and size springs have zeta 1.
 Text stays inside the shape: check_brief's frame check reports words that run past it or are cut off.
-An element meant to sit outside the shape, like a tooltip above its point, carries `data-overhang` so the
-frame check does not report it.
+An element meant to sit outside the shape, like a tooltip above its point, can carry `data-overhang` so the
+frame check does not report it: an opt-in hook for your component (no built-in component uses it today). `#shape`
+still clips its overflow, so the element is cut off at the shape's edge all the same.
 
 ### 10. Props, class names and copy
 
