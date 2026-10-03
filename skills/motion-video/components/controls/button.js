@@ -33,9 +33,12 @@ const changed = (a, b) => a.label !== b.label || a.icon !== b.icon;
 // too (only if it differs), then in render take it out with fade(..., tOut = ctx.t0) and bring the new
 // content in with fade(ctx, t, ctx.t0 + ...), so the swap blurs with its own exit/enter timing.
 // Skip the component's own entrance when continuing: the shape is already there.
+// Stack the two in one grid cell exactly the layer's size (the shape's), not one as wide as the widest content:
+// a cell sized by its content stays as wide as a long old label and pushes a shorter new one off the shape.
+// Each row centres itself in that cell and overflows evenly, so the shape clips the old label as it fades.
 export function mount(root, p, ctx) {
   const box = el(root, 'div', { class: 'btn' });
-  box.style.display = 'grid';
+  Object.assign(box.style, { position: 'absolute', inset: '0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' });
   if (ctx.continues && changed(ctx.prev, p)) content(box, ctx.prev, 'btn-prev');
   content(box, p, 'btn-cur');
 }

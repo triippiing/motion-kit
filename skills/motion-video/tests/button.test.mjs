@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { makeProject, openScene } from './harness.mjs';
+import { checkFrames } from '../scripts/framecheck.mjs';
 
 const scaleOf = (s, row) => s.page.evaluate((row) => {
   const m = document.querySelector(`.c-button[data-row="${row}"] .btn`).style.transform.match(/scale\(([\d.]+)\)/);
@@ -44,4 +45,32 @@ test('button: a continuation with a new label crossfades old out and new in', as
     assert.equal(await s.page.evaluate(() => document.querySelectorAll('.c-button[data-row="0"] .btn-row').length), 1, 'row 0 has one label');
     assert.deepEqual(s.errors, []);
   } finally { await s.close(); }
+});
+
+test('button: a short label after a long one stays inside the shape', async () => {
+  const long = 'A very long label that goes on and on well past any reasonable width for a button';
+  const dir = makeProject({ bars: 2,
+    states: `[{ at: 0, use: 'button' }, { at: 2, use: 'button', label: '${long}' }, { at: 4, use: 'button', label: 'Get started' }, { at: END - 2, use: 'button' }]`,
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  const s = await openScene(dir);
+  try {
+    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec));
+    // The new label's box against the shape's, and its opacity times every ancestor's up to #shape.
+    const cur = () => s.page.evaluate(() => {
+      const e = document.querySelector('.c-button[data-row="2"] .btn-cur .btn-label'), shape = document.querySelector('#shape');
+      let o = 1;
+      for (let a = e; a && a !== shape; a = a.parentElement) o *= Number(getComputedStyle(a).opacity);
+      const r = e.getBoundingClientRect(), b = shape.getBoundingClientRect();
+      return { l: r.left - b.left, r: b.right - r.right, t: r.top - b.top, b: b.bottom - r.bottom, o };
+    });
+    for (const beat of [4.3, 4.6, 5]) {
+      await s.seek(beat * bs);
+      const c = await cur();
+      for (const side of ['l', 'r', 't', 'b']) assert.ok(c[side] >= -1, `beat ${beat}: 'Get started' inside the shape (${side}): ${JSON.stringify(c)}`);
+      if (beat === 5) assert.ok(c.o > 0.9, `shown by beat 5: ${c.o}`);
+    }
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+  const r = await checkFrames(dir, {});
+  assert.deepEqual(r.issues.filter((i) => i.kind === 'text' && i.text.includes('Get started')), []);
 });
