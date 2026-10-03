@@ -15,7 +15,7 @@ const ROLES = /^(canvas|surface|ink|muted|accent|pos|neg|#[0-9a-f]{6})$/i;
 // transition/animation as a CSS property or API: 'transition: ...', style.transition =, transitionDuration,
 // getAnimations; not identifiers that merely start with the word (transitionTime, animationStep).
 // new Date with an argument is a fixed date; new Date, new Date; and new Date() are the clock.
-const IMPURE = /\b(?:transition|animation)(?:Duration|Delay|TimingFunction|Property|Name|IterationCount|Direction|FillMode|PlayState)?\b(?!\w)|\bgetAnimations\b|Date\.now|new\s+Date\b(?!\s*\(\s*[^)\s])|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
+const IMPURE = /\b(?:transition|animation)(?:Duration|Delay|TimingFunction|Property|Name|IterationCount|Direction|FillMode|PlayState)?\b(?!\w)|\b(?:on)?(?:transition|animation)(?:end|start|run|cancel|iteration)\b|\.animate\(|\bgetAnimations\b|Date\.now|new\s+Date\b(?!\s*\(\s*[^)\s])|Math\.random|setTimeout|setInterval|requestAnimationFrame|performance\.now/;
 const code = (src) => src.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m, str) => str ?? '');
 // A component that really calls ctx.cursorAt (a mention in a comment does not count).
 const readsCursor = (src) => /\bctx\.cursorAt\b/.test(code(src));
@@ -30,7 +30,9 @@ test('shared code and every component file read no clock and use no CSS transiti
   assert.doesNotMatch(code('x = 1; // setTimeout in a comment\n/* Date.now */'), IMPURE, 'comments ignored');
   assert.doesNotMatch(code("d = new Date(week + 'T00:00:00Z')"), IMPURE, 'a fixed date is not the clock');
   for (const bad of ['d = new Date()', 'e.style.transition = x', 'Object.assign(e.style, { transitionDuration: 1 })', "e.style.animation = 'spin 1s'"]) assert.match(code(bad), IMPURE, bad);
-  for (const ok of ['const transitionTime = 2', 'animationStep(x)', 'let transitions = []']) assert.doesNotMatch(code(ok), IMPURE, ok);
+  // Transition/animation events and the Web Animations API run on the clock too.
+  for (const bad of ["e.addEventListener('transitionend', f)", "addEventListener('animationend', f)", 'e.ontransitionstart = f', 'el.animate([{ opacity: 0 }], 200)']) assert.match(code(bad), IMPURE, bad);
+  for (const ok of ['const transitionTime = 2', 'animationStep(x)', 'let transitions = []', 'const animated = true', 'transitionEnds(x)']) assert.doesNotMatch(code(ok), IMPURE, ok);
   assert.match(code('d = new Date'), IMPURE, 'new Date without parentheses is the clock too');
   assert.match(code('d = new Date;'), IMPURE);
 });
