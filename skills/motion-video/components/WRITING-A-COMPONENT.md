@@ -143,7 +143,7 @@ const changed = (a, b) => a.label !== b.label;
 export function mount(root, p, ctx) {
   Object.assign(el(root, 'div', { class: 'tag-bg' }).style, { position: 'absolute', inset: '0' });
   const box = el(root, 'div', { class: 'tag-box' });
-  Object.assign(box.style, { display: 'grid', placeItems: 'center' });
+  Object.assign(box.style, { position: 'absolute', inset: '0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', placeItems: 'center' });
   if (ctx.continues && changed(ctx.prev, p)) label(box, ctx.prev, 'tag-prev');
   label(box, p, 'tag-cur');
 }
@@ -174,7 +174,9 @@ What each part is doing:
 - **`plan`** is the state over time as data: where the row starts, and every change with its time.
   `render` and `endState` both read it, so they can never disagree.
 - **`endState`** tells the next row of the same component where this one ended (after its presses).
-- **`mount`** builds both the previous label (only when it changed) and the new one, stacked in one grid cell.
+- **`mount`** builds both the previous label (only when it changed) and the new one, stacked in one grid cell
+  the size of the layer (the shape), not of its widest content: a cell sized by a long old label would
+  centre a shorter new one in that width, off the shape.
 - **`render`** computes everything from `t`: the fill blend on a spring track, the press dip with
   `pressDepth`, the old label fading out at `ctx.t0` and the new one fading in just after.
 - **`hotspot`** is where the cursor tip lands, as an offset from the shape centre; aim at the thing
