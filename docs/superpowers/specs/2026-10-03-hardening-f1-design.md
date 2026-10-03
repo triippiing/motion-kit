@@ -123,6 +123,14 @@ Tests (`tests/test_analyze_song.py`): a click track that ends partway through it
 the loudest window at the end, picks a window that fits; with `--start-bar` forcing the overrun,
 `clip.wav` has exactly `round(duration * 48000)` samples (within 1) and stderr has the warning.
 
+## Docs
+
+- CLAUDE.md: the "No music to hand" click-track command and the Testing section point at
+  `scripts/click_track.py`; the code map lists `scaffold.mjs`, `click_track.py`, `is_main.mjs`; a line
+  on `MK_KEEP_TMP=1` under Testing; Syncing mentions the Save timeout and `MK_ANALYSER_TIMEOUT`.
+- `skills/motion-video/SKILL.md`: the same click-track command and the Sync section's Save timeout,
+  wherever they appear; the gallery's `--keep`.
+
 ## Verification before merge
 
 - `npm test` and the Python tests green.
