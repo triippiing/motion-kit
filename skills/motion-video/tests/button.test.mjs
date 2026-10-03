@@ -76,10 +76,10 @@ test('button: a short label after a long one stays inside the shape', async () =
 });
 
 // Jack's call: a label past the 1200 px cap shows its start (from the left padding, cut off on the right by the
-// shape); a label that fits stays centred.
+// shape); a label that fits stays centred, even capitals a little wider than textW's estimate.
 test('button: a label past the width cap starts at the left padding; one that fits is centred', async () => {
   const long = 'A very long label that goes on and on well past any reasonable width for a button';
-  for (const [label, check] of [[long, 'start'], ['Get started', 'centre']]) {
+  for (const [label, check] of [[long, 'start'], ['Get started', 'centre'], ['DOWNLOAD NOW', 'centre']]) {
     const dir = makeProject({ bars: 2,
       states: `[{ at: 0, use: 'button', label: '${label}' }, { at: END - 2, use: 'button', label: '${label}' }]`,
       cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
@@ -96,7 +96,7 @@ test('button: a label past the width cap starts at the left padding; one that fi
       if (check === 'start') {
         assert.ok(g.over, `the long label is wider than the shape: ${JSON.stringify(g)}`);
         assert.ok(g.left >= 0 && g.left <= 56 + 2, `the long label starts at the left padding: ${JSON.stringify(g)}`);
-      } else assert.ok(Math.abs(g.centre) <= 1, `'Get started' is centred: ${JSON.stringify(g)}`);
+      } else assert.ok(Math.abs(g.centre) <= 1, `'${label}' is centred: ${JSON.stringify(g)}`);
       assert.deepEqual(s.errors, []);
     } finally { await s.close(); }
   }
