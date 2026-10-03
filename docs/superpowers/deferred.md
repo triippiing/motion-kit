@@ -24,8 +24,9 @@ purity scan, renders every recipe in tests, and closed most of F1's review lefto
 - Plan snippets in docs/superpowers/plans/2026-10-03-hardening-f1.md are bash-only (zsh mis-splits them).
 
 ## Left over from F2's reviews (2026-10-03)
-- framecheck: the "how" of a grouped issue comes from its first sample, not its worst; `got.stage` is unused; the
-  clipped, `data-overhang` and opacity paths have no tests of their own; `closest()` can match above `#shape`.
+- framecheck: `got.stage` is unused; `data-overhang` has no test (no built-in component uses it); `closest()` can
+  match above `#shape`; a tab label that runs into the next tab is not reported (no overlap check); vertical clipping
+  (e.g. calendar's two-line clamp) is not measured.
 - framecheck: importing frameIssueText loads Playwright even when the frame check is stubbed; a thrown non-Error
   would crash check_brief's catch (it reads `e.message`).
 - framecheck: a pill whose overhang is padding only is now silent (intended); text clipped by an ancestor other
@@ -41,11 +42,10 @@ purity scan, renders every recipe in tests, and closed most of F1's review lefto
 - badge: the same-count test reads the highest opacity (it cannot catch two bubbles at once); no tests for badge 0
   between rows, three rows in a row, or badge to no badge; a popped bubble with no next row does not shrink as it
   fades; a short first row jumps at the hand-over.
-- button: over-long labels (past the 1200 px cap) now clip evenly on both sides instead of off the right (a visible
-  change); no short-to-long label test; the guide's tag example is not rendered; an over-long dropdown label runs
+- button: labels whose estimated width is just over the 1200 px cap but really fit start-align with space on the
+  right (estimate vs real width); no short-to-long label test; the guide's tag example is not rendered; an over-long dropdown label runs
   past its fixed-width shape (older than F2).
-- purity scan: `transitionend`/`animationend` are no longer flagged; a redundant `\b(?!\w)`; readsCursor misses a
-  destructured cursorAt; `el.animate(` is never caught.
+- purity scan: a redundant `\b(?!\w)`; readsCursor misses a destructured cursorAt.
 - gallery exits 2 for runtime failures too (the spec says bad input); the orphan test needs pgrep/pkill; cp's own
   stderr line prints above `error:`.
 - sync.mjs: narrow signal windows remain (the analyser exited 0 before close; the analyser not yet dead at the
