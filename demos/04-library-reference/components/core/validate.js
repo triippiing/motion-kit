@@ -265,7 +265,7 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
         const dup = [...new Set(keys.filter((k, j) => keys.indexOf(k) !== j))];
         if (dup.length) {
           r.dups = [...(r.dups ?? []), ...dup];
-          warnings.push(`${row.use} at beat ${B(row)} has duplicate ${listKey}${field === true ? '' : ` ${field}s`} (${dup.map((d) => `"${d}"`).join(', ')}); the cursor and hover can only reach the first`);
+          warnings.push(`${row.use} at beat ${B(row)} has duplicate ${field === true ? listKey : `${field}s`} (${dup.map((d) => `"${d}"`).join(', ')}); the cursor and hover can only reach the first`);
         }
       }
       // A selection prop naming a value its list does not have (meta.choices: { active: 'items' }).
