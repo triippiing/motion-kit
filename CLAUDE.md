@@ -281,7 +281,8 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
                                   sync.mjs (the sync page's server: GET /__sync, POST /__sync/save; reuses render.mjs serve(),
                                   which refuses files symlinked from outside the project), click_track.py (synthetic
-                                  beat), scaffold.mjs (a project from tables on a click track; gallery + tests)
+                                  beat), scaffold.mjs (a project from tables on a click track; gallery + tests),
+                                  is_main.mjs (the entry guard every script uses)
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
                                   nudge, tap tempo, meter, swing, markers, Save); tested by tests/sync-page.test.mjs
 skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
@@ -314,6 +315,9 @@ DIR/.source.json                  per project, written by analyze_song.py: {"pat
 npm test          # all Node suites + Python unittest (a few minutes; renders real frames with Chromium)
 node --test skills/motion-video/tests/render.test.mjs   # one suite
 ```
+
+Test temp dirs are removed when each test file ends; `MK_KEEP_TMP=1 npm test` keeps them (their paths
+are printed) for a look after a failure.
 
 Tests use synthetic click tracks (`scripts/click_track.py`) and tiny fixture projects
 (`skills/motion-video/tests/fixtures.mjs`), so they need no song and no network except the

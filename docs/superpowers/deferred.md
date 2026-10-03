@@ -1,5 +1,9 @@
 # Deferred items (after sub-project A)
 
+F1 (2026-10-03) fixed temp-dir leaks, the gallery's test import, the entry guard, the Save timeout and
+the analyser's last-bar overrun. Pickup/anacrusis support moved to C2. F1 also found and fixed an export
+audio gap: loudnorm's EOF frame left a timestamp hole of up to 100 ms, so audio drifted late (131c5d6).
+
 Known, non-blocking follow-ups from the component library build (2026-09-30). Candidates for
 sub-project F (hardening) unless noted.
 
@@ -24,8 +28,6 @@ sub-project F (hardening) unless noted.
 - check_brief accepts a theme.json containing `null` (only if hand-corrupted); it should require an object.
 - A row with a prop error defers its hotspot typo to the next check (two-pass by design).
 - Hotspot listing in errors tries prop strings plus integers 0 to 99 (all 28 components covered).
-- Script entry guards throw ENOENT if argv[1] names a missing file (latent; an isMain helper).
-- gallery.mjs imports tests/harness.mjs (layering); makeProject temp dirs are not cleaned up.
 - Purity scan over-matches identifiers starting with transition/animation; the contract test's
   cursorAt regex also matches comments.
 - `new Date` without parentheses is not caught by the purity scan.
