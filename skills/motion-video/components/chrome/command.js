@@ -4,7 +4,7 @@ import { el, frame, icon, fade, applyFade, pressesOn, loopPeriod } from '../core
 export const meta = {
   name: 'command', group: 'chrome',
   useWhen: 'An app is driven from the keyboard: jump to a page, run an action, find a setting.',
-  motion: "The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).",
+  motion: "The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on, or with `typeAt: -1` arrives at once and the rows spring to the new filter; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).",
   props: { items: ['string[]', ['Export report', 'Export CSV', 'Invite teammate', 'New goal', 'Settings']], query: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], selected: ['number', 0] },
   hotspots: ['field', 'row:<i>'],
   typing: 'query',
@@ -60,8 +60,9 @@ function times(p, ctx) {
   return [...Array(keep).fill(-Infinity), ...typed, ...Array(p.query.length - keep - typed.length).fill(-Infinity)];
 }
 
-// A continuation whose query does not extend the previous one replaces it on arrival.
-const replaces = (p, ctx) => ctx.continues && !p.query.startsWith(ctx.prev.query);
+// A continuation whose query does not extend the previous one replaces it on arrival; so does one that extends it
+// at once (typeAt < 0), so the rows still spring to the new filter. A fresh row shows its filter settled (loop seam).
+const replaces = (p, ctx) => ctx.continues && p.query !== ctx.prev.query && (!p.query.startsWith(ctx.prev.query) || p.typeAt < 0);
 
 // Everything that changes the list, in time order: the query at the start (the previous row's when this row
 // replaces it, so the rows spring to the new filter at t0 instead of snapping), each character, each press on a row.
