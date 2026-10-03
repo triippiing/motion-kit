@@ -221,6 +221,38 @@ test('line-chart: moving from point A to point B fades A out while B pops in', a
   });
 });
 
+test('line-chart: hopping between points faster than they pop never flashes the outgoing point', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:1' }, { at: 3.25, target: 'point:3' }, { at: 3.5, target: 'point:5' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    const rows = await s.page.evaluate((bs) => {
+      const out = [];
+      for (let j = 0; j <= 120; j++) {
+        const beat = 2.9 + j / 100;
+        window.seek(beat * bs);
+        const cur = document.querySelector('.c-line-chart .lc-tip'), o = document.querySelector('.c-line-chart .lc-tip-out');
+        out.push([beat.toFixed(2), cur.textContent, Number(cur.style.opacity), o.textContent, Number(o.style.opacity)]);
+      }
+      return out;
+    }, bs);
+    const last = {};   // each point's tooltip opacity the last time it was the current one
+    let prev = null;
+    for (const [beat, ct, co, ot, oo] of rows) {
+      if (ot && prev && prev[3] === ot) assert.ok(oo - prev[4] <= 0.05, `outgoing ${ot} rises at ${beat}: ${prev[4]} -> ${oo}`);
+      if (ot) assert.ok(oo <= (last[ot] ?? 0) + 0.02, `outgoing ${ot} at ${beat} is ${oo}, above its ${last[ot]} at the switch`);
+      if (ct) last[ct] = co;
+      prev = [beat, ct, co, ot, oo];
+    }
+    assert.ok(rows.some(([, , , ot, oo]) => ot === '6' && oo > 0.05), 'point 1 is seen fading out');
+  });
+});
+
+test('line-chart: leaving the point the hover prop already shows keeps its tooltip up', async () => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 4 }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'point:4' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at) => {
+    for (const b of [4.5, 4.6, 4.7, 4.8, 5]) { await at(b); assert.ok(await num(s, '.c-line-chart .lc-tip', 'opacity') > 0.95, `kept at ${b}`); }
+  });
+});
+
 test('line-chart: a hover prop taking over from a faded cursor hover fades in, not snaps', async () => {
   await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 4 }${BACK}]`,
     cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'point:1' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {

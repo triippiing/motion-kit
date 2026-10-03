@@ -4,7 +4,7 @@ import { el, frame, fmt, prog, drawOn, fade, applyFade, plotLine, morphLine, pat
 export const meta = {
   name: 'line-chart', group: 'data',
   useWhen: 'A value over time: a portfolio, a balance, a weekly total.',
-  motion: 'The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere, including at another point (which pops in as the old one fades); a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first; a `hover` that takes over from a cursor hover fades in after it. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.',
+  motion: 'The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere, including at another point (which pops in as the old one fades); a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first; a `hover` that takes over from a cursor hover fades in after it (leaving the point `hover` already shows keeps its tooltip up). A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.',
   props: { points: ['number[]', [4, 6, 5, 8, 7, 10, 9, 13]], label: ['string', 'Portfolio value'], hover: ['number', -1], format: ['object', { prefix: '', decimals: 0 }] },
   hotspots: ['point:<i>'],
   hotspotExample: { 'point:<i>': 'point:7' },
@@ -62,15 +62,18 @@ function hovered(p, ctx, t, n) {
     if (e.t > t) break;
     const i = pointOf(e.target);
     if (shown(i)) {
-      if (on && on.i !== i) out = { i: on.i, t: e.t };
+      // The outgoing point fades from how far it had popped at the switch, so a quick hop never flashes it full.
+      if (on && on.i !== i) out = { i: on.i, t: e.t, k0: Math.min(1, prog(ctx, e.t, on.t, 0.5, 0.8)) };
       if (!on || on.i !== i) on = { i, t: e.carried ? -Infinity : e.t };
       off = null;
     } else if (on) { off = { i: on.i, t: e.t }; on = null; }
   }
   const cur = current(p, ctx, t, shown, on, off);
-  if (out) out = { i: out.i, k: 1 - prog(ctx, t, out.t, 0.2), v: p.points[out.i] };
+  if (out) out = { i: out.i, k: out.k0 * (1 - prog(ctx, t, out.t, 0.2)), s: out.k0, v: p.points[out.i] };
   return { cur, out: out && out.k > 0.001 && out.i !== cur.i ? out : null };
 }
+
+const kept = (p, ctx, was) => ctx.continues && was === p.hover && morphs(p, ctx);
 
 function current(p, ctx, t, shown, on, off) {
   const bs = ctx.beat_sec;
@@ -79,28 +82,31 @@ function current(p, ctx, t, shown, on, off) {
   const fadesPrev = ctx.continues && was !== p.hover && was >= 0 && was < ctx.prev.points.length && shown(was);
   // A waiting `hover` takes over once the 0.2 beat fade is done (its ~2% tail is cut) instead of after the tail.
   const waiting = !fadesPrev && shown(p.hover);
-  const gone = off ? 1 - prog(ctx, t, off.t, 0.2) : 0;
+  const due = kept(p, ctx, was) ? -Infinity : ctx.t0 + (ctx.continues ? 0.4 : 1.6) * bs;
+  // Leaving the very point `hover` already shows keeps its tooltip up rather than dipping it out and back in.
+  const stays = waiting && off && off.i === p.hover && due <= off.t;
+  const gone = off && !stays ? 1 - prog(ctx, t, off.t, 0.2) : 0;
   if (gone > 0.001 && !(waiting && t >= off.t + 0.2 * bs)) return { i: off.i, k: gone, v: p.points[off.i] };
   if (fadesPrev) {
     const k = 1 - prog(ctx, t, ctx.t0, 0.2);
     if (k > 0.001) return { i: was, k, v: ctx.prev.points[was] };
   }
   if (!shown(p.hover)) return { i: -1, k: 0 };
-  const kept = ctx.continues && was === p.hover && morphs(p, ctx);
-  const start = Math.max(kept ? -Infinity : ctx.t0 + (ctx.continues ? 0.4 : 1.6) * bs, off ? off.t + 0.2 * bs : -Infinity);
+  const start = Math.max(due, off && !stays ? off.t + 0.2 * bs : -Infinity);
   return { i: p.hover, k: prog(ctx, t, start, 0.5, 0.8), v: p.points[p.hover] };
 }
 
 // Draws point h (or hides it) into one dot and tip; every property is set every frame, so the DOM depends on t alone.
-function show(dot, tip, h, pts, p, fadeOnly) {
+// h.k is its opacity; h.s, when set, is a fixed scale (the outgoing point fades at the size it had popped to).
+function show(dot, tip, h, pts, p) {
   if (!h || h.i < 0 || h.k <= 0.001) {
     Object.assign(dot.style, { opacity: '0', transform: 'none' });
     Object.assign(tip.style, { opacity: '0', transform: 'none' });
     tip.textContent = '';
     return;
   }
-  // The outgoing point keeps its full size and only fades; the current one pops (scale and opacity).
-  const x = PX + pts[h.i].x, y = PT + pts[h.i].y, s = Math.max(0, h.k), sc = fadeOnly ? 1 : s;
+  const fadeOnly = h.s !== undefined;
+  const x = PX + pts[h.i].x, y = PT + pts[h.i].y, s = Math.max(0, h.k), sc = fadeOnly ? h.s : s;
   Object.assign(dot.style, { opacity: fadeOnly ? String(Math.min(1, s)) : '1', transform: `translate(${x}px,${y}px) scale(${sc.toFixed(4)})` });
   const txt = fmt(h.v, p.format);
   tip.textContent = txt;
@@ -121,8 +127,8 @@ export function render(root, p, ctx, t) {
     applyFade(f.querySelector('.lc-cur'), fade(ctx, t, ctx.t0 + 0.05 * bs));
   } else if (!ctx.continues) applyFade(f.querySelector('.lc-cur'), fade(ctx, t, ctx.t0 + 0.1 * bs));
   const { cur, out } = hovered(p, ctx, t, pts.length);
-  show(f.querySelector('.lc-dot'), f.querySelector('.lc-tip'), cur, pts, p, false);
-  show(f.querySelector('.lc-dot-out'), f.querySelector('.lc-tip-out'), out, pts, p, true);
+  show(f.querySelector('.lc-dot'), f.querySelector('.lc-tip'), cur, pts, p);
+  show(f.querySelector('.lc-dot-out'), f.querySelector('.lc-tip-out'), out, pts, p);
 }
 
 export function hotspot(name, p) {
