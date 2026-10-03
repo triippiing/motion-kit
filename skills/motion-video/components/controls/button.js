@@ -21,8 +21,10 @@ export function geometry(p) {
 // The label (with its icon) for one set of props.
 function content(parent, p, cls) {
   const row = el(parent, 'div', { class: `btn-row ${cls}` });
-  Object.assign(row.style, { gridArea: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: `${GAP}px`,
-    font: '500 34px var(--font)', letterSpacing: '-0.01em' });
+  // 'safe center': a label too long for the capped width starts at the left padding (its start reads, the shape
+  // cuts the rest) instead of overflowing both sides evenly; one that fits is centred.
+  Object.assign(row.style, { gridArea: '1 / 1', display: 'flex', alignItems: 'center', justifyContent: 'safe center', gap: `${GAP}px`,
+    padding: `0 ${PAD}px`, font: '500 34px var(--font)', letterSpacing: '-0.01em' });
   if (p.icon !== 'none') icon(row, p.icon, ICON);
   el(row, 'span', { class: 'btn-label' }, p.label);
 }
@@ -35,7 +37,8 @@ const changed = (a, b) => a.label !== b.label || a.icon !== b.icon;
 // Skip the component's own entrance when continuing: the shape is already there.
 // Stack the two in one grid cell exactly the layer's size (the shape's), not one as wide as the widest content:
 // a cell sized by its content stays as wide as a long old label and pushes a shorter new one off the shape.
-// Each row centres itself in that cell and overflows evenly, so the shape clips the old label as it fades.
+// Each row centres itself in that cell (or, too long for it, starts at the padding), so the shape clips the old
+// label as it fades.
 export function mount(root, p, ctx) {
   const box = el(root, 'div', { class: 'btn' });
   Object.assign(box.style, { position: 'absolute', inset: '0', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' });
