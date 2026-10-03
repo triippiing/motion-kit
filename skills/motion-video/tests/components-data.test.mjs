@@ -207,6 +207,40 @@ test('line-chart: a point hovered before a continuation keeps its tooltip across
   });
 });
 
+test('line-chart: moving from point A to point B fades A out while B pops in', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'line-chart' }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 3, target: 'point:2' }, { at: 4.5, target: 'point:5' }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at) => {
+    await at(4.6);   // 0.1 beat after the aim moves: both visible
+    const tips = await s.page.evaluate(() => [...document.querySelectorAll('.c-line-chart .lc-tip, .c-line-chart .lc-tip-out')].map((e) => [e.textContent, Number(e.style.opacity)]));
+    const a = tips.find(([t]) => t === '5'), b = tips.find(([t]) => t === '10');   // default points: [4,6,5,8,7,10,9,13]
+    assert.ok(a && a[1] > 0.05 && a[1] < 0.95, `A fading: ${JSON.stringify(tips)}`);
+    assert.ok(b && b[1] > 0.05, `B popping: ${JSON.stringify(tips)}`);
+    await at(4.8);
+    const out = await s.page.evaluate(() => Number(document.querySelector('.c-line-chart .lc-tip-out').style.opacity));
+    assert.ok(out < 0.01, 'A gone after 0.2 beat');
+  });
+});
+
+test('line-chart: a hover prop taking over from a faded cursor hover fades in, not snaps', async () => {
+  await scene({ bars: 4, states: `[${REST}{ at: 2, use: 'line-chart', hover: 4 }${BACK}]`,
+    cursor: "[{ at: 0, x: 0, y: 400 }, { at: 2.5, target: 'point:1' }, { at: 4.5, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]" }, async (s, at, bs) => {
+    // the cursor hover fades out from 4.5 over 0.2 beat; the hover prop (due at 3.6) then fades in
+    const o = [];
+    for (const b of [4.71, 4.8, 4.9, 5.2]) { await at(b); o.push(await num(s, '.c-line-chart .lc-tip', 'opacity')); }
+    assert.ok(o[0] < 0.5, `starts low, got ${o}`);
+    assert.ok(o[3] > 0.95, `reaches full, got ${o}`);
+    assert.ok(o[1] <= o[2] && o[2] <= o[3], `rises, got ${o}`);
+    // the four samples above miss a snap between them: no 0.01 beat step may jump the tooltip up by more than 0.2
+    const steps = await s.page.evaluate((bs) => {
+      const out = [];
+      for (let beat = 4.5; beat <= 5.2 + 1e-9; beat += 0.01) { window.seek(beat * bs); out.push(Number(document.querySelector('.c-line-chart .lc-tip').style.opacity)); }
+      return out;
+    }, bs);
+    const jump = Math.max(...steps.slice(1).map((v, j) => v - steps[j]));
+    assert.ok(jump < 0.2, `fades in without a snap, largest step ${jump}`);
+  });
+});
+
 test('goal: a continuation from a zero target never shows a runaway percentage', async () => {
   await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2450, target: 0 }, { at: 4, use: 'goal', saved: 2450, target: 4000 }${BACK}]`, cursor: STILL }, async (s, at, bs) => {
     const texts = await s.page.evaluate(([a, b, bs]) => {

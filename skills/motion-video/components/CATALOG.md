@@ -404,7 +404,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** A value over time: a portfolio, a balance, a weekly total.
 
-**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere; a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
+**Motion:** The line draws on from left to right over about 1.5 beats. With `hover` set (a point index), a dot pops on that point and a tooltip shows its value 1.6 beats in. The cursor hovers too: a cursor row aimed at `point:<i>` pops the dot and tooltip of that point from its beat, and they fade out when a later cursor row aims elsewhere, including at another point (which pops in as the old one fades); a point still hovered when a following line-chart row starts stays hovered. A continuation that changes `hover` fades the old tooltip out first; a `hover` that takes over from a cursor hover fades in after it. A following line-chart row does not redraw: the line morphs point for point into the new points (resampled when the count changes) and its scale eases to the new range; a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|
