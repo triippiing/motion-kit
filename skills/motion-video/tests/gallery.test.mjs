@@ -6,13 +6,13 @@ import { spawnSync } from 'node:child_process';
 import { gallery, parseArgs } from '../scripts/gallery.mjs';
 import { openScene } from './harness.mjs';
 import { beatStills } from '../scripts/beat_stills.mjs';
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { tempDir } from './tmp.mjs';
 
 test('every component renders purely (same DOM whatever came before) and the gallery loops', async () => {
-  const { dir, plays } = await gallery({ root: tempDir('mk-gallery-') });
+  const { dir, plays } = await gallery({ root: tempDir('mk-galtest-') });
   const s = await openScene(dir);
   try {
     assert.deepEqual(s.errors, []);
@@ -68,6 +68,18 @@ test('gallery OUT leaves no temp project behind', () => {
   const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), out, '--only', 'button'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(existsSync(path.join(out, 'index.html')), 'the project is in OUT');
+  assert.deepEqual(temps(), before);
+});
+
+test('gallery with an unwritable OUT is a clear error, no stack trace, no temp project left', () => {
+  const temps = () => readdirSync(tmpdir()).filter((n) => n.startsWith('mk-gallery-')).sort();
+  const file = path.join(tempDir('mk-gout-'), 'file');
+  writeFileSync(file, 'x');
+  const before = temps();
+  const r = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', 'scripts', 'gallery.mjs'), path.join(file, 'x'), '--only', 'button'], { encoding: 'utf8' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /^error: /m);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
   assert.deepEqual(temps(), before);
 });
 

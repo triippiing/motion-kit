@@ -91,7 +91,7 @@ test('progress: a continuation animates the fill from the previous value', async
     // reads 31%), not 0 or 80
     await at(4.02);
     const n = parseInt(await pct(), 10);
-    assert.ok(n >= 30 && n <= 35, `${n}%`);
+    assert.ok(n >= 30 && n <= 32, `${n}%`);
     await at(5.8);
     assert.equal(await pct(), '80%');
   });

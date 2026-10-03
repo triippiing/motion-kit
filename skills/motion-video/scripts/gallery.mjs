@@ -30,7 +30,8 @@ export async function gallery({ only = null, root } = {}) {
   ].map((p, i) => ({ ...p, at: 2 + i * 2 }));
   const bars = Math.ceil((plays.length * 2 + 4) / 4);
   const states = `[\n  { at: 0, ${REST} },\n${plays.map((p) => `  { at: ${p.at}, ${p.src} },`).join('\n')}\n  { at: END - 2, ${REST} },\n]`;
-  const cursor = '[\n  { at: 0, x: 300, y: 320 },\n  { at: END - 2, x: 300, y: 320 },\n]';
+  // x/y are shape-centred and scaled by the camera zoom, so the rest stays near the shape to stay on stage
+  const cursor = '[\n  { at: 0, x: 140, y: 100 },\n  { at: END - 2, x: 140, y: 100 },\n]';
   const dir = scaffold(root, { states, cursor, bars });
   return { dir, list, plays };
 }
@@ -65,27 +66,34 @@ if (isMain(import.meta.url)) {
   // With no OUT and no --stills the project itself is the output, so it stays and its path is printed.
   const root = mkdtempSync(path.join(tmpdir(), 'mk-gallery-'));
   const keep = !out && !stills;
+  let failed = false;
   try {
     const { dir, plays } = await gallery({ only, root });
     if (out) execFileSync('cp', ['-R', dir + '/.', out]);
     if (stills) {
       mkdirSync(path.join(COMP, 'docs-images'), { recursive: true });
       const proj = await openProject(dir, { workers: 1 });
-      const song = proj.song;
-      // Thumbnails show the component alone; the gallery's resting cursor would sit clipped at the edge.
-      await proj.pages[0].evaluate(() => { document.querySelector('#cursor').style.display = 'none'; });
-      for (const p of plays.filter((p) => p.kind === 'example')) {
-        const t = beatTime(song, p.at + 1 + 0.4);
-        const png = await shoot(proj.pages[0], t);
-        const f = path.join(COMP, 'docs-images', `${p.name}.png`);
-        writeFileSync(f + '.full.png', png);
-        execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', f + '.full.png', '-vf', 'scale=480:-1', f]);
-        execFileSync('rm', [f + '.full.png']);
-      }
-      await proj.close();
+      try {
+        const song = proj.song;
+        // Thumbnails show the component alone, without the resting cursor.
+        await proj.pages[0].evaluate(() => { document.querySelector('#cursor').style.display = 'none'; });
+        for (const p of plays.filter((p) => p.kind === 'example')) {
+          const t = beatTime(song, p.at + 1 + 0.4);
+          const png = await shoot(proj.pages[0], t);
+          const f = path.join(COMP, 'docs-images', `${p.name}.png`);
+          writeFileSync(f + '.full.png', png);
+          execFileSync(FFMPEG, ['-v', 'error', '-y', '-i', f + '.full.png', '-vf', 'scale=480:-1', f]);
+          execFileSync('rm', [f + '.full.png']);
+        }
+      } finally { await proj.close(); }   // an open browser would keep a failed run from exiting
     }
     console.log(out ?? (stills ? path.join(COMP, 'docs-images') : dir));
+  } catch (e) {
+    failed = true;
+    console.error(`error: ${e.message.split('\n')[0]}`);
+    process.exitCode = 2;
   } finally {
-    if (!keep) rmSync(root, { recursive: true, force: true });
+    // a failed run has no project worth keeping
+    if (!keep || failed) rmSync(root, { recursive: true, force: true });
   }
 }

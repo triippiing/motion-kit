@@ -23,12 +23,19 @@ test('a normal exit removes the directory', () => {
 test('an uncaught exception still removes the directory', () => {
   const r = child(`${MAKE} throw new Error('boom');`);
   assert.equal(r.status, 1);
+  assert.match(path.basename(r.stdout.trim()), /^mk-tmptest-/);
   assert.equal(existsSync(r.stdout.trim()), false);
 });
 
-test('SIGINT removes the directory and exits 130', async () => {
+test('SIGINT removes the directory and exits 130', { timeout: 20_000 }, async () => {
   const c = spawn(process.execPath, args(`${MAKE} setInterval(() => {}, 1000);`));
-  const d = await new Promise((resolve) => c.stdout.once('data', (b) => resolve(String(b).trim())));
+  let err = '';
+  c.stderr.on('data', (b) => { err += b; });
+  // a child that exits before printing fails the test (with its stderr) instead of hanging it
+  const d = await new Promise((resolve, reject) => {
+    c.stdout.once('data', (b) => resolve(String(b).trim()));
+    c.once('exit', (code) => reject(new Error(`the child exited ${code} before printing: ${err}`)));
+  });
   assert.equal(existsSync(d), true);
   const code = await new Promise((resolve) => { c.on('exit', (code) => resolve(code)); c.kill('SIGINT'); });
   assert.equal(code, 130);
@@ -39,6 +46,7 @@ test('MK_KEEP_TMP=1 keeps the directory and names it on stderr', () => {
   const r = child(MAKE, { MK_KEEP_TMP: '1' });
   const d = r.stdout.trim();
   try {
+    assert.equal(r.status, 0, r.stderr);
     assert.equal(existsSync(d), true);
     assert.ok(r.stderr.includes(d), r.stderr);
   } finally { rmSync(d, { recursive: true, force: true }); }
