@@ -2,17 +2,17 @@
 // Tables are JS source strings (so they can use END), spliced into the template's table block.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { openProject } from '../scripts/render.mjs';
+import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const START = '// ---------------- the three tables you edit ----------------';
 const END_MARK = '// ------------------------------------------------------------';
 
 export function makeProject({ states, cursor, bars = 4, bpm = 120, extraSfx = '[]', content = '{}', size } = {}) {
-  const root = mkdtempSync(path.join(tmpdir(), 'mk-'));
+  const root = tempDir('mk-');
   const song = path.join(root, 'beat.wav');
   execFileSync('python3', ['-c', `import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})\nfrom test_analyze_song import click_track\nclick_track(${JSON.stringify(song)}, ${bpm}, seconds=${Math.ceil((bars * 4 * 60) / bpm) + 12})`]);
   const dir = path.join(root, 'p');

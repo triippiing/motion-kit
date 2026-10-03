@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync, spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync, cpSync, symlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { render, openProject, shoot } from '../scripts/render.mjs';
 import { fixture, probe, grayFrame, audioSamples } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 
@@ -53,7 +54,7 @@ test('a page error fails the render', async () => {
 });
 
 test('new_project.sh scaffolds and refuses to overwrite', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'np-'));
+  const root = tempDir('np-');
   const song = path.join(root, 'My Song (live).wav');
   execFileSync('python3', ['-c', `
 import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
@@ -69,7 +70,7 @@ click_track(${JSON.stringify(song)}, 120)`]);
 });
 
 test('the template renders a preview without errors', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'tpl-'));
+  const root = tempDir('tpl-');
   const song = path.join(root, 's.wav');
   execFileSync('python3', ['-c', `
 import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
@@ -83,7 +84,7 @@ click_track(${JSON.stringify(song)}, 120)`]);
 });
 
 test('new_project.sh --size vertical --theme makes a 1080x1920 themed project', async () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sz-'));
+  const root = tempDir('sz-');
   const song = path.join(root, 's.wav');
   execFileSync('python3', ['-c', `
 import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
@@ -114,7 +115,7 @@ test('SFX at a fractional beat land at cue_t(floor) + frac * beat_sec', async ()
 
 // Scaffold a real project from the template (2 bars at 120 bpm).
 function scaffold() {
-  const root = mkdtempSync(path.join(tmpdir(), 'tp-'));
+  const root = tempDir('tp-');
   const song = path.join(root, 's.wav');
   execFileSync('python3', ['-c', `
 import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
@@ -276,7 +277,7 @@ test('a missing SFX file is a clear error, not an unhandled rejection', async ()
 });
 
 test('the CLI entry guard works from a path with spaces', () => {
-  const root = mkdtempSync(path.join(tmpdir(), 'sp-'));
+  const root = tempDir('sp-');
   const home = path.join(root, 'a b');
   mkdirSync(home);
   cpSync(path.join(SKILL, 'scripts'), path.join(home, 'scripts'), { recursive: true });

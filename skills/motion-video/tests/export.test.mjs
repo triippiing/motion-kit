@@ -4,18 +4,19 @@
 import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeProject } from './harness.mjs';
 import { fixture, probe } from './fixtures.mjs';
+import { tempDir } from './tmp.mjs';
 import { beatTime, FFMPEG, newestSource, render, rendererId, renderStamp, serve, stampPath } from '../scripts/render.mjs';
 import { commercialMusic, exportProject, reusableRender } from '../scripts/export.mjs';
 import { AAC_LADDER, aacLadder, aacWithinPeak, capBytes, capSizes, fitToCap, loudnessMiss, targetBytes } from '../scripts/media.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
-const TMP = mkdtempSync(path.join(tmpdir(), 'mk-export-'));
+const TMP = tempDir('mk-export-');
 const temps = [TMP];   // temp dirs this file makes; removed when it ends
 after(() => { for (const d of temps) rmSync(d, { recursive: true, force: true }); });
 const zero = { top: 0, bottom: 0, left: 0, right: 0 };
@@ -234,7 +235,7 @@ test('the renderer id changes with ffmpeg or Chromium, so their renders are not 
   const opts = { ffmpeg: 'ffmpeg version 9.0.2', chromiumPath: '/x/chromium-1200/chrome' };
   appendFileSync(path.join(dir, 'components', 'core', 'timing.js'), '\n// edited\n');
   assert.notEqual(await rendererId(dir, opts), base, "the project's timing.js is hashed");
-  const skill = mkdtempSync(path.join(tmpdir(), 'mk-skill-')); temps.push(skill);
+  const skill = tempDir('mk-skill-'); temps.push(skill);
   cpSync(path.join(SKILL, 'scripts'), path.join(skill, 'scripts'), { recursive: true });
   cpSync(path.join(SKILL, 'components', 'core'), path.join(skill, 'components', 'core'), { recursive: true });
   symlinkSync(path.join(SKILL, 'node_modules'), path.join(skill, 'node_modules'));
@@ -349,7 +350,7 @@ test('commercial music on a public preset warns', () => {
 });
 
 test('CLI: unknown preset -> error: ... exit 2; works through a symlinked skill dir', () => {
-  const linkDir = mkdtempSync(path.join(tmpdir(), 'mk-symlink-'));
+  const linkDir = tempDir('mk-symlink-');
   temps.push(linkDir);
   const link = path.join(linkDir, 'motion-video');
   symlinkSync(SKILL, link);

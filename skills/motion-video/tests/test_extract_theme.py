@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -80,6 +81,7 @@ class ExtractThemeTests(unittest.TestCase):
 
     def test_cli_house_theme_and_errors(self):
         out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         r = subprocess.run([sys.executable, str(SCRIPTS / "extract_theme.py"), "--out", str(out)], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads((out / "theme.json").read_text()), E.HOUSE)
@@ -91,6 +93,7 @@ class ExtractThemeTests(unittest.TestCase):
 
     def test_cli_map_without_equals_is_a_clean_error(self):
         out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         r = subprocess.run([sys.executable, str(SCRIPTS / "extract_theme.py"), "--out", str(out), "--map", "accent"],
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
