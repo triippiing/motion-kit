@@ -344,9 +344,11 @@ test('Save: an analyser that ignores SIGTERM is killed', async () => {
 });
 
 // Ctrl+C on the server stops an analyser still running (it runs in its own process group, so the signal alone
-// would not reach it). The fake analyser's argv carries a marker so pgrep finds only this test's process.
-test('CLI: SIGINT stops a running analyser', { timeout: 30_000 }, async () => {
+// would not reach it) and puts the previous song.json back. The fake analyser's argv carries a marker so pgrep
+// finds only this test's process.
+test('CLI: SIGINT stops a running analyser; song.json is unchanged', { timeout: 30_000 }, async () => {
   const dir = project();
+  const before = read(dir, 'song.json');
   const marker = `mk-orphan-${process.pid}-${Date.now()}`;
   const python = fakePython(`exec python3 -c 'import time; time.sleep(30)' ${marker}`);
   const running = () => spawnSync('pgrep', ['-f', marker]).status === 0;
@@ -364,6 +366,8 @@ test('CLI: SIGINT stops a running analyser', { timeout: 30_000 }, async () => {
     const code = await new Promise((resolve) => { child.on('exit', (c) => resolve(c)); child.kill('SIGINT'); });
     assert.equal(code, 130);
     assert.ok(await until(() => !running(), 3000), 'the analyser is still running after the server exited');
+    assert.deepEqual(read(dir, 'song.json'), before);
+    assert.ok(!existsSync(path.join(dir, 'song.json.bak.tmp')), 'song.json.bak.tmp is left behind');
   } finally {
     child.kill('SIGKILL');
     spawnSync('pkill', ['-KILL', '-f', marker]);

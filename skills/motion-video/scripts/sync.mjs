@@ -12,8 +12,10 @@
 // in DIR/.source.json), so song.json and clip.wav are rebuilt with the same bars, fps and loop window. The previous
 // song.json is kept as song.json.bak; on failure it is put back. --song PATH records where the song is now.
 // MK_ANALYSER_PYTHON (CLI only) is the interpreter Save runs the analyser with (default python3; tests swap it).
-// When the server exits (Ctrl+C, SIGTERM or otherwise) it stops any analyser still running.
+// When the server exits (Ctrl+C, SIGTERM or otherwise) it stops any analyser still running and puts that save's
+// previous song.json back.
 import { spawn } from 'node:child_process';
+import { renameSync } from 'node:fs';
 import { copyFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { serve, inside, TYPES, UsageError } from './render.mjs';
@@ -54,6 +56,9 @@ async function writeJsonAtomic(file, value) {
 
 // Process groups of analysers still running, so the CLI can stop them when it exits.
 const live = new Set();
+// Saves whose analyser has not finished (root -> files): song.json holds the new sync over the old beats until then,
+// so a CLI exit puts the previous song.json back.
+const saving = new Map();
 
 // Runs a command; resolves { code, stdout, stderr, timedOut } (code null and `error` set when it could not start).
 // After timeoutMs the whole process group gets SIGTERM, then SIGKILL 2 s later: a child of the command could
@@ -109,6 +114,7 @@ async function doSave(root, sync, python, timeoutMs) {
   }
   sync = staleCheck(current.sync, sync);
   await copyFile(songFile, bakTmp);
+  saving.set(root, { bakTmp, songFile });
   try {
     await writeJsonAtomic(songFile, { ...current, sync });
     const r = await run(python, [ANALYSER, song, '--out', root, '--bars', String(loop.bars), '--fps', String(fps),
@@ -127,7 +133,7 @@ async function doSave(root, sync, python, timeoutMs) {
     // a failure of our own (not the analyser's) also puts the previous song.json back
     if (await stat(bakTmp).then(() => true, () => false)) await rename(bakTmp, songFile);
     throw e instanceof UsageError || e instanceof SaveError ? e : new SaveError(e.message);
-  }
+  } finally { saving.delete(root); }
   // the analyser succeeded: the new song.json and clip.wav stay, whatever happens to the backup
   try { await rename(bakTmp, `${songFile}.bak`); } catch (e) {
     await rm(bakTmp, { force: true });
@@ -272,10 +278,13 @@ async function main() {
   }
 }
 
-// The analyser runs in its own process group, so a signal to the server does not reach it: stop it here.
+// The analyser runs in its own process group, so a signal to the server does not reach it: stop it here, and put
+// back the song.json of any save it was running for (synchronous: this runs on exit).
 function stopAnalysers() {
   for (const pgid of live) { try { process.kill(-pgid, 'SIGTERM'); } catch { /* already gone */ } }
   live.clear();
+  for (const { bakTmp, songFile } of saving.values()) { try { renameSync(bakTmp, songFile); } catch { /* best effort */ } }
+  saving.clear();
 }
 
 if (isMain(import.meta.url)) {
