@@ -38,7 +38,8 @@ props; the cursor aims at its hotspots with `target:`.
 - `components/WRITING-A-COMPONENT.md`: how to add one when the library lacks it.
 - Text stays inside the shape: the frame check (`scripts/framecheck.mjs`, run by check_brief) reports words that
   run past it or are cut off, measuring the words' own line boxes. `data-overhang` on an element (a tooltip above
-  its point) only silences that check: `#shape` clips its overflow, so the element is still cut at the shape's edge.
+  its point) is an opt-in hook for component authors (no built-in component uses it today); it only silences that
+  check: `#shape` clips its overflow, so the element is still cut at the shape's edge.
 
 ## Build loop
 
@@ -223,6 +224,11 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   the project's copy is too old (its `components/core/validate.js` does not list `'hide'` in `CURSOR_KEYS`, or its
   `core/engine.js` never reads `.hide`): "the project's components/ copy predates hide; copy a fresh components/ in
   (see SKILL.md, Older projects)". The safe-zone check skips the cursor while it is hidden (opacity under 0.05).
+- Older projects and the typing and duplicate checks. A `components/` copy from before them lacks `meta.typing` and
+  `meta.unique`, so `check_brief.mjs` silently skips those two checks for it (typing that overruns its row, duplicate
+  keyed entries). Copying a fresh `components/` in can make the page refuse a table that rendered before (typing that
+  overruns its row, or a cursor aimed at a duplicate entry); the error says what to change. An `index.html` without
+  table markers now gets the "index.html has no table markers" note on every `check_brief.mjs` run.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)
