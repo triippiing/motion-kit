@@ -5,6 +5,7 @@ import { makeProject } from './harness.mjs';
 import { checkFrames, frameIssueText, sampleTimes } from '../scripts/framecheck.mjs';
 
 const REST = "{ at: 0, use: 'button' }", BACK = "{ at: END - 2, use: 'button' }";
+const REST_CURSOR = '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]';
 const run = (states, cursor) => checkFrames(makeProject({ bars: 2, states, cursor }), {});
 const kinds = (r, k) => r.issues.filter((i) => i.kind === k);
 
@@ -43,18 +44,25 @@ test('a button label too long for its shape is reported with the text cut to 24 
 });
 
 test('the same overflowing text shown twice in one frame is still one grouped issue', async () => {
-  // The active tab's label is drawn twice (in its slot and in the indicator); wide letters clip in both.
-  const W = 'WWWWWWWWWWWWWWWW', tabs = `use: 'tabs', items: ['${W}', 'Day'], active: '${W}'`;
+  // Every tab label is drawn twice (in its slot and in the indicator layer); past the 1400 px cap the last tab's
+  // slot sits past the shape's right edge in both.
+  const tabs = "use: 'tabs', items: ['Overview', 'Activity', 'Settings', 'Billing', 'Team', 'Reports', 'Archive', 'Insights', 'Exports'], active: 'Exports'";
   const r = await run(`[{ at: 0, ${tabs} }, { at: END - 2, ${tabs} }]`, '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]');
   const t = kinds(r, 'text');
   assert.equal(t.length, 1, JSON.stringify(r.issues));
-  assert.equal(t[0].beat, 0);
+  assert.deepEqual([t[0].text, t[0].how, t[0].beat], ['Exports', 'past', 0]);
   assert.ok(t[0].through > 7);
+});
+
+test('text spilling its own box but staying inside the shape is not reported as clipped', async () => {
+  // Wide letters overrun a tab's slot (overflow visible, so nothing is cut off) and stay inside the shape.
+  const W = 'WWWWWWWWWWWWWWWW', tabs = `use: 'tabs', items: ['${W}', 'Day'], active: '${W}'`;
+  const r = await run(`[{ at: 0, ${tabs} }, { at: END - 2, ${tabs} }]`, REST_CURSOR);
+  assert.deepEqual(kinds(r, 'text'), []);
 });
 
 // A label slot as tall as the shape is not text past the shape: only the words' own line boxes count. Both were
 // false warnings measured on the element box (Dashboard tour, Settings change, demo 04).
-const REST_CURSOR = '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]';
 test('the shape settling a px short of a full-height label slot is not text past its shape', async () => {
   // bar-chart -> tabs: the height spring dips about 3 px under the tabs' 100 px while the tab slots are 100 px.
   const bars = "[{ label: 'Mon', value: 32 }, { label: 'Tue', value: 41 }, { label: 'Wed', value: 38 }]";

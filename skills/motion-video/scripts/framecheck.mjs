@@ -70,7 +70,9 @@ export function measure(t) {
     if (cs.overflowX !== 'visible') Object.assign(g, { left: Math.max(g.left, r.left), right: Math.min(g.right, r.right) });
     if (cs.overflowY !== 'visible') Object.assign(g, { top: Math.max(g.top, r.top), bottom: Math.min(g.bottom, r.bottom) });
     const over = Math.max(0, b.left - g.left, g.right - b.right, b.top - g.top, g.bottom - b.bottom);
-    const clip = Math.max(0, (e.scrollWidth - e.clientWidth) * scale);
+    // Only an element that clips its overflow cuts text off: one that lets it spill shows it all (past its shape is
+    // measured above). The clip is measured across only (scrollWidth); overflowY has no measurement to gate.
+    const clip = cs.overflowX === 'visible' ? 0 : Math.max(0, (e.scrollWidth - e.clientWidth) * scale);
     if (over >= 1 || clip >= 1) texts.push({ text: e.textContent.trim(), over: Math.round(over), clip: Math.round(clip) });
   }
 
