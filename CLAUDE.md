@@ -55,8 +55,9 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
      (its Decisions list the destinations as **Exports:** reels, x, discord, web, and the ear check as
      **Sync:** checked by ear 2026-10-01; markers: drop  or  **Sync:** not checked (confidence 0.39);
      a row on a marked moment is { at: 'drop', ... }, optionally with offset in beats)
-5  node $S/check_brief.mjs DIR  -> strict validation of the tables; fix every error, resolve every warning
-     (with an Exports line it also checks the safe zones; it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts))
+5  node $S/check_brief.mjs DIR  -> strict validation of the tables, then a frame check in Chromium (cursor past the stage
+     edges, text past or cut off in its shape, and the safe zones when there is an Exports line); fix every error,
+     resolve every warning
 6  show the brief and STOP until the user approves it
    -- motion-video --
 7  paste the brief's states()/cursor() block into DIR/index.html
@@ -159,7 +160,8 @@ with the real `states()` and `cursor()`.
 
 `node $S/check_brief.mjs DIR` checks it: the sections, then the block with the engine's own validator in
 strict mode (every row holds `rules.min_hold_beats`, at most `rules.max_states` states, something starts
-on every beat, the loop seam). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
+on every beat, the loop seam), then, once those pass, a frame check in Chromium (the cursor going past the stage
+edges, text running past or cut off in its shape, and the chosen presets' safe zones; each a warning). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
 loop gets `"loop": false` in `DIR/project.json` (or `check_brief.mjs DIR --no-loop`).
 
 ## Components
@@ -274,8 +276,8 @@ shared/springs.js                 closed-form springs: response, spring, track, 
 skills/*/assets/springs.js        symlinks to it; projects get a copy (cp -L)
 skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only), new_project.sh,
                                   render.mjs (Playwright + ffmpeg; --stage WxH, --guides PRESET), beat_stills.mjs,
-                                  doctor.sh, check_brief.mjs (validates MOTION-BRIEF.md, and safe zones for its
-                                  Exports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
+                                  doctor.sh, check_brief.mjs (validates MOTION-BRIEF.md, then the frame check
+                                  and safe zones for its Exports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
                                   (every component in one project; --stills), export.mjs (ready-to-post files per
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),

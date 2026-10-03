@@ -19,7 +19,7 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Preview render | `node scripts/render.mjs DIR --preview` |
 | Section render (`--from`/`--to` are seconds) | `node scripts/render.mjs DIR --from 4 --to 8 --preview` |
 | Final render | `node scripts/render.mjs DIR` → `DIR/out/video.mp4` |
-| Check a brief's beat table | `node scripts/check_brief.mjs DIR [--no-loop]` |
+| Check a brief's beat table | `node scripts/check_brief.mjs DIR [--no-loop]`: strict validation of the tables, then a frame check in Chromium (cursor past the stage edges, text past or cut off in its shape, and the safe zones when there is an Exports line); fix every error, resolve every warning |
 | Export for where it will be posted | `node scripts/export.mjs DIR --for reels,x,discord,web [--silent]` → `DIR/out/exports/` |
 | Safe-zone previews (bands over the zones) | `node scripts/export.mjs DIR --for reels,tiktok --guides` |
 | Safe-zone check on its own | `node scripts/safezones.mjs DIR --for reels,tiktok [--samples beats\|half]` |
@@ -311,8 +311,8 @@ with `--silent` or use a licensed track. Negated or licence wording ("not a comm
 for commercial use") does not count.
 
 **Safe zones.** Reels, TikTok and Shorts cover the bottom and sides with captions and buttons (the feed,
-chat and web presets have none). `check_brief.mjs` checks the brief's tables against them only when the
-brief has an `**Exports:**` line (it opens Chromium when a chosen preset has safe zones (Reels/TikTok/Shorts)); each issue is a warning, to resolve or justify.
+chat and web presets have none). `check_brief.mjs` checks the brief's tables against them when the
+brief has an `**Exports:**` line, in the same Chromium frame check it always runs; each issue is a warning, to resolve or justify.
 To check a project on its own: `node scripts/safezones.mjs DIR --for reels,tiktok` (exit 1 when anything
 enters a zone, e.g. "beat 12: shape extends 40 px into the Instagram Reels bottom zone"). To see them:
 `node scripts/export.mjs DIR --for reels,tiktok --guides` renders a half-size preview per preset with

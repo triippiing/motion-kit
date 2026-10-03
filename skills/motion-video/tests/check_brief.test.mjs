@@ -5,17 +5,18 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { makeProject } from './harness.mjs';
 import { briefCommercial, briefExports, checkBrief } from '../scripts/check_brief.mjs';   // checkBrief is async
-import { pathToFileURL } from 'node:url';
-import nodeModule from 'node:module';   // registerHooks is Node >= 22.15 (a named import would fail to link on the 20.11 floor)
 
 const SCRIPT = path.resolve(import.meta.dirname, '../scripts/check_brief.mjs');
 const brief = (tables, sections = true) => `# Motion brief\n\n${sections ? '## Request\nA promo.\n\n## Decisions\n- square\n\n## Moments\n1. Import -> button\n\n' : ''}## Beat table\n\n| # | bar.beat | t | component | what changes | sound |\n|---|---|---|---|---|---|\n\n\`\`\`js\n${tables}\n\`\`\`\n`;
+// Most tests are about the tables: a frame check that finds nothing keeps them browser-free.
+const noFrames = async () => ({ issues: [], notes: [] });
+const check = (dir, o = {}) => checkBrief(dir, { frameCheck: noFrames, ...o });
 const good = `const states = () => [\n  { at: 0, use: 'button', label: 'Go' },\n  { at: 4, use: 'check' },\n  { at: END - 2, use: 'button', label: 'Go' },\n];\nconst cursor = () => [\n  { at: 0, x: 240, y: 280 },\n  { at: 1.5, target: 'button' },\n  { at: 2, target: 'button', press: true },\n  { at: END - 2, x: 240, y: 280 },\n];`;
 
 test('a good brief passes', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  const r = await checkBrief(dir);
+  const r = await check(dir);
   assert.deepEqual(r.errors, []);
   // Intentionally sparse: its mid-piece quiet beats are reported, the settling tail (14, 15) is not.
   assert.match(r.warnings.join('\n'), /quiet beats \(nothing starts on them\): 3, 5, 6, 7, 8, 9, 10, 11, 12, 13;/);
@@ -25,25 +26,25 @@ test('a good brief passes', async () => {
 test('```javascript fences and CRLF line endings are read', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good).replace('```js', '```javascript').replace(/\n/g, '\r\n'));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
 });
 
 test('section headings must be headings on their own line', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good).replace('## Request\n', 'See ## Request above\n'));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /missing section "## Request"/);
+  assert.match((await check(dir)).errors.join('\n'), /missing section "## Request"/);
 });
 
 test('beat table code that never returns times out with a readable error', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(`const states = () => { for (;;) {} };\nconst cursor = () => [];`));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /beat table code took longer than 1 s to run/);
+  assert.match((await check(dir)).errors.join('\n'), /beat table code took longer than 1 s to run/);
 });
 
 test('bad component and missing sections are errors', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("use: 'check'", "use: 'chek'"), false));
-  const r = await checkBrief(dir);
+  const r = await check(dir);
   assert.match(r.errors.join('\n'), /did you mean "check"/);
   assert.match(r.errors.join('\n'), /missing section "## Request"/);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
@@ -52,7 +53,7 @@ test('bad component and missing sections are errors', async () => {
 test('strict holds apply', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 1, use: 'check' }")));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /holds 1 beat; min_hold_beats is 2/);
+  assert.match((await check(dir)).errors.join('\n'), /holds 1 beat; min_hold_beats is 2/);
 });
 
 test('no brief is a usage error', () => {
@@ -68,7 +69,7 @@ test('the state-plan.md worked example passes strict validation on a 7-bar 120 B
   const song = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
   assert.equal(song.beats.length, 28);
   assert.equal(song.rules.min_hold_beats, 2);
-  const r = await checkBrief(dir);
+  const r = await check(dir);
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.warnings, [], 'the example has something starting on every beat and fits the state budget');
   const uses = new Set([...blocks[0].matchAll(/use: '([a-z-]+)'/g)].map((m) => m[1]));
@@ -82,22 +83,22 @@ const oneOff = good.replace("{ at: END - 2, use: 'button', label: 'Go' }", "{ at
 test('a non-looping brief fails as a loop, passes with --no-loop or "loop": false in project.json', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(oneOff));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /the last row must repeat the first/);
+  assert.match((await check(dir)).errors.join('\n'), /the last row must repeat the first/);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
-  assert.deepEqual((await checkBrief(dir, { loop: false })).errors, []);
+  assert.deepEqual((await check(dir, { loop: false })).errors, []);
   const cli = spawnSync('node', [SCRIPT, dir, '--no-loop'], { encoding: 'utf8' });
   assert.equal(cli.status, 0, cli.stderr);
   assert.match(cli.stdout, /brief OK \(not a loop\)/);
   const pj = path.join(dir, 'project.json');
   writeFileSync(pj, JSON.stringify({ ...JSON.parse(readFileSync(pj, 'utf8')), loop: false }));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 0);
 });
 
 test('not a loop: quiet beats run to the end (no seam tail)', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(oneOff));
-  assert.match((await checkBrief(dir, { loop: false })).warnings.join('\n'), /quiet beats \(nothing starts on them\): 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15;/);
+  assert.match((await check(dir, { loop: false })).warnings.join('\n'), /quiet beats \(nothing starts on them\): 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15;/);
 });
 
 test('an unknown flag is a usage error', () => {
@@ -112,7 +113,7 @@ test('a malformed project.json is a warning (checked as a loop), not silently ig
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
   writeFileSync(path.join(dir, 'project.json'), '{ "loop": false,');
-  const r = await checkBrief(dir);
+  const r = await check(dir);
   assert.deepEqual(r.errors, []);
   assert.match(r.warnings.join('\n'), /project\.json is not valid JSON \(.+\); checking as a loop/);
   const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
@@ -125,11 +126,11 @@ test('fill and ink are checked against theme.json (house roles when it is missin
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(pos));
   const tf = path.join(dir, 'theme.json');
   writeFileSync(tf, JSON.stringify({ canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b', font: 'Geist' }));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /fill at beat 4 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/);
+  assert.match((await check(dir)).errors.join('\n'), /fill at beat 4 should be a theme role \(canvas, surface, ink, muted, accent\) or #rrggbb, got "pos"/);
   writeFileSync(tf, JSON.stringify({ canvas: '#eceae6', surface: '#ffffff', ink: '#0b0b0b', muted: '#8c8883', accent: '#0b0b0b', pos: '#1a7f37' }));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
   rmSync(tf);
-  assert.match((await checkBrief(dir)).errors.join('\n'), /got "pos"/, 'no theme.json: the house roles');
+  assert.match((await check(dir)).errors.join('\n'), /got "pos"/, 'no theme.json: the house roles');
 });
 
 test('a cursor target that does not resolve fails the brief', async () => {
@@ -137,13 +138,13 @@ test('a cursor target that does not resolve fails the brief', async () => {
   const tabs = good.replace("{ at: 4, use: 'check' }", "{ at: 4, use: 'tabs', items: ['Day', 'Month'], active: 'Day' }")
     .replace("{ at: 2, target: 'button', press: true },", "{ at: 2, target: 'button', press: true },\n  { at: 5, target: 'tab:Mnoth', press: true },");
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(tabs));
-  assert.match((await checkBrief(dir)).errors.join('\n'), /hotspot "tab:Mnoth" at beat 5 does not resolve on tabs at beat 5 \(it has: tab:Day, tab:Month\)/);
+  assert.match((await check(dir)).errors.join('\n'), /hotspot "tab:Mnoth" at beat 5 does not resolve on tabs at beat 5 \(it has: tab:Day, tab:Month\)/);
 });
 
 test('a stray comma in states() is a readable error', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' },", "{ at: 4, use: 'check' },,")));
-  assert.deepEqual((await checkBrief(dir)).errors, ['states() row 3 (after beat 4) is empty (a stray comma?)']);
+  assert.deepEqual((await check(dir)).errors, ['states() row 3 (after beat 4) is empty (a stray comma?)']);
 });
 
 test('the CLI turns a crash into one error line, exit 2 (malformed song.json, malformed theme.json)', () => {
@@ -165,68 +166,60 @@ test('the CLI turns a crash into one error line, exit 2 (malformed song.json, ma
   assert.match(r.stderr, /^error: song\.json has no beats list/);
 });
 
-// ---- Exports and music decisions (safe zones via safezones.mjs) ----
+// ---- Exports and music decisions (safe zones ride the frame check) ----
 
 const decide = (md, ...lines) => md.replace('## Decisions\n- square\n', `## Decisions\n- square\n${lines.map((l) => `- ${l}\n`).join('')}`);
-// A stand-in for checkSafeZones that records what it was asked and never opens a browser.
+// A stand-in for checkFrames that records what it was asked and never opens a browser.
 const stub = (issues = []) => {
   const calls = [];
   return { calls, fn: async (dir, opts) => { calls.push(opts); return { issues }; } };
 };
 
-test('without an Exports line no safe-zone check runs (no browser)', async () => {
+test('a browser that cannot launch is one warning and the CLI still passes, with or without Exports', () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  const s = stub();
-  assert.deepEqual((await checkBrief(dir, { safeZones: s.fn })).errors, []);
-  assert.equal(s.calls.length, 0);
-  // The CLI too: with Playwright pointed at an empty browsers dir any launch would fail, and it still passes.
+  // Playwright pointed at an empty browsers dir: any launch fails with "Executable doesn't exist".
   const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
-  const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
-  assert.equal(r.status, 0, r.stderr);
-  assert.doesNotMatch(r.stdout, /safe-zone/);
-  // ...whereas with an Exports line that environment does reach for a browser (so the check above is real).
-  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reels'));
-  const w = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
-  assert.match(w.stdout, /warning: the safe-zone check did not run: /);
+  for (const md of [brief(good), decide(brief(good), '**Exports:** reels')]) {
+    writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), md);
+    const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.match(/warning: the frame check did not run: /g)?.length, 1, r.stdout);
+  }
 });
 
-test('the state-plan worked example and every recipe still pass the CLI with no Exports line, and no browser', () => {
-  // The planner's docs and recipes are briefs without an **Exports:** line: they must pass exactly as before, without
-  // Playwright (pointed at an empty browsers dir, any launch would fail with "Executable doesn't exist").
+test('the state-plan worked example and every recipe pass with no table warnings and no Exports line', async () => {
+  // The planner's docs and recipes are briefs without an **Exports:** line: their tables must pass clean. (What the
+  // frame check finds on them in a real browser is a merge-time review, not a unit test.)
   const read = (rel) => readFileSync(path.resolve(import.meta.dirname, rel), 'utf8');
   const plan = [...read('../../motion-design/references/state-plan.md').matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
   const recipes = [...read('../components/RECIPES.md').matchAll(/^### (.+)\n[\s\S]*?```js\n([\s\S]*?)```/gm)].map((m) => [m[1], m[2]]);
   assert.equal(plan.length, 1);
   assert.equal(recipes.length, 5);
   const dir = makeProject({ bars: 7, bpm: 120 });
-  const env = { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(dir, 'no-browsers') };
   for (const [name, code] of [['state-plan.md', plan[0]], ...recipes]) {
     const md = brief(code);
     assert.equal(briefExports(md), null, name);
     writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), md);
-    const r = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8', env });
-    assert.equal(r.status, 0, `${name}: ${r.stdout}${r.stderr}`);
-    assert.equal(r.stdout, 'brief OK\n', `${name}: no warnings at all (so no safe-zone or browser warning)`);
-    assert.equal(r.stderr, '', name);
+    assert.deepEqual(await check(dir), { errors: [], warnings: [] }, name);
   }
 });
 
 test('the Exports line names presets: each issue becomes a warning; unknown names are errors', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reels, tiktok, web.').replace(/\n/g, '\r\n'));
-  const s = stub([{ preset: 'reels', beat: 12, through: 12, t: 6, part: 'shape', edge: 'bottom', px: 40 },
-    { preset: 'tiktok', beat: 3, through: 5.5, t: 1.5, part: 'cursor', edge: 'right', px: 7 }]);
-  const r = await checkBrief(dir, { safeZones: s.fn });
+  const s = stub([{ kind: 'zone', preset: 'reels', beat: 12, through: 12, t: 6, part: 'shape', edge: 'bottom', px: 40 },
+    { kind: 'zone', preset: 'tiktok', beat: 3, through: 5.5, t: 1.5, part: 'cursor', edge: 'right', px: 7 }]);
+  const r = await checkBrief(dir, { frameCheck: s.fn });
   assert.deepEqual(r.errors, []);
   assert.deepEqual(s.calls.map((c) => c.presets), [['reels', 'tiktok', 'web']]);
   assert.ok(r.warnings.includes('beat 12: shape extends 40 px into the Instagram Reels bottom zone'), r.warnings.join('\n'));
   assert.ok(r.warnings.includes('beats 3-5.5: cursor is 7 px into the TikTok right zone'), r.warnings.join('\n'));
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:** reelz, web'));
-  const bad = await checkBrief(dir, { safeZones: stub().fn });
+  const bad = await checkBrief(dir, { frameCheck: stub().fn });
   assert.match(bad.errors.join('\n'), /Exports: unknown preset "reelz" \(did you mean "reels"\?\)/);
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), '**Exports:**'));
-  assert.match((await checkBrief(dir, { safeZones: stub().fn })).errors.join('\n'), /Exports: names no presets/);
+  assert.match((await checkBrief(dir, { frameCheck: stub().fn })).errors.join('\n'), /Exports: names no presets/);
 });
 
 test('a commercial track with public Exports is a warning; private-only or a licensed track is not', async () => {
@@ -234,7 +227,7 @@ test('a commercial track with public Exports is a warning; private-only or a lic
   const song = '**Song:** "Tints", my own copy: a commercial track, so social platforms would likely mute it.';
   const run = async (...lines) => {
     writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief(good), ...lines));
-    return (await checkBrief(dir, { safeZones: stub().fn })).warnings.filter((w) => /commercial/.test(w));
+    return (await checkBrief(dir, { frameCheck: stub().fn })).warnings.filter((w) => /commercial/.test(w));
   };
   assert.deepEqual(await run(song, '**Exports:** reels, discord, web'),
     ['commercial music with public exports (Instagram Reels, Web / wiki / GitHub) risks a mute or takedown: export those with --silent or use a licensed track']);
@@ -266,24 +259,9 @@ test('briefCommercial: a commercial track, song or release is commercial; licens
 test('an Exports typo is reported even when the beat table code does not run', async () => {
   const dir = makeProject({ bars: 4 });
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), decide(brief('const states = () => { throw new Error("boom"); };\nconst cursor = () => [];'), '**Exports:** reelz'));
-  const r = await checkBrief(dir, { safeZones: stub().fn });
+  const r = await checkBrief(dir, { frameCheck: stub().fn });
   assert.match(r.errors.join('\n'), /beat table code does not run: boom/);
   assert.match(r.errors.join('\n'), /Exports: unknown preset "reelz"/);
-});
-
-test('without an Exports line check_brief loads neither render.mjs nor Playwright',
-  { skip: typeof nodeModule.registerHooks === 'function' ? false : 'needs Node >= 22.15' }, () => {
-  const dir = makeProject({ bars: 4 });
-  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  const code = `import { registerHooks } from 'node:module';
-const seen = [];
-registerHooks({ resolve(s, c, next) { const r = next(s, c); seen.push(r.url); return r; } });
-const { checkBrief } = await import(${JSON.stringify(pathToFileURL(SCRIPT).href)});
-const r = await checkBrief(${JSON.stringify(dir)});
-console.log(JSON.stringify({ errors: r.errors, loaded: seen.filter((u) => /playwright|render\.mjs|safezones\.mjs/.test(u)) }));`;
-  const out = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' });
-  assert.equal(out.status, 0, out.stderr);
-  assert.deepEqual(JSON.parse(out.stdout), { errors: [], loaded: [] });
 });
 
 test('an Exports line runs the safe-zone check on the brief\'s own tables (not index.html\'s)', async () => {
@@ -310,16 +288,16 @@ test('a low-confidence beat grid not yet checked by ear is a warning, not an err
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
   const f = path.join(dir, 'song.json'), song = JSON.parse(readFileSync(f, 'utf8'));
   const WARN = 'beat grid not checked by ear (confidence 0.39): open it with sync.mjs DIR and press Sounds right';
-  assert.ok(!(await checkBrief(dir)).warnings.some((w) => /checked by ear/.test(w)), 'the click track is confident');
+  assert.ok(!(await check(dir)).warnings.some((w) => /checked by ear/.test(w)), 'the click track is confident');
   writeFileSync(f, JSON.stringify({ ...song, bpm_confidence: 0.39 }));
-  const r = await checkBrief(dir);
+  const r = await check(dir);
   assert.deepEqual(r.errors, []);
   assert.ok(r.warnings.includes(WARN), r.warnings.join('\n'));
   const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(cli.status, 0);
   assert.match(cli.stdout, new RegExp(`warning: ${WARN.replace(/[()]/g, '\\$&')}`));
   writeFileSync(f, JSON.stringify({ ...song, bpm_confidence: 0.39, sync: { checked_by_ear: '2026-10-01' } }));
-  assert.ok(!(await checkBrief(dir)).warnings.some((w) => /checked by ear/.test(w)));
+  assert.ok(!(await check(dir)).warnings.some((w) => /checked by ear/.test(w)));
 });
 
 test('a brief may place rows on the song\'s markers; a marker song.json lacks is an error', async () => {
@@ -328,9 +306,9 @@ test('a brief may place rows on the song\'s markers; a marker song.json lacks is
   const t = song.beats[6].cue_t ?? song.beats[6].t;
   writeFileSync(f, JSON.stringify({ ...song, markers: [{ name: 'drop', song_t: t + 10, t, in_loop: true }] }));
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'drop', offset: -2, use: 'check' }")));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'chorus', use: 'check' }")));
-  assert.deepEqual((await checkBrief(dir)).errors, ["states() row 2: unknown marker 'chorus' (markers: drop)"]);
+  assert.deepEqual((await check(dir)).errors, ["states() row 2: unknown marker 'chorus' (markers: drop)"]);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
 });
 
@@ -349,16 +327,16 @@ test('marker rows need a project components/ copy that knows markers (core/timin
   const OLD = "the project's components/ copy predates markers; copy a fresh components/ in (see SKILL.md, Older projects)";
   // a states row on a marker
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'drop', use: 'check' }")));
-  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  assert.ok((await check(dir)).errors.includes(OLD));
   const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(cli.status, 1);
   assert.ok(cli.stderr.includes(`error: ${OLD}`), cli.stderr);
   // a cursor row on a marker
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 2, target: 'button', press: true }", "{ at: 'drop', offset: -4, target: 'button', press: true }")));
-  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  assert.ok((await check(dir)).errors.includes(OLD));
   // no marker rows: the old copy is fine
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
 });
 
 test('hide rows need a project components/ copy that knows hide (validate.js CURSOR_KEYS and engine.js read it)', async () => {
@@ -367,24 +345,92 @@ test('hide rows need a project components/ copy that knows hide (validate.js CUR
   const OLD = "the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)";
   const hidden = good.replace("{ at: 0, x: 240, y: 280 },\n  { at: 1.5", "{ at: 0, x: 240, y: 280 },\n  { at: 0.5, x: 200, y: 230, hide: true },\n  { at: 1.5");
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden));
-  assert.deepEqual((await checkBrief(dir)).errors, [], 'a fresh copy is fine');
+  assert.deepEqual((await check(dir)).errors, [], 'a fresh copy is fine');
   // a validator from before hide: CURSOR_KEYS without it (its engine would throw unknown cursor key "hide")
   const v = path.join(core, 'validate.js'), vNew = readFileSync(v, 'utf8');
   assert.ok(vNew.includes("'sound', 'hide']);"));
   writeFileSync(v, vNew.replace("'sound', 'hide']);", "'sound']);"));
-  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  assert.ok((await check(dir)).errors.includes(OLD));
   const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(cli.status, 1);
   assert.ok(cli.stderr.includes(`error: ${OLD}`), cli.stderr);
   // no hide rows: the old copy is fine; any row with the key (even hide: false) needs the new copy
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good));
-  assert.deepEqual((await checkBrief(dir)).errors, []);
+  assert.deepEqual((await check(dir)).errors, []);
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden.replace('hide: true', 'hide: false')));
-  assert.ok((await checkBrief(dir)).errors.includes(OLD), 'hide: false is still a key the old copy rejects');
+  assert.ok((await check(dir)).errors.includes(OLD), 'hide: false is still a key the old copy rejects');
   // a validator that knows the key but an engine that never draws it
   writeFileSync(v, vNew);
   const e = path.join(core, 'engine.js');
   writeFileSync(e, readFileSync(e, 'utf8').replaceAll('.hide', '.hid'));
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(hidden));
-  assert.ok((await checkBrief(dir)).errors.includes(OLD));
+  assert.ok((await check(dir)).errors.includes(OLD));
+});
+
+// ---- The frame check (cursor past the stage, text past its shape) ----
+
+// A scaffolded project with a valid brief: `good`, or the given states()/cursor() rows, and an optional Exports line.
+const briefProject = ({ exports, states, cursor } = {}) => {
+  const dir = makeProject({ bars: 4 });
+  const tables = states || cursor ? `const states = () => ${states};\nconst cursor = () => ${cursor};` : good;
+  const md = brief(tables);
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), exports ? decide(md, `**Exports:** ${exports}`) : md);
+  return dir;
+};
+
+test('the frame check runs without an Exports line, once, and its issues are warnings', async () => {
+  const dir = briefProject();
+  let calls = 0, seen;
+  const fc = async (d, o) => { calls++; seen = o; return { issues: [{ kind: 'cursor', beat: 2, through: 3, t: 1, edge: 'right', px: 40 }], notes: [] }; };
+  const r = await checkBrief(dir, { frameCheck: fc });
+  assert.equal(calls, 1);
+  assert.deepEqual(seen.presets, []);
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.includes('beats 2-3: the cursor goes 40 px past the right edge'), r.warnings.join('\n'));
+});
+
+test('with Exports the zones ride the same frame check (one call, presets passed)', async () => {
+  const dir = briefProject({ exports: 'reels, x' });
+  let calls = 0, seen;
+  const fc = async (d, o) => { calls++; seen = o; return { issues: [], notes: [] }; };
+  await checkBrief(dir, { frameCheck: fc });
+  assert.equal(calls, 1);
+  assert.deepEqual(seen.presets, ['reels', 'x']);
+});
+
+test('no frame check when the tables have errors (the page would only fail on what they say)', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("use: 'check'", "use: 'chek'")));
+  let calls = 0;
+  const r = await checkBrief(dir, { frameCheck: async () => { calls++; return { issues: [], notes: [] }; } });
+  assert.ok(r.errors.length);
+  assert.equal(calls, 0);
+});
+
+test('a frame check that throws is one warning, never an error', async () => {
+  const r = await checkBrief(briefProject(), { frameCheck: async () => { throw new Error('no chromium\nstack'); } });
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.includes('the frame check did not run: no chromium'), r.warnings.join('\n'));
+});
+
+test('theme.json must be an object', async () => {
+  const dir = briefProject();
+  for (const [text, got] of [['null', 'null'], ['[]', '\\[\\]'], ['"#fff"', '"#fff"']]) {
+    writeFileSync(path.join(dir, 'theme.json'), text);
+    assert.match((await check(dir)).errors.join('\n'), new RegExp(`theme\\.json should be an object of colour roles, got ${got}`));
+  }
+  const cli = spawnSync('node', [SCRIPT, dir], { encoding: 'utf8' });
+  assert.equal(cli.status, 1);
+  assert.match(cli.stderr, /^error: theme\.json should be an object of colour roles, got "#fff"$/m);
+});
+
+test('end to end: a cursor off the right edge and a long button label are reported', async () => {
+  // real browser: no frameCheck stub. Cursor x/y are design px from the centre, scaled by the camera zoom (2.4 on a
+  // lone button), so 140, 100 rests on stage and 2000 is well past the right edge.
+  const dir = briefProject({ states: "[{ at: 0, use: 'button' }, { at: 2, use: 'button', label: 'A very long label that goes on and on well past any reasonable width for a button' }, { at: END - 2, use: 'button' }]",
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: 2, x: 2000, y: 100 }, { at: 4, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  const r = await checkBrief(dir);
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.warnings.some((w) => /the cursor goes \d+ px past the right edge/.test(w)), r.warnings.join('\n'));
+  assert.ok(r.warnings.some((w) => /text "A very long label that g…"/.test(w)), r.warnings.join('\n'));
 });

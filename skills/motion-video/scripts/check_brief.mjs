@@ -4,10 +4,11 @@
 // checked against the project's theme.json. A project it cannot read (malformed song.json) is "error: ...", exit 2.
 // A piece is checked as a loop (last rows repeat the first) unless --no-loop is given or the project's
 // project.json says "loop": false (a launch video that ends on its own end card).
+// Once the tables validate, a frame check opens them in Chromium (framecheck.mjs) and warns where the cursor goes past
+// the stage or text runs past (or is cut off in) its shape. theme.json must be an object of colour roles.
 // A `**Exports:** reels, tiktok, web` line in ## Decisions names the destination presets (unknown names are errors):
-// the brief's tables are then checked against each preset's safe zones (safezones.mjs, in a browser; only when there
-// is such a line), each issue a warning, and a commercial track (a **Song:** or **Music:** line calling it
-// commercial) with public presets is a warning too.
+// the same frame check then measures each preset's safe zones, each issue a warning, and a commercial track (a
+// **Song:** or **Music:** line calling it commercial) with public presets is a warning too.
 // Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
 // is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js).
 // A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
@@ -43,9 +44,14 @@ const readJson = (dir, name) => {
   try { return JSON.parse(text); } catch (e) { throw new Error(`${name} is not valid JSON (${e.message})`); }
 };
 
-// The project's theme roles from theme.json, else the house roles.
+// The project's theme roles from theme.json, else the house roles. A theme.json that parses but is not an object is
+// a ThemeError (a brief error), not a crash.
+class ThemeError extends Error {}
 export function projectTheme(dir) {
-  return existsSync(path.join(dir, 'theme.json')) ? readJson(dir, 'theme.json') : HOUSE;
+  if (!existsSync(path.join(dir, 'theme.json'))) return HOUSE;
+  const t = readJson(dir, 'theme.json');
+  if (!t || typeof t !== 'object' || Array.isArray(t)) throw new ThemeError(`theme.json should be an object of colour roles, got ${JSON.stringify(t)}`);
+  return t;
 }
 
 // Whether the project's own components/ copy supports cursor `hide`: its core/validate.js names 'hide' in CURSOR_KEYS
@@ -94,7 +100,7 @@ export function briefCommercial(md) {
   return ['Song', 'Music'].some((k) => commercialValue(decision(md, k) ?? ''));
 }
 
-// loop: an explicit option wins (--no-loop), else project.json's. safeZones: the safe-zone check (tests stub it).
+// loop: an explicit option wins (--no-loop), else project.json's. frameCheck: the frame check (tests stub it).
 export async function checkBrief(dir, opts = {}) {
   const errors = [], warnings = [];
   const proj = projectLoop(dir), loop = opts.loop ?? proj.loop;
@@ -102,8 +108,8 @@ export async function checkBrief(dir, opts = {}) {
   const md = readFileSync(path.join(dir, 'MOTION-BRIEF.md'), 'utf8');
   const heading = (s) => new RegExp(`^${s}[ \\t]*\\r?$`, 'm');
   for (const s of SECTIONS) if (!heading(s).test(md)) errors.push(`missing section "${s}"`);
-  // Exports first, so a misspelt preset is reported whatever the tables do. safezones.mjs (and with it render.mjs
-  // and Playwright) is only loaded when the brief has an Exports line.
+  // Exports first, so a misspelt preset is reported whatever the tables do. safezones.mjs (the presets) is loaded
+  // here only for an Exports line; the frame check below loads Playwright once the tables validate.
   const exp = briefExports(md);
   let sz = null, P = null, names = null;
   if (exp != null && !exp.length) errors.push('Exports: names no presets (a comma list, e.g. **Exports:** reels, x, web)');
@@ -124,7 +130,11 @@ export async function checkBrief(dir, opts = {}) {
   const conf = song.bpm_confidence;
   if (typeof conf === 'number' && conf < 0.5 && !song.sync?.checked_by_ear)
     warnings.push(`beat grid not checked by ear (confidence ${conf.toFixed(2)}): open it with sync.mjs DIR and press Sounds right`);
-  const theme = projectTheme(dir);
+  let theme;
+  try { theme = projectTheme(dir); } catch (e) {
+    if (!(e instanceof ThemeError)) throw e;
+    return { errors: [...errors, e.message], warnings };
+  }
   let states, cursor;
   try {
     const ctx = vm.createContext({ END: song.beats.length });
@@ -143,13 +153,17 @@ export async function checkBrief(dir, opts = {}) {
     errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   errors.push(...r.errors); warnings.push(...r.warnings);
-  // No Exports line: nothing more, and no browser. With errors, the page (running the same tables) would only fail
-  // on what they already say.
-  if (!names || errors.length) return { errors, warnings };
+  // With errors the page (running the same tables) would only fail on what they already say.
+  if (errors.length) return { errors, warnings };
+  // The frame check always runs (cursor past the stage, text past its shape); presets with safe zones ride the
+  // same samples. A measurement that cannot run is a warning: the tables themselves are fine.
   try {
-    const { issues, notes = [] } = await (opts.safeZones ?? sz.checkSafeZones)(dir, { presets: names, samples: 'half', tables: code, loop });
-    warnings.push(...notes, ...issues.map((i) => sz.issueText(i, P)));
-  } catch (e) { warnings.push(`the safe-zone check did not run: ${e.message.split('\n')[0]}`); }
+    const fc = opts.frameCheck ?? (await import('./framecheck.mjs')).checkFrames;
+    const { issues, notes = [] } = await fc(dir, { presets: names ?? [], samples: 'half', tables: code, loop });
+    const { frameIssueText } = await import('./framecheck.mjs');
+    sz ??= await import('./safezones.mjs');
+    warnings.push(...notes, ...issues.map((i) => (i.kind === 'zone' ? sz.issueText(i, P) : frameIssueText(i))));
+  } catch (e) { warnings.push(`the frame check did not run: ${e.message.split('\n')[0]}`); }
   return { errors, warnings };
 }
 
