@@ -164,7 +164,7 @@ test('slider: label to no label drops the old label; no label to a label fades i
   assert.deepEqual(await labelSwap("label: 'Swing'", "label: ''"), [[], []]);
   assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: '', icon: 'none'"), [[], []]);
   assert.deepEqual(await labelSwap("label: ''", "label: 'Swing'"), [['Swing'], ['Swing']]);
-  // The previous label is laid out with this row's icon.
+  // The previous label keeps its own row's layout; it still ends clear of this row's icon and track.
   assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: 'Tempo'"), [['Swing', 'Tempo'], ['Tempo']]);
 });
 
@@ -283,4 +283,17 @@ test('input: a 4-bar loop at 128 bpm starting and ending on a finished input pas
   const dir = makeProject({ bars: 4, bpm: 128, states: `[{ at: 0, ${row} }, { at: 6, use: 'button' }, { at: END - 2, ${row} }]`, cursor: '[{ at: 0, x: 0, y: 200 }, { at: END - 2, x: 0, y: 200 }]' });
   const r = await beatStills(dir);
   assert.equal(r.seam.ok, true, r.seam.notes.join('; '));
+});
+
+test('slider: a long label giving way to a short one leaves no stub past the new layout', async () => {
+  const long = 'A very long slider label that keeps going', short = 'Gain';
+  const STILL = '[{ at: 0, x: 0, y: 400 }, { at: END - 2, x: 0, y: 400 }]';
+  await scene({ bars: 2, states: `[{ at: 0, use: 'button' }, { at: 2, use: 'slider', label: '${long}', icon: 'none' }, { at: 4, use: 'slider', label: '${short}', icon: 'none' }, { at: END - 2, use: 'button' }]`, cursor: STILL }, async (s, at) => {
+    await at(4.1);   // mid crossfade
+    const r = await s.page.evaluate(() => {
+      const prev = document.querySelector('.c-slider[data-row="2"] .sl-prev');
+      return { ellipsis: prev.scrollWidth > prev.clientWidth + 1 && getComputedStyle(prev).textOverflow === 'ellipsis' };
+    });
+    assert.equal(r.ellipsis, false, 'the old label is not squeezed into the new width with an ellipsis');
+  });
 });

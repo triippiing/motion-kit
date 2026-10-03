@@ -381,7 +381,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** Progress towards a target amount: a savings pot, a fundraiser, a budget.
 
-**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it; from or to a zero target it changes at once); a changed label crossfades.
+**Motion:** The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it; from or to a zero target, or a change of more than ten times, the new target shows at once); a changed label crossfades.
 
 | Prop | Type | Default |
 |---|---|---|

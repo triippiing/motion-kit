@@ -304,3 +304,13 @@ test('bar-chart: a continuation after a press keeps the pressed bar highlighted'
   await noFlash({ use: 'bar-chart', a: "highlight: ''", b: "highlight: 'Wed'", press: 'bar:Wed', read: (row) =>
     [...document.querySelectorAll(`.c-bar-chart[data-row="${row}"] .bc-bar`)].map((e) => [e.classList.contains('bc-hl'), e.style.background]) });
 });
+
+test('goal: a target that grows more than tenfold shows at once (no thousands of percent)', async () => {
+  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2450, target: 2 }, { at: 4, use: 'goal', saved: 2450, target: 4000 }${BACK}]`, cursor: STILL }, async (s, at) => {
+    for (let b = 4; b <= 5.4; b += 0.1) {
+      await at(b);
+      const pct = Number((await text(s, '.c-goal[data-row="2"] .gl-text')).match(/(\d+)%$/)[1]);
+      assert.ok(pct <= 100, `beat ${b.toFixed(1)}: ${pct}%`);
+    }
+  });
+});
