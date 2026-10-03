@@ -53,6 +53,12 @@ test('the selection components declare meta.choices', () => {
     { tabs: { active: 'items' }, dropdown: { selected: 'items' }, dock: { active: 'items' }, 'chip-row': { selected: 'chips' } });
 });
 
+test('the typing and keyed-list components declare meta.typing and meta.unique', () => {
+  assert.deepEqual(Object.fromEntries(['input', 'command'].map((n) => [n, registry[n].meta.typing])), { input: 'text', command: 'query' });
+  assert.deepEqual(Object.fromEntries(['bar-chart', 'tabs', 'dropdown', 'chip-row', 'dock', 'sheet'].map((n) => [n, registry[n].meta.unique])),
+    { 'bar-chart': { bars: 'label' }, tabs: { items: true }, dropdown: { items: true }, 'chip-row': { chips: true }, dock: { items: true }, sheet: { actions: true } });
+});
+
 test('the catalog row keys name the optional pos/neg roles and a badge of 0', async () => {
   const keys = catalogMd(await collect()).split('## Row keys')[1].split('\n## ')[0];
   assert.match(keys, /\| `fill` \|.*`pos`, `neg` \(when the theme defines them\)/);
@@ -85,6 +91,17 @@ for (const [name, c] of Object.entries(registry)) {
       for (const [k, list] of Object.entries(m.choices)) {
         assert.ok(['string', 'string[]'].includes(m.props[k]?.[0]), `meta.choices key "${k}" is a string or string[] prop`);
         assert.equal(m.props[list]?.[0], 'string[]', `meta.choices "${k}" picks from "${list}", a string[] prop`);
+      }
+    }
+    if (m.typing !== undefined) {
+      assert.equal(m.props[m.typing]?.[0], 'string', `meta.typing "${m.typing}" is a string prop`);
+      for (const k of ['typeAt', 'perChar']) assert.equal(m.props[k]?.[0], 'number', `a typing component has a number prop ${k}`);
+    }
+    if (m.unique !== undefined) {
+      assert.ok(m.unique && typeof m.unique === 'object' && Object.keys(m.unique).length, 'meta.unique is a non-empty { listProp: true | field } object');
+      for (const [list, field] of Object.entries(m.unique)) {
+        if (field === true) assert.equal(m.props[list]?.[0], 'string[]', `meta.unique "${list}": true needs a string[] prop`);
+        else assert.ok(typeof field === 'string' && m.props[list]?.[0] === 'object[]', `meta.unique "${list}": '<field>' needs an object[] prop`);
       }
     }
     assert.deepEqual(missingFamilyExamples(m), [], 'every family hotspot needs a hotspotExample naming one real member (e.g. { \'tab:<item>\': \'tab:Month\' })');

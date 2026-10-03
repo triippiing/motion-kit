@@ -111,7 +111,7 @@ Every row accepts these keys whatever its component (they are never component pr
 **Sounds:** key
 
 ```js
-{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25 }
+{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25, perChar: 0.2 }
 ```
 
 ### slider

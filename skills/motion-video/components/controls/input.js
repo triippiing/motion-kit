@@ -7,8 +7,9 @@ export const meta = {
   motion: "Text types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, a solid caret while typing and a blink about once a second after (trimmed so whole blinks fit the loop). The clear button appears with the first character; a press on it dissolves the text back to the placeholder. A following input row continues from what is left (cleared text is gone): text that extends it keeps typing on; other text changes dissolve the old text.",
   props: { placeholder: ['string', 'Search'], text: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], icon: ['enum:search|none', 'search'] },
   hotspots: ['field', 'clear'],
+  typing: 'text',
   sounds: ['key'],
-  example: "{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25 }",
+  example: "{ at: 0, use: 'input', placeholder: 'Search transactions', text: 'Groceries', typeAt: 0.25, perChar: 0.2 }",
   edgeCases: [{ text: '' }, { icon: 'none', text: 'Council tax', typeAt: -1 }, { text: 'A very long search query that keeps on going until the field is full', typeAt: -1 }],
 };
 

@@ -13,6 +13,9 @@ const registry = {
     (h, p) => (h.startsWith('tab:') && p.items.includes(h.slice(4)) ? { x: 0, y: 0 } : null)),
   button: fake('button', { label: ['string', 'Go'] }, ['button']),
   slider: fake('slider', { value: ['number', 0.4] }, ['thumb', 'track'], ['thumb']),
+  input: { ...fake('input', { text: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25] }, ['field']), meta: { name: 'input', props: { text: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25] }, hotspots: ['field'], typing: 'text' } },
+  chart: { ...fake('chart', { bars: ['object[]', [{ label: 'Mon', value: 1 }]] }, ['bar:<label>'], undefined,
+    (h, p) => (h.startsWith('bar:') && p.bars.some((b) => b.label === h.slice(4)) ? { x: 0, y: 0 } : null)), meta: { name: 'chart', props: { bars: ['object[]', [{ label: 'Mon', value: 1 }]] }, hotspots: ['bar:<label>'], unique: { bars: 'label' } } },
 };
 const song = { beats: Array.from({ length: 16 }, (_, i) => ({ i, t: i * 0.5 })), beat_sec: 0.5, rules: { min_hold_beats: 2, max_states: 8 } };
 const loopOk = (rows) => [...rows, { ...rows[0], at: 14 }];
@@ -175,11 +178,13 @@ test('a press-and-hold on a hotspot that is not a drag hotspot stays silent', ()
   assert.deepEqual(track.warnings, []);
 });
 
-test('untargeted presses and custom rows stay silent', () => {
+test('untargeted presses on a component stay silent; a custom-state drag that moves is silent too', () => {
   const xy = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 5, y: 5, press: 'down' }, { at: 3, x: 50, y: 5, press: 'up' }, { at: 14, x: 0, y: 0 }];
   assert.deepEqual(run(dragStates, xy).warnings, []);
+  // A custom state's 'down'/'up' is a drag (spec F2 1b): it moves on a row between the presses, not on the 'up'.
+  const moved = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 5, y: 5, press: 'down' }, { at: 2, x: 50, y: 5 }, { at: 3, x: 50, y: 5, press: 'up' }, { at: 14, x: 0, y: 0 }];
   const custom = loopOk([{ at: 0, name: 'card', w: 100, h: 100, r: 10 }, { at: 4, use: 'button' }]);
-  assert.deepEqual(run(custom, xy).warnings, []);
+  assert.deepEqual(run(custom, moved).warnings, []);
 });
 
 test('an inherited name is an unknown component, not a crash', () => {
@@ -414,4 +419,44 @@ test('strict: a drag whose approach or move gets under half a beat warns with th
   const held = run(loopOk([{ at: 0, use: 'button' }]), [{ at: 0, x: 0, y: 0 }, { at: 0.75, target: 'button' }, { at: 1, target: 'button', press: 'down' },
     { at: 3, target: 'button', press: 'up' }, { at: 14, x: 0, y: 0 }], { strict: true }).warnings;
   assert.ok(!held.some((x) => RUSHED.test(x)), held.join('\n'));
+});
+
+test('typing that reaches the next row is an error; ending before it is fine', () => {
+  // 9 characters from beat 2 + 0.25, 0.25 beat apart: the last lands at 2.25 + 8 * 0.25 = 4.25
+  const rows = (next) => loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'input', text: 'Groceries', typeAt: 0.25, perChar: 0.25 }, { at: next, use: 'button' }]);
+  assert.match(run(rows(4.25)).errors.join('\n'), /input at beat 2 types "Groceries" until beat 4\.25 but the next row starts at beat 4\.25; end typing before beat 4\.25 \(typeAt or perChar\)/);
+  assert.deepEqual(run(rows(4.5)).errors, []);
+});
+
+test('a continuation that extends the text only types the new characters', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'input', text: 'Gro', typeAt: 0.25, perChar: 0.25 },
+    { at: 4, use: 'input', text: 'Groceries', typeAt: 0.25, perChar: 0.25 }, { at: 6, use: 'button' }]);
+  // 6 new characters from 4.25: the last at 5.5, before 6
+  assert.deepEqual(run(states).errors, []);
+});
+
+test('typeAt -1 shows the text at once: no overrun', () => {
+  assert.deepEqual(run(loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'input', text: 'A long text', typeAt: -1 }, { at: 4, use: 'button' }])).errors, []);
+});
+
+test('a drag on a custom state that never moves warns', () => {
+  const states = loopOk([{ at: 0, name: 'a', w: 100, h: 100, r: 10 }, { at: 4, name: 'b', w: 100, h: 100, r: 10 }]);
+  const cursor = [{ at: 0, x: 0, y: 0 }, { at: 1, x: 10, y: 10, press: 'down' }, { at: 2, x: 10, y: 10, press: 'up' }, { at: 14, x: 0, y: 0 }];
+  assert.match(run(states, cursor).warnings.join('\n'), /drag from beat 1 to 2 never moves/);
+});
+
+test('strict: a click with under half a beat to arrive warns', () => {
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 4, use: 'button', label: 'Next' }]);
+  const cursor = [{ at: 0, x: 0, y: 0 }, { at: 2, target: 'button' }, { at: 2.25, target: 'button', press: true }, { at: 14, x: 0, y: 0 }];
+  // the move starts at the row before the press that changes position: beat 2; the press is 0.25 later
+  assert.match(run(states, cursor, { strict: true }).warnings.join('\n'), /cursor\(\) row 3: the cursor has only 0\.25 beat to reach 'button' before the click; give it about 0\.8 beat/);
+  assert.doesNotMatch(run(states, cursor).warnings.join('\n'), /before the click/);
+});
+
+test('duplicate keyed entries warn; aiming at one is an error', () => {
+  const bars = [{ label: 'Mon', value: 1 }, { label: 'Mon', value: 2 }];
+  const states = loopOk([{ at: 0, use: 'button' }, { at: 2, use: 'chart', bars }, { at: 4, use: 'button' }]);
+  assert.match(run(states).warnings.join('\n'), /chart at beat 2 has duplicate bars labels \("Mon"\); the cursor and hover can only reach the first/);
+  const aim = [{ at: 0, x: 0, y: 0 }, { at: 3, target: 'bar:Mon' }, { at: 14, x: 0, y: 0 }];
+  assert.match(run(states, aim).errors.join('\n'), /cursor target "bar:Mon" at beat 3 names a duplicate label of chart; it reaches the first "Mon" only/);
 });

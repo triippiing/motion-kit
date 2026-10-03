@@ -7,6 +7,7 @@ export const meta = {
   motion: 'The title, body and actions rise in one after another once the shape arrives. A press on an action dips it. A following sheet row crossfades changed content the same way.',
   props: { title: ['string', 'Delete goal?'], body: ['string', 'This removes Holiday fund and its history.'], actions: ['string[]', ['Cancel', 'Delete']], primary: ['string', 'Delete'] },
   hotspots: ['action:<label>'],
+  unique: { actions: true },
   hotspotExample: { 'action:<label>': 'action:Delete' },
   sounds: [],
   example: "{ at: 0, use: 'sheet', title: 'Delete goal?', body: 'This removes Holiday fund and its history.' }",

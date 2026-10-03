@@ -237,12 +237,16 @@ test('dropdown: an open row staggers its items in order; a press highlights the 
   });
 });
 
-test('input: key sounds stop when the next row starts', async () => {
-  await scene({ bars: 2,
-    states: "[{ at: 0, use: 'input' }, { at: 1, use: 'input', text: 'abcdef', typeAt: 0, perChar: 0.5 }, { at: 3, use: 'input', text: 'abcdef' }, { at: END - 2, use: 'input' }]",
-    cursor: '[{ at: 0, x: 0, y: 120 }, { at: END - 2, x: 0, y: 120 }]' }, async (s) => {
+// Typing that runs into the next row is refused by validate (the engine's own check), so every key of a
+// table the engine accepts sounds inside its row.
+test('input: typing past the next row is refused; typing that fits sounds every key', async () => {
+  const rows = (perChar) => ({ bars: 2,
+    states: `[{ at: 0, use: 'input' }, { at: 1, use: 'input', text: 'abcdef', typeAt: 0, perChar: ${perChar} }, { at: 3, use: 'input', text: 'abcdef' }, { at: END - 2, use: 'input' }]`,
+    cursor: '[{ at: 0, x: 0, y: 120 }, { at: END - 2, x: 0, y: 120 }]' });
+  await assert.rejects(openScene(makeProject(rows(0.5))), /input at beat 1 types "abcdef" until beat 3\.5 but the next row starts at beat 3/);
+  await scene(rows(0.25), async (s) => {
     const keys = await s.page.evaluate(() => window.SFX.filter((x) => x.file === 'sfx/key.wav').map((x) => x.beat));
-    assert.deepEqual(keys, [1, 1.5, 2, 2.5]);
+    assert.deepEqual(keys, [1, 1.25, 1.5, 1.75, 2, 2.25]);
   });
 });
 

@@ -7,6 +7,7 @@ export const meta = {
   motion: 'Write the closed and open states as consecutive rows: the shape grows to open, the chevron turns, and the items stagger in. A press on an item highlights it and moves the check there, and a following dropdown row continues from that choice (write it as its `selected`). A closed row after an open one fades the items out as the shape closes and shows the choice in the trigger.',
   props: { label: ['string', 'Sort by'], items: ['string[]', ['Newest', 'Oldest', 'Popular']], open: ['boolean', false], selected: ['string', ''] },
   hotspots: ['trigger', 'item:<item>'],
+  unique: { items: true },
   choices: { selected: 'items' },
   hotspotExample: { 'item:<item>': 'item:Oldest' },
   sounds: [],

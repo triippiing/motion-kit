@@ -42,6 +42,7 @@ const cursor = () => [
   { at: 0,   x: 240, y: 280 },
   { at: 1,   target: 'button' },
   { at: 2,   target: 'button', press: true },
+  { at: 3,   target: 'field' },
   { at: 4,   target: 'field', press: true },
   { at: 5,   x: 220, y: 200 },
   { at: 6,   target: 'knob' },
@@ -141,8 +142,11 @@ const cursor = () => [
   { at: 5,   target: 'point:3' },
   { at: 6,   target: 'point:5' },
   { at: 7,   target: 'point:7' },
+  { at: 8,   target: 'bar:Tue' },
   { at: 9,   target: 'bar:Tue', press: true },
+  { at: 9.5, target: 'bar:Thu' },
   { at: 10,  target: 'bar:Thu', press: true },
+  { at: 11,  target: 'tab:Month' },
   { at: 12,  target: 'tab:Month', press: true },
   { at: 14,  x: 220, y: 220 },
   { at: 16,  x: 240, y: 200 },
@@ -175,6 +179,7 @@ const states = () => [
 ];
 const cursor = () => [
   { at: 0,   x: 240, y: 280 },
+  { at: 0.5, target: 'field' },
   { at: 1,   target: 'field', press: true },
   { at: 3,   x: 260, y: 200 },
   { at: 4,   x: 240, y: 220 },
@@ -218,11 +223,14 @@ const states = () => [
 ];
 const cursor = () => [
   { at: 0,    x: 240, y: 280 },
+  { at: 0.5,  target: 'item:Settings' },
   { at: 1,    target: 'item:Settings', press: true },
   { at: 3,    target: 'knob' },
   { at: 5,    target: 'knob', press: true },
   { at: 6,    x: 200, y: 200 },
+  { at: 7,    target: 'trigger' },
   { at: 8,    target: 'trigger', press: true },
+  { at: 9,    target: 'item:EUR' },
   { at: 10,   target: 'item:EUR', press: true },
   { at: 12,   x: 220, y: 220 },
   { at: 14,   x: 240, y: 200 },

@@ -7,6 +7,7 @@ export const meta = {
   motion: "The query types in one character every perChar beats from typeAt (beats after the row starts; -1 shows it at once), with a key sound each, like input. The rows filter live (case-insensitive): rows that stop matching collapse and the rest slide up; rows that match again reopen, and when nothing matches a muted 'No results' line fades in. The selected row (an index among the visible rows) has a soft accent background that stays on that visible slot as the list filters; a press on `row:<i>` selects the i-th visible row. A following command row continues from the typed query (a query that extends it types on; any other query replaces it on arrival, the rows springing to the new filter) and the selected row (write it as its `selected`); with the same query a blinking caret keeps blinking. At most 5 items show. The palette keeps its full height while filtering; to shrink it, follow with a command row that sets `h` (96 + visible rows * 80 + 24).",
   props: { items: ['string[]', ['Export report', 'Export CSV', 'Invite teammate', 'New goal', 'Settings']], query: ['string', ''], typeAt: ['number', -1], perChar: ['number', 0.25], selected: ['number', 0] },
   hotspots: ['field', 'row:<i>'],
+  typing: 'query',
   hotspotExample: { 'row:<i>': 'row:0' },
   sounds: ['key'],
   example: "{ at: 0, use: 'command', query: 'o', typeAt: 0.25 }",

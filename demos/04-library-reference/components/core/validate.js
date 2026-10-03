@@ -114,9 +114,16 @@ export function pressRow(rows, c) {
 }
 
 // A press aimed at one of its row's drag hotspots (meta.drag): with 'down', a drag, not a press-and-hold.
-export function isDrag(rows, c) {
+// The engine lands the pointer for these only (a custom state has no thumb to put under it).
+export function isHotspotDrag(rows, c) {
   const r = c.target && targetRow(rows, c);
   return !!r && matchHotspot(r.comp.meta.drag ?? [], c.target);
+}
+// What validate treats as a drag: a hotspot drag, or any untargeted 'down' on a custom state (no `use`), whose
+// press-and-drag is the author's own x/y moves.
+export function isDrag(rows, c) {
+  if (c.target) return isHotspotDrag(rows, c);
+  return !pressRow(rows, c)?.row.use;
 }
 
 // Every hotspot name that resolves on row r: its plain hotspots, and each family ('tab:<item>') tried with
@@ -237,6 +244,30 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
         r.props = rowProps(row, comp);
         try { r.geo = rowGeo(row, comp, r.props); } catch (e) { errors.push(`${row.use} at beat ${B(row)} cannot be sized: ${e.message}`); r.bad = true; }
       }
+      // Typing that has not finished when the next row starts: that row continues from text never fully shown.
+      // Kept characters are approximated from the previous row's text (the component reads its end state, which
+      // also knows a press on clear), so after a clear this can only miss an overrun, never invent one.
+      const tk = comp.meta.typing;
+      if (tk && !r.bad && r.props.typeAt >= 0) {
+        const text = String(r.props[tk] ?? ''), prev = rows[i - 1];
+        const before = prev?.comp === comp && prev.props ? String(prev.props[tk] ?? '') : '';
+        const n = text.length - (before && text.startsWith(before) ? before.length : 0);
+        const next = states[i + 1] ?? (END != null ? { at: END } : null);
+        const last = num(row.at + r.props.typeAt + (n - 1) * r.props.perChar);
+        if (n > 0 && next && last >= next.at)
+          errors.push(`${row.use} at beat ${B(row)} types "${text}" until beat ${last} but the next row starts at beat ${B(next)}; end typing before beat ${B(next)} (typeAt or perChar)`);
+      }
+      // A keyed list with the same key twice (meta.unique): its hotspot family finds the first only.
+      if (!r.bad) for (const [listKey, field] of Object.entries(comp.meta.unique ?? {})) {
+        const list = r.props[listKey];
+        if (!Array.isArray(list)) continue;
+        const keys = list.map((x) => (field === true ? x : x?.[field])).filter((k) => typeof k === 'string');
+        const dup = [...new Set(keys.filter((k, j) => keys.indexOf(k) !== j))];
+        if (dup.length) {
+          r.dups = [...(r.dups ?? []), ...dup];
+          warnings.push(`${row.use} at beat ${B(row)} has duplicate ${listKey}${field === true ? '' : ` ${field}s`} (${dup.map((d) => `"${d}"`).join(', ')}); the cursor and hover can only reach the first`);
+        }
+      }
       // A selection prop naming a value its list does not have (meta.choices: { active: 'items' }).
       if (strict && !r.bad) for (const [k, listKey] of Object.entries(comp.meta.choices ?? {})) {
         const list = r.props[listKey], v = r.props[k];
@@ -287,7 +318,7 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       if (c.hide === true && c.press !== undefined) errors.push(`cursor() row ${i + 1}: a hidden cursor cannot press (remove hide or press)`);
       if (c.press === 'down') { if (open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`); open = c.at; openAt = B(c); openIdx = i; openRow = rows.indexOf(pressRow(rows, c)); openDrag = isDrag(rows, c);
         const g = strict && openDrag ? rushed(i) : null;
-        if (g !== null) warnings.push(`cursor() row ${i + 1}: the cursor has only ${g} beat to reach '${c.target}' before the drag starts; give it about 0.8 beat`);
+        if (g !== null) warnings.push(`cursor() row ${i + 1}: the cursor has only ${g} beat to reach '${c.target ?? `${c.x}, ${c.y}`}' before the drag starts; give it about 0.8 beat`);
       }
       if (c.press === 'up') {
         if (open === null) errors.push(`press 'up' at beat ${B(c)} has no 'down' before it`);
@@ -309,10 +340,19 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
         open = null;
       }
       if (c.press === true && open !== null) errors.push(`press 'down' at beat ${openAt} has no matching 'up'`);
+      // A click gets the same 0.8 beat to settle as a drag: a shorter approach clicks short of its target.
+      if (strict && c.press === true) {
+        const g = rushed(i);
+        if (g !== null) warnings.push(`cursor() row ${i + 1}: the cursor has only ${g} beat to reach '${c.target ?? `${c.x}, ${c.y}`}' before the click; give it about 0.8 beat`);
+      }
       if (typeof c.target !== 'string') return;
       const cands = candidates(rows, c.at);
+      const hit = targetRow(rows, c);
+      // A target naming a duplicated key resolves, but on the first of the duplicates only.
+      const d = hit?.dups?.find((k) => hit.comp.meta.hotspots.some((h) => h.includes(':<') && c.target === h.slice(0, h.indexOf(':<') + 1) + k));
+      if (d !== undefined) errors.push(`cursor target "${c.target}" at beat ${B(c)} names a duplicate label of ${hit.row.use}; it reaches the first "${d}" only`);
       // An unknown component is already reported above; a hotspot error on it would only mislead.
-      if (cands.some(unknown) || targetRow(rows, c)) return;
+      if (cands.some(unknown) || hit) return;
       const named = cands.filter((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target));
       const where = (r) => (r === cands[0] ? `at beat ${B(c)}` : `starting at beat ${B(r.row)}`);
       if (named.length) {

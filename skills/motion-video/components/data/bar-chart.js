@@ -7,6 +7,7 @@ export const meta = {
   motion: 'Bars grow from the baseline 0.08 beat apart (no overshoot). With `highlight` set to a bar\'s label that bar is accent and the rest muted; a press on `bar:<label>` moves the highlight there, and a following bar-chart row continues from it (write it as its `highlight`). A following row also morphs: bars with the same label slide and grow to their new place and height, new bars grow in, missing ones shrink away.',
   props: { bars: ['object[]', [{ label: 'Mon', value: 3 }, { label: 'Tue', value: 5 }, { label: 'Wed', value: 4 }, { label: 'Thu', value: 7 }]], label: ['string', 'Sessions'], highlight: ['string', ''] },
   hotspots: ['bar:<label>'],
+  unique: { bars: 'label' },
   hotspotExample: { 'bar:<label>': 'bar:Thu' },
   sounds: [],
   example: "{ at: 0, use: 'bar-chart', label: 'Sessions', highlight: 'Thu' }",

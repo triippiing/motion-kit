@@ -53,7 +53,7 @@
 // about 0.5 design px per move), and a drag component's thumb starts under the cursor. The speed-up is capped at 4x the
 // house spring (a 0.2 beat settle): a move of a few hundred px given less than about 0.3 beat arrives a little short
 // rather than snapping. Strict validation (check_brief) warns when a drag's move gets less than half a beat.
-import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage, isDrag } from './validate.js';
+import { validate, targetRow, pressRow, lookup, rowProps, rowGeo, markerMessage, isHotspotDrag } from './validate.js';
 import { resolveRows } from './timing.js';
 import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
@@ -134,7 +134,7 @@ export function createScene(o) {
   // spring (a snap reads worse than a short miss); moves with time to spare keep the house spring.
   const LAND = 0.5, MAX_SPEEDUP = 4;
   const landings = cursor.flatMap((c, i) => {
-    if (c.press !== 'down' || !isDrag(rows, c)) return [];
+    if (c.press !== 'down' || !isHotspotDrag(rows, c)) return [];
     const up = cursor.slice(i + 1).find((u) => u.press === 'up');
     return up ? [beatT(c.at), beatT(up.at)] : [beatT(c.at)];
   }).sort((a, b) => a - b);

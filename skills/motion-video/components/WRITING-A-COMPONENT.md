@@ -55,6 +55,12 @@ export const meta = {
   choices: { active: 'items' },  // only if a prop selects from a list prop: { selectionProp: listProp }; strict
                                  // validation warns when the selection (a string, or each of a string[]) is
                                  // not in the list (an empty string means none)
+  typing: 'text',           // only if a string prop types in from typeAt at perChar beats a character (both
+                            // number props); validate errors when the last character lands on or after the
+                            // next row's beat (a continuation that extends the text counts only the new ones)
+  unique: { items: true },  // only if a hotspot family finds its entry by key in a list prop: { listProp: true }
+                            // for a string[], { listProp: 'field' } for that field of an object[]; validate
+                            // warns on a duplicate key and errors when the cursor aims at one (it finds the first)
 };
 export function geometry(props, ctx) { return { w, h, r, fill: 'surface', ink: 'ink' }; }
 export function mount(layer, props, ctx) { /* build DOM once */ }
@@ -304,7 +310,9 @@ empty text, very long text and the most items you allow. A family hotspot (`'ite
 `hotspotExample` naming a real one, so the contract test can resolve it. A dragged family goes into
 `drag` exactly as written in `hotspots` (`drag: ['handle:<i>']`). A prop that picks from a list prop
 (tabs' `active` from `items`, chip-row's `selected` from `chips`) is declared in `choices`, and the
-contract test checks both names are real props.
+contract test checks both names are real props. A prop typed in character by character is named in
+`typing` (with number props `typeAt` and `perChar`), and a list a family hotspot finds its entry in by
+key (`indexOf`, `find`) is declared in `unique` (bar-chart's `{ bars: 'label' }`, tabs' `{ items: true }`).
 
 ## Helpers (`components/core/helpers.js`)
 
