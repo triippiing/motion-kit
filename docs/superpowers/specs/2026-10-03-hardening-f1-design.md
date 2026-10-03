@@ -65,11 +65,13 @@ test file for `click_track`. A script must not depend on tests.
   project into `dir` (which it creates) and returns the project directory. No temp-dir logic.
 - `tests/harness.mjs` keeps `makeProject(opts)` as `scaffold(tempDir('mk-'), opts)` and keeps
   `openScene` as is, so no test changes.
-- `gallery.mjs` scaffolds into a temp directory it removes when done (after rendering or stills),
-  unless `--keep` is passed, in which case it prints the path. `parseArgs` learns `--keep`.
+- `gallery({ only, root })` scaffolds into a `root` its caller owns (tests pass a `tempDir`). The CLI
+  builds in its own temp directory and removes it after copying to OUT or writing stills; with no OUT
+  and no `--stills` the project is the output, so it stays and its path is printed (as today). No
+  `--keep` flag is needed.
 
 Tests: `gallery.mjs` source has no `tests/` import (a grep test); existing gallery tests pass;
-`parseArgs` accepts `--keep`.
+`gallery.mjs OUT --only button` leaves no `mk-gallery-` directory behind.
 
 ## 3. Entry guard
 
@@ -111,8 +113,9 @@ outlives its audio.
   `song_sec`) applies to every grid, not only user grids. If no window fits, all windows remain
   candidates, as today. `--start-bar` and `--start-near` are unchanged (explicit choices).
 - Clip length: `write_clip` pads with silence to exactly `duration_sec` (`apad=whole_dur`), and the
-  fade-out sits at the end of the padded clip. When padding is needed the analyser prints
-  `warning: the loop runs N ms past the end of the song; clip.wav is padded with silence` to stderr.
+  fade-out sits at the end of the padded clip. When the loop overruns by 1 ms or more the
+  analyser adds `the loop runs N ms past the end of the song; clip.wav is padded with silence` to
+  `rules.warnings` (printed as `warning: ...` like the others, and kept in song.json).
 - A user grid past the end still errors exactly as today (unchanged).
 
 Behaviour change: a song with no sync whose best-scoring window overran will pick a different window
@@ -121,7 +124,7 @@ its window. Success item 6 checks the demos and launch video.
 
 Tests (`tests/test_analyze_song.py`): a click track that ends partway through its last bar, with
 the loudest window at the end, picks a window that fits; with `--start-bar` forcing the overrun,
-`clip.wav` has exactly `round(duration * 48000)` samples (within 1) and stderr has the warning.
+`clip.wav` has exactly `round(duration * 48000)` samples (within 1) and `rules.warnings` has the warning.
 
 ## Docs
 
@@ -129,12 +132,13 @@ the loudest window at the end, picks a window that fits; with `--start-bar` forc
   `scripts/click_track.py`; the code map lists `scaffold.mjs`, `click_track.py`, `is_main.mjs`; a line
   on `MK_KEEP_TMP=1` under Testing; Syncing mentions the Save timeout and `MK_ANALYSER_TIMEOUT`.
 - `skills/motion-video/SKILL.md`: the same click-track command and the Sync section's Save timeout,
-  wherever they appear; the gallery's `--keep`.
+  wherever they appear.
 
 ## Verification before merge
 
 - `npm test` and the Python tests green.
-- Temp-dir count by prefix (`mk-`, `mv-`, `np-`, `tpl-`, `sz-`, `tp-`, `sp-`, `tag-`) before and
+- Python tests clean their temp dirs too (`test_extract_theme.py` did not); so does `tests/install.test.mjs`.
+- Temp-dir count by prefix (`mk-`, `mv-`, `np-`, `tpl-`, `sz-`, `tp-`, `sp-`, `tag-`, `skills-`) before and
   after a full run: equal.
 - Re-run the analyser (as Save does, with `--start-near` and the stored `--bars`) on demos 01 to 04
   and the launch project into a scratch copy; `song.json` equal apart from the analysis date, if any.
