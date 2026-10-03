@@ -109,10 +109,15 @@ export async function checkFrames(dir, { tables, loop, presets = [], frame = tru
       if (tables && !proj.tablesSpliced && !notes.length) notes.push(`index.html has no table markers, so the ${what} check used index.html's own tables, not the brief's`);
       const [W, H] = stage, page = proj.pages[0];
       const open = new Map();   // issue key -> the issue its run is building
-      // Consecutive samples with the same key are one issue: extend its run and keep the deepest px.
+      // Consecutive samples with the same key are one issue: extend its run and keep the deepest px (and the
+      // wording, past or clipped, of the sample that gave it). A second hit in the same sample (the same text
+      // shown twice) joins the run too.
       const hit = (i, key, fields) => {
         const run = open.get(key);
-        if (run && run.last === i - 1) { run.through = at[i].beat; run.px = Math.max(run.px, fields.px); run.last = i; return; }
+        if (run && run.last >= i - 1) {
+          if (fields.px > run.px) Object.assign(run, { px: fields.px }, fields.how && { how: fields.how });
+          run.through = at[i].beat; run.last = i; return;
+        }
         const issue = { ...fields, beat: at[i].beat, through: at[i].beat, t: Math.round(at[i].t * 1000) / 1000, last: i };
         open.set(key, issue); issues.push(issue);
       };
