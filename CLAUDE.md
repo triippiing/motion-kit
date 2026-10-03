@@ -160,7 +160,11 @@ with the real `states()` and `cursor()`.
 
 `node $S/check_brief.mjs DIR` checks it: the sections, then the block with the engine's own validator in
 strict mode (every row holds `rules.min_hold_beats`, at most `rules.max_states` states, something starts
-on every beat, the loop seam), then, once those pass, a frame check in Chromium (the cursor going past the stage
+on every beat, the loop seam; typing (input `text`, command `query`) that would still be typing when the next row
+starts is an error; a press `'down'`/`'up'` pair on a custom-state row gets the drag rules (stay in one row: error;
+must move: warning); a `press: true` click with under half a beat for the cursor to arrive warns, as a rushed drag
+does; duplicate keyed entries (bar-chart labels, tabs, dropdown, chip-row, dock and sheet items) warn, and a cursor
+aimed at a duplicated one is an error), then, once those pass, a frame check in Chromium (the cursor going past the stage
 edges, text running past or cut off in its shape, and the chosen presets' safe zones; each a warning). Exit 0 is OK, 1 is errors, 2 is bad usage. A launch video that does not
 loop gets `"loop": false` in `DIR/project.json` (or `check_brief.mjs DIR --no-loop`).
 
@@ -244,6 +248,9 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
 - **Style (direction.md):** one shape never cut; tiny overshoot at most; content swaps blur with
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
+- **Text stays inside the shape:** the frame check measures the words' own line boxes. An element meant to sit
+  outside the shape (a tooltip above its point) carries `data-overhang`; that only silences the frame check:
+  `#shape` clips its overflow, so the element is still cut off at the shape's edge.
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and
@@ -277,7 +284,9 @@ skills/*/assets/springs.js        symlinks to it; projects get a copy (cp -L)
 skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only), new_project.sh,
                                   render.mjs (Playwright + ffmpeg; --stage WxH, --guides PRESET), beat_stills.mjs,
                                   doctor.sh, check_brief.mjs (validates MOTION-BRIEF.md, then the frame check
-                                  and safe zones for its Exports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
+                                  and safe zones for its Exports), framecheck.mjs (the frame check: one page
+                                  sampler for the cursor past the stage, text past or cut off in its shape, and
+                                  the safe zones safezones.mjs reports), build_catalog.mjs (index.js + CATALOG.md from each meta), gallery.mjs
                                   (every component in one project; --stills), export.mjs (ready-to-post files per
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),

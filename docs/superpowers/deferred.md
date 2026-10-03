@@ -1,50 +1,52 @@
-# Deferred items (after sub-project A)
+# Deferred items
 
 F1 (2026-10-03) fixed temp-dir leaks, the gallery's test import, the entry guard, the Save timeout and
 the analyser's last-bar overrun. Pickup/anacrusis support moved to C2. F1 also found and fixed an export
 audio gap: loudnorm's EOF frame left a timestamp hole of up to 100 ms, so audio drifted late (131c5d6).
 
-Known, non-blocking follow-ups from the component library build (2026-09-30). Candidates for
-sub-project F (hardening) unless noted.
-
-## Lints the planner / check_brief could add (F)
-- Cursor leaving the frame (must account for camera zoom; demo 04 hit this at the toggle).
-- Long labels on vertical stages (1080 wide): some components overflow; no zoom-out below 1.
-- Typing (input/command) that overruns its row: key sounds are clipped at the next row but the
-  text endState assumes the full text.
-- Drag rows on custom states are not checked (only meta.drag hotspots are).
+F2 (2026-10-03) added the frame check (cursor past the stage, text past or cut off in its shape) and the table
+checks (typing past its row, drags on custom states, rushed clicks, duplicate keyed entries, theme.json must be
+an object), fixed the line-chart, badge, command, slider and button behaviours listed here before, tightened the
+purity scan, renders every recipe in tests, and closed most of F1's review leftovers. What is left:
 
 ## Behaviour edge cases
-- command: a continuation that extends the query with typeAt -1 (e.g. '' then 'exp') snaps rows at t0.
-- line-chart: moving the cursor from point A to point B pop-replaces rather than fading A; a `hover`
-  prop snaps in after a cursor hover fades out.
-- goal: text for a target easing up from 0 (guarded, but a very small target still shows briefly).
-- badge on two consecutive rows fades out and back in at the row change.
-- Button labels over ~57 characters overflow (no ellipsis); dock/chip-row width caps overflow for
-  very long lists.
-- Duplicate bar-chart labels resolve to the first bar.
+- Long text still overflows: button labels over ~57 characters, long dock and chip-row lists, long labels on
+  1080-wide stages (no zoom-out below 1). The frame check now reports each one; nothing fits it automatically.
 
 ## Tooling
-- check_brief accepts a theme.json containing `null` (only if hand-corrupted); it should require an object.
 - A row with a prop error defers its hotspot typo to the next check (two-pass by design).
 - Hotspot listing in errors tries prop strings plus integers 0 to 99 (all 28 components covered).
-- Purity scan over-matches identifiers starting with transition/animation; the contract test's
-  cursorAt regex also matches comments.
-- `new Date` without parentheses is not caught by the purity scan.
-- Recipes: only the first recipe renders to MP4 in tests (all five are seeked in Chromium).
 
-## Left over from F1's reviews (2026-10-03; for F2)
-- tmp.test.mjs: the SIGINT test hangs (rather than fails) if the child never prints; the crash test is vacuous
-  when no dir is made (assert the `mk-tmptest-` name); the MK_KEEP_TMP test does not check exit status.
-- gallery.mjs: no `error:` / exit 2 wrapper around `gallery()` (a failure prints a stack trace and, in keep mode,
-  leaves its `mk-gallery-` dir); gallery.test's first test shares the `mk-gallery-` prefix with the leak test.
-- is_main.test: the old-guard regex matches one spelling only; no CLI test with a missing argv[1].
-- sync.mjs Save: Ctrl+C on the server orphans a running analyser (own process group; a hung one then has no
-  limit; track live groups and SIGTERM them on exit); no backstop if a setsid grandchild holds the pipe; a kill
-  between the analyser's two replaces can leave a new clip.wav and hidden `.clip.wav.*` temp files; the SIGTERM
-  test does not check song.json or the message.
-- test_analyze_song: rename `test_short_song_window_choice_is_unchanged`; the components-feedback progress band
-  (30 to 35%) could be 30 to 32%; no fade where the song really ends on an overrun; sub-ms overrun boundary untested.
-- export.test gap check: assert packet durations are finite (N/A would pass silently); use the median packet as
-  the reference; a unit test pinning `asetpts` in loudnormArgs.
+## Left over from F1's reviews (2026-10-03)
+- sync.mjs Save: no backstop if a setsid grandchild holds the pipe; a kill between the analyser's two replaces can
+  leave a new clip.wav and hidden `.clip.wav.*` temp files.
+- test_analyze_song: no fade where the song really ends on an overrun; sub-ms overrun boundary untested.
 - Plan snippets in docs/superpowers/plans/2026-10-03-hardening-f1.md are bash-only (zsh mis-splits them).
+
+## Left over from F2's reviews (2026-10-03)
+- framecheck: the "how" of a grouped issue comes from its first sample, not its worst; `got.stage` is unused; the
+  clipped, `data-overhang` and opacity paths have no tests of their own; `closest()` can match above `#shape`.
+- framecheck: importing frameIssueText loads Playwright even when the frame check is stubbed; a thrown non-Error
+  would crash check_brief's catch (it reads `e.message`).
+- framecheck: a pill whose overhang is padding only is now silent (intended); text clipped by an ancestor other
+  than `#shape` is not seen; demo 04 is clean by a manual audit only; `data-overhang` may be moot because `#shape`
+  clips its overflow anyway.
+- validate: the rushed-click rule compares target names, not positions; input's cut-off guard is untested now;
+  the "duplicate bars labels" wording reads awkwardly; a custom press-and-hold now warns (as the spec intends).
+- line-chart: a `hover` prop point is still replaced at once when the cursor aims at another point; a dip on the
+  same point could stay up.
+- line-chart: the tooltip drops when the hover prop is due under half a beat before the cursor leaves; the leave
+  fade starts at full whatever the pop reached; aiming back at the hovered point re-pops from zero (A to B to A);
+  a third switch within 0.2 beat drops the earlier outgoing tooltip abruptly; the hop test's 0.02 slack is tight.
+- badge: the same-count test reads the highest opacity (it cannot catch two bubbles at once); no tests for badge 0
+  between rows, three rows in a row, or badge to no badge; a popped bubble with no next row does not shrink as it
+  fades; a short first row jumps at the hand-over.
+- button: over-long labels (past the 1200 px cap) now clip evenly on both sides instead of off the right (a visible
+  change); no short-to-long label test; the guide's tag example is not rendered; an over-long dropdown label runs
+  past its fixed-width shape (older than F2).
+- purity scan: `transitionend`/`animationend` are no longer flagged; a redundant `\b(?!\w)`; readsCursor misses a
+  destructured cursorAt; `el.animate(` is never caught.
+- gallery exits 2 for runtime failures too (the spec says bad input); the orphan test needs pgrep/pkill; cp's own
+  stderr line prints above `error:`.
+- sync.mjs: narrow signal windows remain (the analyser exited 0 before close; the analyser not yet dead at the
+  restore; a signal during the `.bak` rename).

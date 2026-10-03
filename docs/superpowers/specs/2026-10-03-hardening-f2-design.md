@@ -35,7 +35,8 @@ Exports line. It opens the brief's tables at the design stage (as the safe-zone 
 - **Cursor leaving the frame:** the cursor's tip and drawn arrow (the box safezones.mjs already measures,
   camera zoom and cursor scale included; a hidden cursor, opacity under 0.05, does not count) reaching 1 px or
   more past any stage edge. Warning: `beats 12-13.5: the cursor goes 40 px past the right edge`.
-- **Text overflowing its shape:** any element inside `#shape` with direct text content whose box reaches 1 px
+- **Text overflowing its shape:** any element inside `#shape` with direct text content whose words' own line boxes
+  (a Range over its text nodes, not the element's box, which is often a slot as tall as the shape) reach 1 px
   or more past `#shape`'s box, or whose content is clipped inside its own box (`scrollWidth > clientWidth + 1`).
   Warning: `beat 8: button text "A very long label tha…" runs 64 px past its shape` (text cut to 24 characters).
   Elements fully transparent (computed opacity under 0.05, including ancestors' opacity) are skipped, so text
@@ -89,9 +90,8 @@ to the component's `meta.motion` where it describes the behaviour (CATALOG.md re
    count keeps the bubble and pops the number to the new value.
 4. **command continuation extending the query with `typeAt: -1`:** the rows spring to the new filter from the row's
    start, as a typed extension does, instead of snapping.
-5. **goal with a tiny target:** the rule "from or to a zero target the new target shows at once" also covers a
-   target change by more than ×10 or less than ÷10, so the percentage never reads thousands; bar and figures stay
-   in step.
+5. **goal with a tiny target:** verified no change needed: easing between two positive targets stays between the
+   two rows' percentages (the planned ×10 rule was dropped); tests pin it, bar and figure in step.
 6. **slider label long to short:** during the crossfade the old label fades out at its own width, clipped inside
    the shape: no stub of it shows past the new, shorter layout.
 
