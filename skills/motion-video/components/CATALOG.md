@@ -22,7 +22,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `ink` | the shape's text colour: a theme role or `#rrggbb`; overrides the component's own |
 | `w`, `h`, `r` | the shape's width, height and corner radius in design px (1440 stage), numbers >= 0; override the component's size |
 | `shake` | `true`: an error shake when the row arrives |
-| `badge` | a number: a count bubble on the shape's top-right corner for the row; 0 shows none |
+| `badge` | a number: a count bubble on the shape's top-right corner for the row; it stays on across consecutive badge rows, popping when the count changes; 0 shows none |
 | `hide` | cursor rows: fades the cursor out from this beat; the next row without it fades it back in; cannot press |
 
 ## Controls
