@@ -164,7 +164,7 @@ test('slider: label to no label drops the old label; no label to a label fades i
   assert.deepEqual(await labelSwap("label: 'Swing'", "label: ''"), [[], []]);
   assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: '', icon: 'none'"), [[], []]);
   assert.deepEqual(await labelSwap("label: ''", "label: 'Swing'"), [['Swing'], ['Swing']]);
-  // The previous label keeps its own row's layout; it still ends clear of this row's icon and track.
+  // The previous label keeps its own row's layout; for Swing -> Tempo it still ends clear of this row's icon and track.
   assert.deepEqual(await labelSwap("label: 'Swing', icon: 'none'", "label: 'Tempo'"), [['Swing', 'Tempo'], ['Tempo']]);
 });
 

@@ -4,7 +4,7 @@ import { el, frame, fmt, prog, landed, fade, applyFade, icon, cssRole } from '..
 export const meta = {
   name: 'goal', group: 'data',
   useWhen: 'Progress towards a target amount: a savings pot, a fundraiser, a budget.',
-  motion: 'The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it; from or to a zero target, or a change of more than ten times, the new target shows at once); a changed label crossfades.',
+  motion: 'The bar fills to saved / target over about 1.2 beats (no overshoot) while the amount and percentage count with it. Once met (`met`, or saved reaches the target) the bar turns `pos` (accent when the theme has none) and a check chip pops. A following goal row fills on from the previous amount (a changed target eases with it; from or to a zero target it changes at once); a changed label crossfades.',
   props: { label: ['string', 'Holiday fund'], saved: ['number', 2450], target: ['number', 4000], prefix: ['string', '£'], met: ['boolean', false] },
   hotspots: ['bar'],
   sounds: [],
@@ -48,10 +48,9 @@ export function render(root, p, ctx, t) {
   // A fresh row fills from nothing; a continuation from the previous amount and target. Bar and text read the
   // same eased saved/target, so they agree throughout (landed: the count ends exactly on the final figures).
   const q = landed(prog(ctx, t, ctx.t0 + (prev ? 0 : 0.15) * bs, 1.2, 1));
-  // The target eases only between two real targets within ten times of each other; from or to no target, or
-  // across a bigger jump, the new one shows at once (easing from a tiny target reads thousands of percent).
-  const ease = prev && prev.target > 0 && p.target > 0 && p.target / prev.target <= 10 && prev.target / p.target <= 10;
-  const s0 = prev ? prev.saved : 0, t0 = ease ? prev.target : p.target;
+  // The target eases only between two real targets; from or to no target the new one shows at once (easing up
+  // from 0 would divide by a tiny target and read thousands of percent).
+  const s0 = prev ? prev.saved : 0, t0 = prev && prev.target > 0 && p.target > 0 ? prev.target : p.target;
   const saved = s0 + (p.saved - s0) * q, target = t0 + (p.target - t0) * q;
   const fill = clamp(ratio(saved, target)), pct = Math.round(ratio(saved, target) * 100);
   const amount = fmt(saved, { prefix: p.prefix });

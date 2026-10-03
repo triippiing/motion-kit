@@ -305,12 +305,27 @@ test('bar-chart: a continuation after a press keeps the pressed bar highlighted'
     [...document.querySelectorAll(`.c-bar-chart[data-row="${row}"] .bc-bar`)].map((e) => [e.classList.contains('bc-hl'), e.style.background]) });
 });
 
-test('goal: a target that grows more than tenfold shows at once (no thousands of percent)', async () => {
-  await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: 2450, target: 2 }, { at: 4, use: 'goal', saved: 2450, target: 4000 }${BACK}]`, cursor: STILL }, async (s, at) => {
-    for (let b = 4; b <= 5.4; b += 0.1) {
-      await at(b);
-      const pct = Number((await text(s, '.c-goal[data-row="2"] .gl-text')).match(/(\d+)%$/)[1]);
-      assert.ok(pct <= 100, `beat ${b.toFixed(1)}: ${pct}%`);
-    }
+// A continuation between two real targets, however far apart: the shown percentage stays between the two rows'
+// own percentages (no snap to a full bar or a tiny one), and the bar agrees with the figure throughout.
+for (const [name, a, b] of [['grows twentyfold', [100, 200], [3000, 4000]], ['shrinks twentyfold', [2450, 4000], [150, 200]]]) {
+  test(`goal: a target that ${name} eases between the rows' own percentages, bar in step`, async () => {
+    await scene({ bars: 2, states: `[${REST}{ at: 2, use: 'goal', saved: ${a[0]}, target: ${a[1]} }, { at: 4, use: 'goal', saved: ${b[0]}, target: ${b[1]} }${BACK}]`, cursor: STILL }, async (s, at, bs) => {
+      const got = await s.page.evaluate(([bs]) => {
+        const out = [];
+        for (let beat = 4; beat <= 5.6 + 1e-9; beat += 0.05) {
+          window.seek(beat * bs);
+          const f = document.querySelector('.c-goal[data-row="2"] .gl-fill');
+          out.push({ beat, text: document.querySelector('.c-goal[data-row="2"] .gl-text').textContent,
+            fill: parseFloat(f.style.width) / parseFloat(f.parentElement.style.width) });
+        }
+        return out;
+      }, [bs]);
+      const pa = Math.round((a[0] / a[1]) * 100), pb = Math.round((b[0] / b[1]) * 100);
+      for (const g of got) {
+        const pct = Number(/(\d+)%$/.exec(g.text)[1]);
+        assert.ok(pct >= Math.min(pa, pb) - 1 && pct <= Math.max(pa, pb) + 1, `beat ${g.beat.toFixed(2)}: ${g.text} outside ${pa}%..${pb}%`);
+        assert.ok(Math.abs(g.fill * 100 - pct) <= 1, `beat ${g.beat.toFixed(2)}: bar ${(g.fill * 100).toFixed(1)}% vs ${g.text}`);
+      }
+    });
   });
-});
+}
