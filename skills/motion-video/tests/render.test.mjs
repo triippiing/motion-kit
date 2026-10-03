@@ -7,6 +7,7 @@ import path from 'node:path';
 import { render, openProject, shoot } from '../scripts/render.mjs';
 import { fixture, probe, grayFrame, audioSamples } from './fixtures.mjs';
 import { tempDir } from './tmp.mjs';
+import { clickTrack } from '../scripts/scaffold.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 
@@ -56,10 +57,7 @@ test('a page error fails the render', async () => {
 test('new_project.sh scaffolds and refuses to overwrite', () => {
   const root = tempDir('np-');
   const song = path.join(root, 'My Song (live).wav');
-  execFileSync('python3', ['-c', `
-import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
-from test_analyze_song import click_track
-click_track(${JSON.stringify(song)}, 120)`]);
+  clickTrack(song, 120);
   const proj = path.join(root, 'my proj');
   const script = path.join(SKILL, 'scripts', 'new_project.sh');
   execFileSync(script, [proj, song, '--bars', '4'], { stdio: 'pipe' });
@@ -72,10 +70,7 @@ click_track(${JSON.stringify(song)}, 120)`]);
 test('the template renders a preview without errors', async () => {
   const root = tempDir('tpl-');
   const song = path.join(root, 's.wav');
-  execFileSync('python3', ['-c', `
-import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
-from test_analyze_song import click_track
-click_track(${JSON.stringify(song)}, 120)`]);
+  clickTrack(song, 120);
   const proj = path.join(root, 'p');
   execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--bars', '2'], { stdio: 'pipe' });
   const out = await render(proj, { preview: true, workers: 4 });
@@ -86,10 +81,7 @@ click_track(${JSON.stringify(song)}, 120)`]);
 test('new_project.sh --size vertical --theme makes a 1080x1920 themed project', async () => {
   const root = tempDir('sz-');
   const song = path.join(root, 's.wav');
-  execFileSync('python3', ['-c', `
-import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
-from test_analyze_song import click_track
-click_track(${JSON.stringify(song)}, 120)`]);
+  clickTrack(song, 120);
   const css = path.join(root, 'app style.css');
   writeFileSync(css, ':root{--bg:#eef0f3;--panel:#fff;--ink:#161a21;--muted:#697082;--accent:#0c7d74}');
   const proj = path.join(root, 'v');
@@ -117,10 +109,7 @@ test('SFX at a fractional beat land at cue_t(floor) + frac * beat_sec', async ()
 function scaffold() {
   const root = tempDir('tp-');
   const song = path.join(root, 's.wav');
-  execFileSync('python3', ['-c', `
-import sys; sys.path.insert(0, ${JSON.stringify(path.join(SKILL, 'tests'))})
-from test_analyze_song import click_track
-click_track(${JSON.stringify(song)}, 120)`]);
+  clickTrack(song, 120);
   const proj = path.join(root, 'p');
   execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--bars', '4'], { stdio: 'pipe' });
   return proj;

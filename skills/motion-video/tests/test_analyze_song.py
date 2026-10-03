@@ -14,34 +14,7 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
-
-SR = 44100
-
-
-def click_track(path, bpm, seconds=40.0, offset=0.37, noise=0.001, hat=0.3, seed=0):
-    """Hi-hat-like click on every beat, a 55 Hz kick on each downbeat (every 4th)."""
-    rng = np.random.default_rng(seed)
-    x = np.zeros(int(seconds * SR))
-    beat = 60.0 / bpm
-    i = 0
-    while offset + i * beat < seconds - 0.3:
-        s = int((offset + i * beat) * SR)
-        n = int(0.04 * SR)
-        tt = np.arange(n) / SR
-        x[s:s + n] += hat * np.exp(-tt * 120) * rng.standard_normal(n)
-        if i % 4 == 0:
-            m = int(0.2 * SR)
-            tk = np.arange(m) / SR
-            x[s:s + m] += 0.9 * np.exp(-tk * 18) * np.sin(2 * np.pi * 55 * tk)
-        i += 1
-    x += noise * rng.standard_normal(len(x))
-    pcm = (np.clip(x, -1, 1) * 32767).astype("<i2")
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SR)
-        w.writeframes(pcm.tobytes())
-    return path
+from click_track import SR, click_track  # noqa: E402,F401  (also imported from here by older commands)
 
 
 class AnalyzeTests(unittest.TestCase):
@@ -405,6 +378,27 @@ class SyncTests(unittest.TestCase):
         song = self.song()
         self.assertNotIn("sync", song)
         self.assertNotIn("markers", song)
+
+
+class ClickTrackCliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_cli_writes_a_wav_of_the_asked_length(self):
+        out = self.tmp / "beat.wav"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "120", "--seconds", "5"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with wave.open(str(out)) as w:
+            self.assertEqual(w.getnframes(), 5 * 44100)
+
+    def test_cli_bad_bpm_is_a_clean_error(self):
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(self.tmp / "b.wav"), "0"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("error:", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
 
 
 if __name__ == "__main__":

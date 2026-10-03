@@ -110,7 +110,7 @@ lacks and keeps the house value), use `--map accent=--brand` when it picks the w
 
 No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 ```bash
-python3 -c "import sys; sys.path.insert(0, '<clone>/skills/motion-video/tests'); from test_analyze_song import click_track; click_track('beat.wav', 120, seconds=30)"
+python3 <clone>/skills/motion-video/scripts/click_track.py beat.wav 120 --seconds 30
 ```
 
 ## Syncing
@@ -277,7 +277,8 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
                                   sync.mjs (the sync page's server: GET /__sync, POST /__sync/save; reuses render.mjs serve(),
-                                  which refuses files symlinked from outside the project)
+                                  which refuses files symlinked from outside the project), click_track.py (synthetic
+                                  beat), scaffold.mjs (a project from tables on a click track; gallery + tests)
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
                                   nudge, tap tempo, meter, swing, markers, Save); tested by tests/sync-page.test.mjs
 skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
@@ -311,7 +312,7 @@ npm test          # all Node suites + Python unittest (a few minutes; renders re
 node --test skills/motion-video/tests/render.test.mjs   # one suite
 ```
 
-Tests use synthetic click tracks (`test_analyze_song.click_track`) and tiny fixture projects
+Tests use synthetic click tracks (`scripts/click_track.py`) and tiny fixture projects
 (`skills/motion-video/tests/fixtures.mjs`), so they need no song and no network except the
 template's Google Fonts request.
 
