@@ -180,6 +180,7 @@ good frame with the error in its panel; the next good save reloads. The page loa
 unseen iframe and swaps it in only once its `ready` resolves; an error only the page can see (a throw in `content`)
 keeps the old frame too, and the page POSTs it to `/__watch/page-error` so the terminal and the status have it
 until the next reload. A broken table never blanks the preview.
+Watch reads the project's components/ once, when it starts: after changing a component's props, geometry or meta, or adding one, restart watch (until then its check can report false errors and hold good saves).
 When MOTION-BRIEF.md exists, check_brief re-runs (frame check included) and prints its lines in the terminal
 (`warning:` / `error:`, then `brief OK` or `brief has N error(s)`); the page's corner panel shows the same (errors
 red, warnings amber, OK green; click to collapse; a dot when clean). `GET /__watch/status` returns

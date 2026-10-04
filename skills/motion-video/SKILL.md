@@ -307,6 +307,8 @@ exits 2 with `error: ...`.
 - Nothing is written to the project; Ctrl+C stops the server. A watcher that fails (the folder removed) prints
   `error: ...` and stops it. It is a preview: the render is still the reference.
 
+Watch reads the project's components/ once, when it starts: after changing a component's props, geometry or meta, or adding one, restart watch (until then its check can report false errors and hold good saves).
+
 ## Export
 
 ```bash
