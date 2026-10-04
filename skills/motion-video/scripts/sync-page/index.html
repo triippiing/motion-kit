@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <!-- The sync page (sync.mjs): hear the beat grid over the song beside the live animation, nudge it, tap the
-     tempo, set meter and swing, drop named markers, Save. Plain HTML, CSS and JS; the logic is in app.js. -->
+     tempo, set meter and swing, drop named markers, try, keep or dismiss the analyser's suggestions, Save. Plain HTML, CSS and JS; the logic is in app.js. -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,6 +28,7 @@
     <canvas id="overview" aria-label="The whole loop; drag the window or click to jump"></canvas>
     <div id="to-place" aria-label="Moments to place" hidden></div>
     <div id="marker-list" aria-label="Markers" hidden></div>
+    <div id="suggestions" aria-label="Suggestions" hidden></div>
     <div id="transport">
       <button id="play" class="primary" title="Play / stop (Space)"><span class="icon" aria-hidden="true"></span><span class="label">Play</span></button>
       <button id="clicks" aria-pressed="true" title="Clicks on / off (C)">Clicks on</button>

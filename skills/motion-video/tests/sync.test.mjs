@@ -343,6 +343,25 @@ test('checked_by_ear: a carried-over date is dropped when the grid changes; a ne
   assert.ok(!('checked_by_ear' in r.song.sync));
 });
 
+test('checked_by_ear: a kept tempo map or pickup is a grid change; swing and dismissed are not', async () => {
+  const dir = project();
+  const date = '2026-10-04', base = { checked_by_ear: date };
+  let r = await saveSync(dir, base);
+  assert.equal(r.song.sync.checked_by_ear, date);
+  // dismissing a suggestion, or keeping a swing, keeps the check
+  r = await saveSync(dir, { ...base, swing: 0.6, dismissed: [{ key: 'meter', value: '3/4' }] });
+  assert.equal(r.song.sync.checked_by_ear, date, JSON.stringify(r.song.sync));
+  // keeping a tempo map with the old date carried over: dropped
+  const tempo_map = [{ t: 0, bpm: 120, ramp: false }, { t: 6, bpm: 121, ramp: false }];
+  r = await saveSync(dir, { ...base, swing: 0.6, tempo_map });
+  assert.ok(!('checked_by_ear' in r.song.sync), JSON.stringify(r.song.sync));
+  // checked again, then keeping a pickup with that date carried over: dropped
+  r = await saveSync(dir, { swing: 0.6, tempo_map, checked_by_ear: date });
+  assert.equal(r.song.sync.checked_by_ear, date);
+  r = await saveSync(dir, { swing: 0.6, tempo_map, pickup_beats: 1, checked_by_ear: date });
+  assert.ok(!('checked_by_ear' in r.song.sync), JSON.stringify(r.song.sync));
+});
+
 // A stand-in for python3 that runs a shell body instead of the analyser.
 function fakePython(body) {
   const f = path.join(tempDir('mk-fakepy-'), 'python3');

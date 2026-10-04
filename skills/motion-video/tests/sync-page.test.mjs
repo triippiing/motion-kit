@@ -420,3 +420,175 @@ test('sync page: a table marker name the page cannot use is listed with a rename
   assert.equal(await page.locator('.namebox').count(), 1);
   assert.deepEqual(errors, []);
 });
+
+// ---------------- suggestions (C2b) ----------------
+
+// A project like project()'s whose beat.wav is a click track made with click_track.py's options (e.g. ['--swing',
+// '0.62']), analysed the same way, so song.json carries that suggestion.
+function suggested(bpm, seconds, flags) {
+  const dir = makeProject({ bars: 4 });
+  temps.push(path.dirname(dir));
+  const wav = path.join(path.dirname(dir), 'beat.wav');
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'click_track.py'), wav, String(bpm), '--seconds', String(seconds), ...flags], { stdio: 'pipe' });
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), wav, '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
+  return dir;
+}
+const saveAndWait = async (page, n) => {
+  await page.keyboard.press('Control+s');
+  await page.waitForFunction((n) => window.syncState.saves === n || window.syncState.error, n, { timeout: 60000 });
+  assert.equal(await page.evaluate(() => window.syncState.error), null);
+};
+
+test('sync page suggestions: swing is listed; Try previews it and toggles back; Keep + Save writes it and the item goes', async () => {
+  const dir = suggested(110, 30, ['--swing', '0.62']);
+  const sug = songOf(dir).suggestions;
+  assert.deepEqual(Object.keys(sug), ['swing']);
+  // (the brief says "swing 0.62": the detector reads this track as 0.61, within its 0.03; the label is its own value)
+  const v = sug.swing.value;
+  assert.ok(Math.abs(v - 0.62) <= 0.03, `swing ${v}`);
+  const { page, errors, state } = await open(dir);
+  const list = page.locator('#suggestions');
+  assert.ok(await list.isVisible());
+  assert.equal(await list.locator('.srow').count(), 1);
+  const row = list.locator('.srow[data-key="swing"]');
+  assert.match(await row.innerText(), new RegExp(`swing ${v.toFixed(2)}`));
+  assert.match(await row.innerText(), new RegExp(sug.swing.reason.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(await row.innerText(), /confidence/);
+
+  // Try: the clicks follow the swung grid (each beat's off-beat now clicks, at the suggested swing); nothing pending
+  // changes. (Beat clicks alone cannot change with swing, which only moves the off-beats: a swung grid clicks those too.)
+  const clicks = () => state(() => window.syncState.clickTimes.map((c) => ({ beat: c.beat, t: c.t })));
+  const straight = await state(() => JSON.stringify(window.syncState.pending));
+  const plain = await clicks();
+  assert.ok(plain.every((c) => Number.isInteger(c.beat)), 'a straight grid clicks the beats only');
+  const tryBtn = row.locator('button', { hasText: 'Try' });
+  await tryBtn.click();
+  assert.equal(await state(() => window.syncState.trying), 'swing');
+  const swung = await clicks();
+  assert.notDeepEqual(swung, plain, 'Try changes the click schedule');
+  // (each off-beat sits at swing v of the beat's grid span after the beat's own cue, as timing.js places it)
+  const g = await state(() => window.syncState.grid.beats.map((b) => ({ t: b.t, cue: b.cue_t ?? b.t })));
+  const offs = swung.filter((c) => !Number.isInteger(c.beat));
+  assert.equal(offs.length, plain.length);
+  for (const o of offs.slice(0, -1)) {
+    const i = o.beat - 0.5, f = (o.t - g[i].cue) / (g[i + 1].t - g[i].t);
+    assert.ok(Math.abs(f - v) < 1e-6, `off-beat ${o.beat} at ${f} of the beat, swing ${v}`);
+  }
+  assert.equal(await tryBtn.getAttribute('aria-pressed'), 'true');
+  assert.equal(await state(() => JSON.stringify(window.syncState.pending)), straight, 'Try saves nothing');
+  assert.equal(await state(() => window.syncState.dirty), false);
+  await tryBtn.click();
+  assert.equal(await state(() => window.syncState.trying), null);
+  assert.deepEqual(await clicks(), plain, 'Try toggles back');
+  // buttons never keep the focus: Space still plays
+  await page.keyboard.press('Space');
+  assert.equal(await state(() => window.syncState.playing), true);
+  await page.keyboard.press('Space');
+
+  // Keep: pending swing; Save writes it; the analyser no longer suggests it, so the list goes
+  await row.locator('button', { hasText: 'Keep' }).click();
+  assert.equal(await state(() => window.syncState.pending.swing), v);
+  assert.equal(await state(() => window.syncState.dirty), true);
+  await saveAndWait(page, 1);
+  const saved = songOf(dir);
+  assert.equal(saved.sync.swing, v);
+  assert.ok(!('swing' in saved.suggestions));
+  assert.ok(await list.isHidden(), 'no suggestions left: no list');
+  assert.deepEqual(errors, []);
+});
+
+test('sync page suggestions: Dismiss + Save writes dismissed; the item stays hidden after a reload', async () => {
+  const dir = suggested(150, 30, ['--meter', '3/4']);
+  const sug = songOf(dir).suggestions;
+  assert.equal(sug.meter?.value, '3/4');
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="meter"]');
+  assert.match(await row.innerText(), /meter 3\/4/);
+  // Try meter: the clicks' bars are 3 beats long
+  await row.locator('button', { hasText: 'Try' }).click();
+  const downs = await state(() => window.syncState.clickTimes.filter((c) => c.down).map((c) => c.beat));
+  assert.deepEqual(downs.slice(0, 3), [0, 3, 6]);
+  await row.locator('button', { hasText: 'Try' }).click();
+  assert.deepEqual((await state(() => window.syncState.clickTimes.filter((c) => c.down).map((c) => c.beat))).slice(0, 3), [0, 4, 8]);
+
+  await row.locator('button', { hasText: 'Dismiss' }).click();
+  assert.deepEqual(await state(() => window.syncState.pending.dismissed), [{ key: 'meter', value: '3/4' }]);
+  assert.equal(await state(() => window.syncState.pending.meter), '4/4', 'Dismiss changes no grid field');
+  await saveAndWait(page, 1);
+  const saved = songOf(dir);
+  assert.deepEqual(saved.sync.dismissed, [{ key: 'meter', value: '3/4' }]);
+  assert.ok(!('meter' in saved.suggestions));
+  await page.reload();
+  await page.waitForFunction(() => window.syncReady === true || window.syncError, null, { timeout: 30000 });
+  assert.ok(await page.locator('#suggestions').isHidden());
+  assert.equal(await page.locator('#suggestions .srow').count(), 0);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page suggestions: a tempo map is tried at its own beats; Keep + Save writes it and clears Sounds right', async () => {
+  const dir = suggested(90, 60, ['--tempo-map', '0:90,20:120']);
+  const song = songOf(dir), tm = song.suggestions.tempo_map;
+  assert.deepEqual(Object.keys(song.suggestions), ['tempo_map'], 'a tempo map is offered alone');
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="tempo_map"]');
+  assert.match(await row.innerText(), /tempo map: 90 → 120 at 0:19/);
+  await page.locator('#right').click();
+  assert.ok(await state(() => window.syncState.pending.checked_by_ear));
+  const before = await state(() => window.syncState.clickTimes.map((c) => c.t));
+  await row.locator('button', { hasText: 'Try' }).click();
+  const L = song.loop.duration_sec, start = song.loop.start_sec;
+  const want = tm.beats.map((b) => b - start).filter((t) => t >= -1e-6 && t < L - 1e-6);
+  const got = await state(() => window.syncState.clickTimes.map((c) => c.t));
+  assert.notDeepEqual(got, before);
+  assert.equal(got.length, want.length);
+  got.forEach((t, i) => assert.ok(Math.abs(t - want[i]) < 1e-5, `click ${i}: ${t} vs the map's beat ${want[i]}`));
+  await row.locator('button', { hasText: 'Try' }).click();
+  assert.deepEqual(await state(() => window.syncState.clickTimes.map((c) => c.t)), before);
+
+  await row.locator('button', { hasText: 'Keep' }).click();
+  assert.deepEqual(await state(() => window.syncState.pending.tempo_map), tm.segments);
+  assert.equal(await state(() => window.syncState.pending.checked_by_ear ?? null), null, 'keeping a tempo map clears Sounds right');
+  await saveAndWait(page, 1);
+  const saved = songOf(dir);
+  assert.deepEqual(saved.sync.tempo_map, tm.segments);
+  assert.ok(!('checked_by_ear' in saved.sync));
+  assert.ok(!('tempo_map' in saved.suggestions));
+  assert.deepEqual(errors, []);
+});
+
+test('sync page suggestions: pickup Try marks the bar after it; Keep sets pickup_beats', async () => {
+  const dir = suggested(100, 30, ['--pickup', '2']);
+  const sug = songOf(dir).suggestions;
+  assert.equal(sug.pickup?.beats, 2);
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="pickup"]');
+  assert.match(await row.innerText(), /pickup: 2 beats/);
+  await row.locator('button', { hasText: 'Try' }).click();
+  assert.deepEqual((await state(() => window.syncState.clickTimes.filter((c) => c.down).map((c) => c.beat))).slice(0, 2), [2, 6]);
+  await row.locator('button', { hasText: 'Try' }).click();
+  await row.locator('button', { hasText: 'Keep' }).click();
+  assert.equal(await state(() => window.syncState.pending.pickup_beats), 2);
+  await saveAndWait(page, 1);
+  assert.equal(songOf(dir).sync.pickup_beats, 2);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: Save carries the sync fields the page does not edit (tempo_map, pickup_beats, dismissed)', async () => {
+  const dir = project();
+  const s = songOf(dir);
+  const extra = { tempo_map: [{ t: 0, bpm: 120, ramp: false }, { t: 6, bpm: 121, ramp: false }], pickup_beats: 1,
+    dismissed: [{ key: 'swing', value: 0.6 }] };
+  s.sync = { ...(s.sync ?? {}), ...extra };
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify(s, null, 2));
+  const { page, errors, state } = await open(dir);
+  assert.ok(await page.locator('#suggestions').isHidden(), 'no suggestions: no list');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await state(() => window.syncState.dirty), true);
+  await saveAndWait(page, 1);
+  const saved = songOf(dir).sync;
+  assert.equal(saved.nudge_ms, -5);
+  assert.deepEqual(saved.tempo_map, extra.tempo_map);
+  assert.equal(saved.pickup_beats, 1);
+  assert.deepEqual(saved.dismissed, extra.dismissed);
+  assert.deepEqual(errors, []);
+});

@@ -146,11 +146,12 @@ async function doSave(root, sync, python, timeoutMs) {
   return { song: JSON.parse(await readFile(songFile, 'utf8')) };
 }
 
-// A backstop for the page: a grid change (nudge_ms, bpm or meter) that carries over the stored checked_by_ear
-// unchanged drops it, since the old check was of the old grid. A new date (a fresh "Sounds right") is kept.
+// A backstop for the page: a grid change (nudge_ms, bpm, meter, tempo_map or pickup_beats) that carries over the
+// stored checked_by_ear unchanged drops it, since the old check was of the old grid. A new date (a fresh "Sounds
+// right") is kept. Swing, markers and dismissed suggestions are not the grid.
 function staleCheck(stored, posted) {
   const was = stored && typeof stored === 'object' ? stored : {};
-  const grid = (s) => [s.nudge_ms ?? 0, s.bpm ?? null, s.meter ?? '4/4'];
+  const grid = (s) => [s.nudge_ms ?? 0, s.bpm ?? null, s.meter ?? '4/4', JSON.stringify(s.tempo_map ?? null), s.pickup_beats ?? 0];
   const changed = grid(was).some((v, i) => v !== grid(posted)[i]);
   if (!changed || !('checked_by_ear' in posted) || posted.checked_by_ear !== was.checked_by_ear) return posted;
   const { checked_by_ear, ...rest } = posted;
