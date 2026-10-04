@@ -68,6 +68,16 @@ test('Save round trip: 200 with the new song, .bak holds the old song.json, clip
   assert.notEqual(statSync(path.join(dir, 'clip.wav')).mtimeMs, clipMtime);
 });
 
+test('Save keeps a loop that starts from the song\'s start (--from-start) there', async () => {
+  const dir = makeProject({ bars: 2 });
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'),
+    '--out', dir, '--bars', '2', '--from-start'], { stdio: 'pipe' });
+  const was = song(dir).loop;
+  assert.equal(was.from_start, true);
+  await saveSync(dir, { swing: 0.6 });
+  assert.deepEqual(song(dir).loop, was);
+});
+
 test('an invalid sync is a 400 with the analyser\'s message, and nothing changes', async () => {
   const dir = project();
   const { url } = await serveProject(dir);
@@ -331,6 +341,25 @@ test('checked_by_ear: a carried-over date is dropped when the grid changes; a ne
   // a meter or bpm change with the stored date: dropped
   r = await saveSync(dir, { swing: 0.6, nudge_ms: -20, meter: '3/4', checked_by_ear: '2026-10-01' });
   assert.ok(!('checked_by_ear' in r.song.sync));
+});
+
+test('checked_by_ear: a kept tempo map or pickup is a grid change; swing and dismissed are not', async () => {
+  const dir = project();
+  const date = '2026-10-04', base = { checked_by_ear: date };
+  let r = await saveSync(dir, base);
+  assert.equal(r.song.sync.checked_by_ear, date);
+  // dismissing a suggestion, or keeping a swing, keeps the check
+  r = await saveSync(dir, { ...base, swing: 0.6, dismissed: [{ key: 'meter', value: '3/4' }] });
+  assert.equal(r.song.sync.checked_by_ear, date, JSON.stringify(r.song.sync));
+  // keeping a tempo map with the old date carried over: dropped
+  const tempo_map = [{ t: 0, bpm: 120, ramp: false }, { t: 6, bpm: 121, ramp: false }];
+  r = await saveSync(dir, { ...base, swing: 0.6, tempo_map });
+  assert.ok(!('checked_by_ear' in r.song.sync), JSON.stringify(r.song.sync));
+  // checked again, then keeping a pickup with that date carried over: dropped
+  r = await saveSync(dir, { swing: 0.6, tempo_map, checked_by_ear: date });
+  assert.equal(r.song.sync.checked_by_ear, date);
+  r = await saveSync(dir, { swing: 0.6, tempo_map, pickup_beats: 1, checked_by_ear: date });
+  assert.ok(!('checked_by_ear' in r.song.sync), JSON.stringify(r.song.sync));
 });
 
 // A stand-in for python3 that runs a shell body instead of the analyser.

@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -14,7 +15,27 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
-from click_track import SR, click_track  # noqa: E402,F401  (also imported from here by older commands)
+import song_suggest as S  # noqa: E402
+from click_track import SR, beat_times, click_track  # noqa: E402,F401  (also imported from here by older commands)
+
+# sha256 of click_track(path, 120, seconds=10) from click_track.py on main before C2b (defaults must stay byte-identical)
+# main before C2b: the last commit before this sub-project first changed analyze_song.py (the parity reference)
+PRE_C2B = "f762389d5eb156aacafa2c02b5724d3ae9bbb5ae"
+KNOWN_120_10S = "9d2ba13dd3a29f5309b955ac6acb6b23bafbf845ccbd293857d04fc13ef7bc70"
+
+
+def pickup_into_a_silent_downbeat(path, bpm=100, offset=2.9, seconds=30):
+    """A silent first bar, two pickup beats, then a downbeat with no onset (a rest on the 1), then the groove: Tease
+    Me's opening. Returns (path, the pickup's first beat, the silent downbeat) in song seconds."""
+    click_track(path, bpm, seconds=seconds, offset=offset, pickup=2)
+    with wave.open(str(path)) as w:
+        params, x = w.getparams(), np.frombuffer(w.readframes(w.getnframes()), "<i2").copy()
+    down = offset + 2 * 60 / bpm
+    x[int((down - 0.01) * params.framerate):int((down + 0.3) * params.framerate)] = 0
+    with wave.open(str(path), "wb") as w:
+        w.setparams(params)
+        w.writeframes(x.tobytes())
+    return str(path), offset, down
 
 
 class AnalyzeTests(unittest.TestCase):
@@ -418,6 +439,342 @@ class SyncTests(unittest.TestCase):
         self.assertNotIn("markers", song)
 
 
+class SuggestionTests(unittest.TestCase):
+    """C2b Task 4: the analyser writes `suggestions` (never applied by itself) and applies the new sync fields."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        t = cls.tmp
+        cls.straight = str(click_track(t / "straight.wav", 120, seconds=30))
+        cls.swing = str(click_track(t / "swing.wav", 110, seconds=30, swing=0.62))
+        cls.three = str(click_track(t / "three.wav", 150, seconds=30, meter="3/4"))
+        cls.pickup = str(click_track(t / "pickup.wav", 100, seconds=30, offset=0.5, pickup=2))
+        cls.step_map = [(0, 90, False), (20, 120, False)]
+        cls.step = str(click_track(t / "step.wav", 90, seconds=60, tempo_map=cls.step_map))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp(dir=self.tmp))
+
+    def run_main(self, wav, *args, sync=None):
+        if sync is not None:
+            (self.d / "song.json").write_text(json.dumps({"sync": sync}))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            try:
+                code = A.main([wav, "--out", str(self.d), *args])
+            except SystemExit as e:
+                code = e.code
+        return code, err.getvalue()
+
+    def song(self):
+        return json.loads((self.d / "song.json").read_text())
+
+    def test_straight_track_gets_no_suggestions(self):
+        self.assertEqual(A.analyze(self.straight, bars=2)["suggestions"], {})
+
+    def test_each_case_is_suggested_and_written(self):
+        cases = [(self.swing, "swing", lambda s: abs(s["value"] - 0.62) <= 0.03),
+                 (self.three, "meter", lambda s: s["value"] == "3/4"),
+                 (self.pickup, "pickup", lambda s: s["beats"] == 2),
+                 (self.step, "tempo_map", lambda s: len(s["segments"]) == 2 and isinstance(s["beats"], list))]
+        for wav, key, ok in cases:
+            with self.subTest(key=key):
+                # through main(), so the suggestions are written as JSON (no numpy scalars)
+                code, err = self.run_main(wav, "--bars", "2")
+                self.assertEqual(code, 0, err)
+                sug = self.song()["suggestions"]
+                self.assertIn(key, sug)
+                self.assertTrue(ok(sug[key]), sug[key])
+                self.assertTrue(0 <= sug[key]["confidence"] <= 1)
+                self.assertIsInstance(sug[key]["reason"], str)
+                self.assertNotIn("sync", self.song())   # suggestions only: nothing is applied
+
+    def test_dismissed_hides_the_same_value_and_shows_a_changed_one(self):
+        v = A.analyze(self.swing, bars=2)["suggestions"]["swing"]["value"]
+        same = A.analyze(self.swing, bars=2, sync={"dismissed": [{"key": "swing", "value": v}]})
+        self.assertNotIn("swing", same["suggestions"])
+        other = A.analyze(self.swing, bars=2, sync={"dismissed": [{"key": "swing", "value": round(v + 0.05, 2)}]})
+        self.assertIn("swing", other["suggestions"])
+        m = A.analyze(self.three, bars=2)["suggestions"]["meter"]["value"]
+        self.assertNotIn("meter", A.analyze(self.three, bars=2,
+                                            sync={"dismissed": [{"key": "meter", "value": m}]})["suggestions"])
+
+    def test_a_kept_suggestion_is_not_suggested_again(self):
+        v = A.analyze(self.swing, bars=2)["suggestions"]["swing"]["value"]
+        self.assertNotIn("swing", A.analyze(self.swing, bars=2, sync={"swing": v})["suggestions"])
+        self.assertNotIn("swing", A.analyze(self.swing, bars=2, sync={"swing": v + 0.02})["suggestions"])
+        self.assertIn("swing", A.analyze(self.swing, bars=2, sync={"swing": 0.7})["suggestions"])
+        self.assertNotIn("meter", A.analyze(self.three, bars=2, sync={"meter": "3/4"})["suggestions"])
+        self.assertNotIn("pickup", A.analyze(self.pickup, bars=2, sync={"pickup_beats": 2})["suggestions"])
+        segs = A.analyze(self.step, bars=2)["suggestions"]["tempo_map"]["segments"]
+        self.assertNotIn("tempo_map", A.analyze(self.step, bars=2, sync={"tempo_map": segs})["suggestions"])
+
+    def test_a_tempo_map_suggestion_holds_back_the_grid_detectors(self):
+        # meter, swing and pickup measured on a single grid the tempo map says is wrong are not offered
+        sug = A.analyze(self.step, bars=2)["suggestions"]
+        self.assertEqual(set(sug), {"tempo_map"}, sug)
+        tm = sug["tempo_map"]
+        calls = []
+        real = S.detect_pickup
+        try:
+            S.detect_pickup = lambda *a, **k: calls.append(1) or real(*a, **k)
+            dismissed = A.analyze(self.step, bars=2,
+                                  sync={"dismissed": [{"key": "tempo_map", "value": tm["segments"]}]})["suggestions"]
+        finally:
+            S.detect_pickup = real
+        self.assertNotIn("tempo_map", dismissed)
+        self.assertTrue(calls, "dismissing the map runs the other detectors again")
+        kept = A.analyze(self.step, bars=2, sync={"tempo_map": tm["segments"]})["suggestions"]
+        self.assertNotIn("tempo_map", kept)
+        self.assertNotIn("pickup", kept)   # measured on the map grid: no false pickup
+
+    def test_a_dismissed_6_8_no_longer_hides_swing(self):   # final review
+        six = str(click_track(self.tmp / "six.wav", 60, seconds=30, meter="6/8"))
+        self.assertEqual(A.analyze(six, bars=2, sync={"bpm": 60})["suggestions"]["meter"]["value"], "6/8")
+        calls = []
+        real = S.detect_swing
+        try:
+            S.detect_swing = lambda *a, **k: calls.append(1) or real(*a, **k)
+            A.analyze(six, bars=2, sync={"bpm": 60})
+            self.assertEqual(calls, [], "a 6/8 suggestion hides swing (its thirds read as swing)")
+            A.analyze(six, bars=2, sync={"bpm": 60, "dismissed": [{"key": "meter", "value": "6/8"}]})
+            self.assertEqual(calls, [1], "once 6/8 is dismissed, swing is measured again")
+            calls.clear()
+            A.analyze(six, bars=2, sync={"bpm": 60, "meter": "6/8"})
+            self.assertEqual(calls, [], "a kept 6/8 hides swing")
+        finally:
+            S.detect_swing = real
+
+    def test_bad_new_sync_values_exit_2(self):
+        ok = [{"t": 0, "bpm": 90, "ramp": False}, {"t": 20, "bpm": 120, "ramp": False}]
+        bad = [
+            ({"tempo_map": "fast"}, "tempo_map"),
+            ({"tempo_map": []}, "tempo_map"),
+            ({"tempo_map": [{"t": 1, "bpm": 90}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], {"t": 20, "bpm": 300, "ramp": False}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], {"t": 20, "bpm": 30}]}, "tempo_map"),
+            ({"tempo_map": [ok[1] | {"t": 0}, ok[0] | {"t": 0}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], {"t": 20, "bpm": 120}, {"t": 10, "bpm": 100}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], {"t": 20, "bpm": 120, "ramp": "yes"}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], {"t": "x", "bpm": 120}]}, "tempo_map"),
+            ({"tempo_map": [ok[0], 7]}, "tempo_map"),
+            ({"pickup_beats": 4}, "pickup_beats"),
+            ({"pickup_beats": 3, "meter": "3/4"}, "pickup_beats"),
+            ({"pickup_beats": -1}, "pickup_beats"),
+            ({"pickup_beats": 1.5}, "pickup_beats"),
+            ({"pickup_beats": True}, "pickup_beats"),
+            ({"dismissed": "swing"}, "dismissed"),
+            ({"dismissed": ["swing"]}, "dismissed"),
+            ({"dismissed": [{"key": "tempo", "value": 1}]}, "dismissed"),
+            ({"dismissed": [{"key": "swing"}]}, "dismissed"),
+        ]
+        for sync, word in bad:
+            with self.subTest(sync=sync):
+                code, err = self.run_main(self.straight, "--bars", "2", sync=sync)
+                self.assertEqual(code, 2, err)
+                self.assertTrue(err.startswith("error:"), err)
+                self.assertIn(word, err)
+                self.assertNotIn("Traceback", err)
+
+    def test_tempo_map_grid_follows_the_map_and_keeps_markers(self):
+        segs = A.analyze(self.step, bars=2)["suggestions"]["tempo_map"]["segments"]
+        markers = [{"name": "change", "t": 20.0}, {"name": "early", "t": 3.21}]
+        code, err = self.run_main(self.step, "--bars", "4", "--start-near", "17",
+                                  sync={"tempo_map": segs, "markers": markers})
+        self.assertEqual(code, 0, err)
+        song = self.song()
+        # (final review) a mapped loop's bpm is its own mean beat, not the first segment's
+        self.assertAlmostEqual(song["beat_sec"], song["loop"]["duration_sec"] / len(song["beats"]), places=9)
+        beats = song["beats"]
+        start = song["loop"]["start_sec"]
+        self.assertLess(start, 20.0)
+        self.assertGreater(start + beats[-1]["t"], 20.0)   # the loop crosses the step
+        clicks = np.array(beat_times(90, 60.0, tempo_map=self.step_map))
+        near = [int(np.argmin(np.abs(clicks - (start + b["t"])))) for b in beats]
+        self.assertEqual(near, list(range(near[0], near[0] + len(beats))), "one grid beat per click")
+        for a, b, k in zip(beats, beats[1:], near):
+            want = clicks[k + 1] - clicks[k]
+            self.assertLessEqual(abs((b["t"] - a["t"]) / want - 1), 0.02, (a, b, want))
+        for b in beats:
+            self.assertEqual(b["cue_t"], b["t"])   # an ear-set grid
+        last = beats[-1]["t"] + (beats[-1]["t"] - beats[-2]["t"])
+        self.assertAlmostEqual(song["loop"]["duration_sec"], last, delta=1e-3)
+        self.assertAlmostEqual(song["loop"]["frame_dt"] * song["loop"]["frames"], song["loop"]["duration_sec"],
+                               places=9)
+        # markers stay in song time (Review Focus 3); their loop time follows the new loop start
+        by = {m["name"]: m for m in song["markers"]}
+        for m in markers:
+            self.assertEqual(by[m["name"]]["song_t"], m["t"])
+            self.assertAlmostEqual(by[m["name"]]["t"], m["t"] - start, places=6)
+        self.assertTrue(by["change"]["in_loop"])
+        self.assertFalse(by["early"]["in_loop"])
+        self.assertEqual(song["sync"]["tempo_map"], segs)
+
+    def test_pickup_beats_number_bars_from_the_downbeat_with_from_start(self):
+        code, err = self.run_main(self.pickup, "--bars", "2", "--from-start", sync={"pickup_beats": 2})
+        self.assertEqual(code, 0, err)
+        song = self.song()
+        beats = song["beats"]
+        self.assertEqual(len(beats), 2 + 2 * 4)
+        self.assertEqual([b["bar"] for b in beats], [-1, -1, 0, 0, 0, 0, 1, 1, 1, 1])
+        self.assertEqual([b["beat_in_bar"] for b in beats], [2, 3, 0, 1, 2, 3, 0, 1, 2, 3])
+        # beat 0 is the first pickup beat: the first click (0.5 s), within a frame of the analyser's ~13 ms bias
+        self.assertLess(abs(song["loop"]["start_sec"] - 0.5), 1 / 60 + 0.015, song["loop"]["start_sec"])
+        self.assertTrue(song["loop"]["from_start"])
+        self.assertAlmostEqual(song["loop"]["duration_sec"], 10 * song["beat_sec"], places=9)
+        self.assertEqual(beats[0]["t"], 0.0)
+
+    def test_from_start_without_a_pickup_starts_on_the_first_downbeat(self):
+        code, err = self.run_main(self.straight, "--bars", "2", "--start-bar", "0")
+        self.assertEqual(code, 0, err)
+        bar0 = self.song()["loop"]
+        self.assertNotIn("from_start", bar0)
+        code, err = self.run_main(self.straight, "--bars", "2", "--from-start")
+        self.assertEqual(code, 0, err)
+        loop = self.song()["loop"]
+        self.assertTrue(loop.pop("from_start"))
+        self.assertEqual(loop, bar0)
+        self.assertEqual([b["bar"] for b in self.song()["beats"][:4]], [0, 0, 0, 0])
+        # pickup_beats without --from-start leaves the loop on whole bars
+        code, err = self.run_main(self.pickup, "--bars", "2", "--start-bar", "1", sync={"pickup_beats": 2})
+        self.assertEqual(code, 0, err)
+        self.assertEqual([b["bar"] for b in self.song()["beats"]], [0] * 4 + [1] * 4)
+        for flags in (("--start-bar", "1"), ("--start-near", "3")):
+            with self.subTest(flags=flags):
+                code, err = self.run_main(self.straight, "--bars", "2", "--from-start", *flags)
+                self.assertEqual(code, 2, err)
+                self.assertIn("error:", err)
+
+    def test_from_start_never_skips_the_first_audible_bar(self):   # Task 7, problem C
+        wav, first, down = pickup_into_a_silent_downbeat(self.tmp / "rest.wav")
+        code, err = self.run_main(wav, "--bars", "2", "--from-start")
+        self.assertEqual(code, 0, err)
+        song = self.song()
+        # the bar starts on the silent downbeat after the pickup, not a bar later
+        self.assertLess(abs(song["loop"]["start_sec"] - down), 1 / 60 + 0.015, song["loop"]["start_sec"])
+        self.assertEqual(song["suggestions"]["pickup"]["beats"], 2, song["suggestions"])
+        code, err = self.run_main(wav, "--bars", "2", "--from-start", sync={"pickup_beats": 2})
+        self.assertEqual(code, 0, err)
+        self.assertLess(abs(self.song()["loop"]["start_sec"] - first), 1 / 60 + 0.015, self.song()["loop"])
+
+    def test_no_pickup_when_the_first_beat_is_at_the_file_start(self):   # final review
+        # the first click within ~40 ms of the file start has no onset in the envelope (no frame before it), so the
+        # grid starts a beat later; the audio before that beat is unknown, not silent, and is not a pickup's silence
+        for offset in (0.0, 0.01, 0.03, 0.06, 0.1):
+            with self.subTest(offset=offset):
+                wav = str(click_track(self.tmp / f"edge{offset}.wav", 120, seconds=30, offset=offset))
+                code, err = self.run_main(wav, "--bars", "2", "--from-start")
+                self.assertEqual(code, 0, err)
+                song = self.song()
+                self.assertEqual(song["suggestions"], {})
+                # (a guard: --from-start already started on bar 0 before this fix; a kept false pickup relabelled it)
+                self.assertEqual(song["loop"]["start_bar"], 0)
+                self.assertEqual(song["beats"][0]["bar"], 0)
+                self.assertEqual(song["beats"][0]["beat_in_bar"], 0)
+
+    def test_same_song_json_as_main_without_the_new_fields(self):
+        """The analyser on main before C2b (PRE_C2B) and this one write the same song.json, but for `suggestions`."""
+        repo = SCRIPTS.parent.parent.parent
+        r = subprocess.run(["git", "-C", str(repo), "show", f"{PRE_C2B}:skills/motion-video/scripts/analyze_song.py"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"cannot read the pre-C2b analyser ({PRE_C2B}) from git, which this parity "
+                                          f"test needs (a full clone of the repo): {r.stderr.strip()}")
+        old = self.tmp / "old"
+        old.mkdir(exist_ok=True)
+        (old / "analyze_song.py").write_text(r.stdout)
+        sync = {"nudge_ms": -12, "swing": 0.6, "meter": "4/4", "markers": [{"name": "drop", "t": 9.5, "note": "x"}],
+                "checked_by_ear": "2026-10-01"}
+        runs = [(self.straight, ("--bars", "4"), None), (self.swing, ("--bars", "3", "--start-near", "6"), None),
+                (self.three, ("--bars", "2", "--start-bar", "2"), {"meter": "3/4", "bpm": 150}),
+                (self.straight, ("--bars", "2"), sync)]
+        for wav, args, s in runs:
+            with self.subTest(wav=Path(wav).name, args=args, sync=s):
+                got = {}
+                for name, script in (("old", old / "analyze_song.py"), ("new", SCRIPTS / "analyze_song.py")):
+                    d = self.tmp / f"parity-{name}"
+                    shutil.rmtree(d, ignore_errors=True)
+                    d.mkdir()
+                    if s is not None:
+                        (d / "song.json").write_text(json.dumps({"sync": s}))
+                    p = subprocess.run([sys.executable, str(script), wav, "--out", str(d), *args],
+                                       capture_output=True, text=True)
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                    got[name] = json.loads((d / "song.json").read_text())
+                self.assertIn("suggestions", got["new"])
+                got["new"].pop("suggestions")
+                self.assertEqual(got["new"], got["old"])
+
+
+class KeptTempoMapTests(unittest.TestCase):
+    """Final review: a tempo map kept as the analyser suggested it (analyse, copy suggestions.tempo_map.segments into
+    sync.tempo_map, re-analyse), never a hand-written map."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.cases = {}
+        for name, tm in (("80-140", [(0, 80, False), (30, 140, False)]),
+                         ("110-88-132", [(0, 110, False), (15, 88, False), (30, 132, False)])):
+            wav = str(click_track(cls.tmp / f"{name}.wav", tm[0][1], seconds=60, tempo_map=tm))
+            segs = A.analyze(wav, bars=2)["suggestions"]["tempo_map"]["segments"]
+            cls.cases[name] = (wav, tm, segs)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp(dir=self.tmp))
+
+    def run_main(self, wav, *args, sync=None):
+        (self.d / "song.json").write_text(json.dumps({"sync": sync}))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = A.main([wav, "--out", str(self.d), *args])
+        self.assertEqual(code, 0, err.getvalue())
+        return json.loads((self.d / "song.json").read_text())
+
+    def test_the_kept_map_grid_has_one_beat_per_click(self):
+        for name, (wav, tm, segs) in self.cases.items():
+            with self.subTest(name=name, segments=segs):
+                full, low, _, _ = A.envelopes(A.decode(wav))
+                grid = A.beat_grid(full, low, {"tempo_map": segs})["times"]
+                clicks = np.array(beat_times(tm[0][1], 60, tempo_map=tm))
+                missed = [round(c, 3) for c in clicks if np.min(np.abs(grid - c)) > 0.03]
+                # beats past the last click (the track stops 0.3 s early) are not extra: the grid runs to the end
+                inside = grid[(grid > clicks[0] - 0.1) & (grid < clicks[-1] + 0.1)]
+                extra = [round(t, 3) for t in inside if np.min(np.abs(clicks - t)) > 0.03]
+                self.assertEqual((missed, extra), ([], []))
+
+    def test_tempo_and_rules_come_from_the_loop_not_the_first_segment(self):
+        wav, tm, segs = self.cases["80-140"]
+        song = self.run_main(wav, "--bars", "4", "--start-near", "45", sync={"tempo_map": segs})
+        self.assertGreater(song["loop"]["start_sec"], segs[1]["t"])   # the loop is in the 140 BPM segment
+        ts = [b["t"] for b in song["beats"]]
+        gap = float(np.median(np.diff(ts)))
+        self.assertLessEqual(abs(song["beat_sec"] / gap - 1), 0.02, (song["beat_sec"], gap))
+        self.assertAlmostEqual(song["beat_sec"], song["loop"]["duration_sec"] / len(song["beats"]), places=9)
+        self.assertAlmostEqual(song["bpm"], 60 / song["beat_sec"], places=3)
+        self.assertAlmostEqual(song["rules"]["spring"]["settle_sec"], round(0.6 * song["beat_sec"], 4))
+        self.assertEqual(song["rules"]["min_hold_beats"], 3)   # 1 s at 140 BPM, not 2 beats at 80
+        self.assertFalse(any("below the 100" in w for w in song["rules"]["warnings"]), song["rules"]["warnings"])
+
+    def test_downbeats_land_on_the_kicks(self):
+        wav, tm, segs = self.cases["80-140"]
+        song = self.run_main(wav, "--bars", "2", "--start-bar", "2", sync={"tempo_map": segs})
+        kicks = np.array(beat_times(80, 60, tempo_map=tm))[::4]
+        start = song["loop"]["start_sec"]
+        downs = [start + b["t"] for b in song["beats"] if b["beat_in_bar"] == 0]
+        self.assertEqual(len(downs), 2)
+        for t in downs:
+            self.assertLess(np.min(np.abs(kicks - t)), 0.03, (t, downs))
+
+
 class ClickTrackCliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -447,6 +804,74 @@ class ClickTrackCliTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("error:", r.stderr)
                 self.assertNotIn("Traceback", r.stderr)
+
+
+class ClickTrackShapeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_defaults_are_unchanged(self):
+        a = (self.tmp / "a.wav"); b = (self.tmp / "b.wav")
+        click_track(a, 120, seconds=10); click_track(b, 120, seconds=10, tempo_map=None, swing=0.5, meter="4/4", pickup=0)
+        self.assertEqual(a.read_bytes(), b.read_bytes())
+        self.assertEqual(hashlib.sha256(a.read_bytes()).hexdigest(), KNOWN_120_10S)  # computed once on main, pasted here
+
+    def test_beat_times_follow_the_tempo_map(self):
+        t = beat_times(90, 40, tempo_map=[(0, 90, False), (20, 120, False)])
+        gaps = np.diff(t)
+        self.assertAlmostEqual(gaps[0], 60 / 90, places=6)
+        self.assertAlmostEqual(gaps[-1], 60 / 120, places=6)
+        r = beat_times(100, 40, tempo_map=[(0, 100, False), (20, 100, False), (30, 120, True)])
+        g = np.diff(r)
+        self.assertTrue(all(g[i] >= g[i + 1] - 1e-9 for i in range(len(g) - 1)), "a ramp up only shortens the gaps")
+
+    def test_cli_options(self):
+        out = self.tmp / "s.wav"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "100", "--seconds", "12",
+                            "--swing", "0.62", "--meter", "3/4", "--pickup", "2", "--tempo-map", "0:100,6:110r"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        bad = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "100", "--meter", "5/4"], capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2); self.assertNotIn("Traceback", bad.stderr)
+
+    # -- beyond the brief: the shapes later detector tests rely on --
+
+    def _read(self, path):
+        with wave.open(str(path)) as w:
+            return np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float) / 32767
+
+    def _kick(self, x, t):
+        """55 Hz content in the 0.1 s after t (the hat is broadband noise, so this is ~0 without a kick)."""
+        s = int(t * SR); n = int(0.1 * SR)
+        return abs(np.dot(x[s:s + n], np.sin(2 * np.pi * 55 * np.arange(n) / SR))) / n
+
+    def _energy(self, x, t):
+        s = int(t * SR); return float(np.sum(x[s:s + int(0.02 * SR)] ** 2))
+
+    def test_kicks_follow_meter_and_pickup(self):
+        for meter, every, pickup in (("4/4", 4, 0), ("3/4", 3, 2), ("6/8", 2, 1)):
+            with self.subTest(meter=meter, pickup=pickup):
+                x = self._read(click_track(self.tmp / "m.wav", 100, seconds=12, meter=meter, pickup=pickup))
+                beats = beat_times(100, 12)
+                kicked = [i for i, b in enumerate(beats) if self._kick(x, b) > 0.1]
+                self.assertEqual(kicked, [i for i in range(len(beats)) if i >= pickup and (i - pickup) % every == 0])
+
+    def test_swing_and_compound_hats_land_inside_the_beat(self):
+        beats = beat_times(100, 12); iv = 60 / 100
+        plain = self._read(click_track(self.tmp / "p.wav", 100, seconds=12))
+        swung = self._read(click_track(self.tmp / "s.wav", 100, seconds=12, swing=0.62))
+        six = self._read(click_track(self.tmp / "e.wav", 100, seconds=12, meter="6/8"))
+        for b in beats[1:-1]:
+            self.assertLess(self._energy(plain, b + 0.62 * iv), 1e-3)
+            self.assertGreater(self._energy(swung, b + 0.62 * iv), 0.05)
+            for frac in (1 / 3, 2 / 3):
+                self.assertGreater(self._energy(six, b + frac * iv), 0.05)
+
+    def test_bad_shapes_are_rejected(self):
+        for kw in ({"meter": "5/4"}, {"pickup": 4}, {"pickup": 2, "meter": "6/8"}, {"swing": 0.4},
+                   {"tempo_map": [(1, 100, False)]}, {"tempo_map": [(0, 100, False), (0, 120, False)]}):
+            with self.subTest(**{k: str(v) for k, v in kw.items()}):
+                with self.assertRaises(ValueError):
+                    click_track(self.tmp / "x.wav", 100, seconds=5, **kw)
 
 
 if __name__ == "__main__":

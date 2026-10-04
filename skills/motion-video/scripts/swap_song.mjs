@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // swap_song.mjs -- one step to put a new song on a project: back up, clear the old sync, re-analyse, report.
 //
-//   node swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC] [--no-open] [--port N]
+//   node swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC | --from-start] [--no-open] [--port N]
 //
 // Copies song.json, clip.wav and .source.json (those present) to DIR/.swap-backup/<YYYYMMDD-HHMMSS>/, lists the
 // marker names the tables use (they still need placing on the new song), removes `sync` from song.json (its nudge,
 // tempo, meter, swing and markers were set by ear against the old song) and runs analyze_song.py on NEWSONG with the
-// project's bars (or --bars) and fps, which rewrites song.json, clip.wav and .source.json. If the analyser fails the
+// project's bars (or --bars) and fps (and --start-bar, --start-near or --from-start), which rewrites song.json, clip.wav and .source.json. If the analyser fails the
 // backup is put back and the project is as it was. The tables are never edited.
 // Then it prints the report (tempo, loop, the loop window's start bar and how to keep the old one, names to place)
 // and, unless --no-open, runs `node sync.mjs DIR [--port N]` in the foreground (its own output, browser opening and
@@ -23,7 +23,7 @@ const HERE = import.meta.dirname;
 const ANALYSER = path.join(HERE, 'analyze_song.py');
 const SYNC = path.join(HERE, 'sync.mjs');
 const FILES = ['song.json', 'clip.wav', '.source.json'];
-const USAGE = 'usage: swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC] [--no-open] [--port N]';
+const USAGE = 'usage: swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC | --from-start] [--no-open] [--port N]';
 
 // A swap whose analyser has not finished ({ root, backup, pgid }), so the CLI can stop the analyser and put the
 // backup back when it is interrupted.
@@ -103,7 +103,7 @@ function budget(root, song) {
 // bars, startBar },
 // toPlace, budget, backup }. Bad input (no project, no song, both start options, the analyser's exit 2) throws
 // UsageError; any other analyser failure throws Error. On either the project is as it was.
-export async function swapSong(dir, song, { bars, startBar, startNear, python = 'python3' } = {}) {
+export async function swapSong(dir, song, { bars, startBar, startNear, fromStart = false, python = 'python3' } = {}) {
   const root = path.resolve(dir), songFile = path.join(root, 'song.json');
   if (!(await stat(songFile).then((s) => s.isFile(), () => false))) {
     throw new UsageError(`${root} is not a motion-video project (no song.json); make one with new_project.sh`);
@@ -112,6 +112,7 @@ export async function swapSong(dir, song, { bars, startBar, startNear, python = 
   const readable = song != null && await stat(abs).then((s) => s.isFile(), () => false) && await access(abs, constants.R_OK).then(() => true, () => false);
   if (!readable) throw new UsageError(`${song}: no such file, or not readable`);
   if (startBar != null && startNear != null) throw new UsageError('pass --start-bar or --start-near, not both');
+  if (fromStart && (startBar != null || startNear != null)) throw new UsageError('pass --from-start, --start-bar or --start-near, not two of them');
   let current;
   try { current = JSON.parse(await readFile(songFile, 'utf8')); } catch {
     throw new UsageError(`${songFile} is not valid JSON; run analyze_song.py for this project first`);
@@ -134,6 +135,7 @@ export async function swapSong(dir, song, { bars, startBar, startNear, python = 
     if (current.fps > 0) args.push('--fps', String(current.fps));
     if (startBar != null) args.push('--start-bar', String(startBar));
     if (startNear != null) args.push('--start-near', String(startNear));
+    if (fromStart) args.push('--from-start');
     const r = await run(python, args);
     if (r.code !== 0) throw r.code === 2 ? new UsageError(analyserMessage(r)) : new Error(analyserMessage(r));
   } catch (e) {
@@ -160,6 +162,7 @@ function parseArgs(argv) {
     if (!a.startsWith('--')) { pos.push(a); continue; }
     const k = a.slice(2);
     if (k === 'no-open') { o.noOpen = true; continue; }
+    if (k === 'from-start') { o.fromStart = true; continue; }
     if (!['bars', 'start-bar', 'start-near', 'port'].includes(k)) throw new UsageError(`unknown flag ${a}`);
     if (argv[i + 1] == null || argv[i + 1].startsWith('--')) throw new UsageError(`--${k} needs a value`);
     o[k] = argv[++i];
@@ -172,7 +175,7 @@ function parseArgs(argv) {
   };
   const startNear = o['start-near'] == null ? undefined : Number(o['start-near']);
   if (startNear !== undefined && (!Number.isFinite(startNear) || o['start-near'].trim() === '')) throw new UsageError(`--start-near must be a number of seconds, got "${o['start-near']}"`);
-  return { dir: pos[0], song: pos[1], bars: int('bars', 1), startBar: int('start-bar', 0), startNear, port: int('port', 0, 65535), noOpen: !!o.noOpen };
+  return { dir: pos[0], song: pos[1], bars: int('bars', 1), startBar: int('start-bar', 0), startNear, port: int('port', 0, 65535), noOpen: !!o.noOpen, fromStart: !!o.fromStart };
 }
 
 const fixed = (x) => (Number.isFinite(x) ? x.toFixed(2) : '?');
@@ -184,8 +187,8 @@ export function windowLine(was, now) {
 }
 
 async function main() {
-  const { dir, song, bars, startBar, startNear, port, noOpen } = parseArgs(process.argv.slice(2));
-  const r = await swapSong(dir, song, { bars, startBar, startNear, python: process.env.MK_ANALYSER_PYTHON || undefined });
+  const { dir, song, bars, startBar, startNear, fromStart, port, noOpen } = parseArgs(process.argv.slice(2));
+  const r = await swapSong(dir, song, { bars, startBar, startNear, fromStart, python: process.env.MK_ANALYSER_PYTHON || undefined });
   console.log(`tempo: ${fixed(r.before.bpm)} -> ${fixed(r.after.bpm)} BPM (confidence ${fixed(r.after.confidence)})`);
   console.log(`loop: ${r.after.bars} bars = ${fixed(r.after.duration)} s (was ${fixed(r.before.duration)} s)`);
   console.log(windowLine(r.before.startBar, r.after.startBar));

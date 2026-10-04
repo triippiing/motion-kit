@@ -38,7 +38,7 @@ Write the understanding back (goal, destinations and the design shape with the r
 ## Assessments (before writing the brief)
 - `bash $S/doctor.sh` passes; stop and show the fixes if anything is MISSING.
 - Scaffold and measure with a provisional length: `bash $S/new_project.sh DIR SONG --bars 8 --size SIZE --theme PRODUCT.css` (no `--theme` for the house theme; no `--states` yet: the rows are not counted until the moments are approved). If it reports fewer whole bars than asked ("song is shorter than the requested loop: N whole bars available"), re-run with `--bars N` (that number). Read the BPM from song.json and say it with its confidence and warnings.
-- Length → bars (4/4): `bars = round(seconds * bpm / 240)`. Say it: "15 s at 109 BPM = 7 bars = 15.4 s" (bars * 240 / bpm). Choose the loop window. The sync page plays only the loop (clip.wav), so a moment to hit must be inside it before the sync step: if the user has a moment in mind (a drop, a vocal) and gave no time, ask "Roughly when is it, in m:ss?" (never guess). With a time, start the window a bar or two before it with `--start-near SEC` (the analyser starts the loop on the bar whose time is nearest SEC; SEC is in seconds from the start of the song, so 0:40 with a 2 s bar gives about 36), so the moment lands inside the loop, not on its edge. With no moment, choose `--start-bar` from song.json `sections` (a section boundary inside a strong section). Count the states: K = the `states()` rows the approved moments need (a moment that is one thing changing is two rows; a loop's closing row repeats the first). Then re-run `python3 $S/analyze_song.py SONG --out DIR --bars N --start-bar B --states K` (or `--start-near SEC` in place of `--start-bar B`; the two cannot be combined) so song.json matches the real length and warns if K rows do not fit, before planning.
+- Length → bars (4/4): `bars = round(seconds * bpm / 240)`. Say it: "15 s at 109 BPM = 7 bars = 15.4 s" (bars * 240 / bpm). Choose the loop window. The sync page plays only the loop (clip.wav), so a moment to hit must be inside it before the sync step: if the user has a moment in mind (a drop, a vocal) and gave no time, ask "Roughly when is it, in m:ss?" (never guess). With a time, start the window a bar or two before it with `--start-near SEC` (the analyser starts the loop on the bar whose time is nearest SEC; SEC is in seconds from the start of the song, so 0:40 with a 2 s bar gives about 36), so the moment lands inside the loop, not on its edge. With no moment, choose `--start-bar` from song.json `sections` (a section boundary inside a strong section). For an intro that should begin with the song itself, use `--from-start` (the loop starts on the downbeat of the song's first audible bar, or on the pickup before it once the user has kept one; see Sync). The downbeat it finds can be a beat or more off, so have the user check the start on the sync page. Count the states: K = the `states()` rows the approved moments need (a moment that is one thing changing is two rows; a loop's closing row repeats the first). Then re-run `python3 $S/analyze_song.py SONG --out DIR --bars N --start-bar B --states K` (or `--start-near SEC` or `--from-start` in place of `--start-bar B`; only one of the three) so song.json matches the real length and warns if K rows do not fit, before planning.
 - Sync (after the loop window is final, before the brief). Claude cannot hear: never say the grid or a
   moment is in sync; only the user's ear can. Start the sync page in the background (or ask the user to run it in a
   terminal) and give the user the URL it prints (`sync page: http://127.0.0.1:PORT/__sync`; it also opens the browser):
@@ -50,10 +50,18 @@ Write the understanding back (goal, destinations and the design shape with the r
      it's saved." Above 0.5, offer the same check as optional.
   2. Always: "Any moments to hit (a drop, a vocal)? Mark them on the sync page (M, type a name, Enter),
      then Save, and I'll plan those rows with `at: 'name'`." Names are lowercase letters, digits and `-`.
+  3. If song.json has `suggestions` (a tempo map, swing, a meter, a pickup), open the sync page before writing any
+     table, even at high confidence, and name them with their reasons: "The analyser suggests SUGGESTIONS (it
+     can't be sure). On the sync page, press Try to hear each, then Keep or Dismiss it, and Save." Never keep one
+     for the user. A tempo map is listed alone; the others appear after it is kept or dismissed and saved, so ask
+     again after that Save. A pickup changes only a loop made with `--from-start`: if the piece should start
+     with the song, re-run the analyser with `--from-start` after the user keeps it (Save then keeps
+     `--from-start`).
 
   After the user says they saved, stop the server (end the background job, or ask the user to press
   Ctrl+C in their terminal) and re-read song.json: `sync.checked_by_ear`, the top-level `markers` (plan
-  only those with `in_loop: true`), and `bpm`. After a tapped tempo or a meter change, also re-read
+  only those with `in_loop: true`), and `bpm`. After a tapped tempo, a meter change or a kept suggestion
+  (`sync.tempo_map`, `sync.pickup_beats`, a swing with a tempo), also re-read
   `beats` and `loop.duration_sec` and redo the bars (bars = round(seconds * bpm / (60 * beats a bar)),
   `beats_per_bar` in song.json) if the length moved: Save keeps `--bars N`, so a tempo change alters the
   loop's length in seconds and a meter change alters its length in beats (bars times beats a bar).

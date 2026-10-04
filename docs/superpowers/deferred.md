@@ -63,3 +63,19 @@ purity scan, renders every recipe in tests, and closed most of F1's review lefto
   `.swap-backup/`.
 - sync page: a deleted but unsaved placed marker does not reappear in "to place" until Save; the cancelDraft backstop
   is unreachable by tests.
+
+## Left over from C2b (2026-10-04)
+- Detection: some tempo-map step anchors land a whole old beat early (_refine_steps), so a kept map can be a beat off
+  there; Bohemian's kept map has a 0.23 s gap near 4:57; an exact 2:1 change (or a real change at a metrical ratio while the
+  old tempo is still audible) reads as steady.
+- The analyser's grid places no beat in roughly the first half second, so `--from-start` skips the first bar when the
+  music starts at the file's first sample; and a song with sound from sample 0 (Tease Me) gets no pickup suggestion (to
+  avoid false pickups on trimmed straight loops). Fixing either needs a grid change outside the parity rule.
+- Downbeat phase: on 3 of 5 real songs the tempo was right but the "1" was off (Jack nudged ~one beat); a downbeat
+  suggestion would be a natural follow-up.
+- Swing on real shuffles passes its concentration gate narrowly (Home at Last 0.51 vs 0.45); thresholds were tuned on
+  five songs; real-song confidences run lower than on click tracks.
+- Sync page: no manual pickup control (only Keep on a suggestion); a pickup-0 kept row is cosmetic; Remove on a kept
+  pickup while a different pickup suggestion is kept is confusing; tempo-map Try bar lines are approximate.
+- Jack judged all five songs workable but kept none of the suggestions, so the kept-suggestion path is covered by tests,
+  not yet by ear.
