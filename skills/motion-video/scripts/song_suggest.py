@@ -23,6 +23,9 @@ THRESHOLDS = {
     "tempo_change": 0.04,   # (Task 3) relative tempo change that starts a segment
     "tempo_bars": 4,        # (Task 3) bars a change must last
     "ramp_bars": 2,         # (Task 3) a change spread over more bars than this is a ramp
+    "alias_present": 0.35,  # (Task 7) a window's candidate this share of its best still counts as present
+    "tempo_map_min": 0.125, # (Task 7) a tempo map is suggested at or above this confidence (0.5 x 0.5 x 0.5: its three
+                            # terms all at least neutral)
 }
 SWING_WINDOW = (0.40, 0.85)  # where in the beat the swung off-beat is looked for
 ONSET_SHARE = 0.25           # an off-beat counts when its peak is at least this share of the beat's own peak
@@ -233,6 +236,9 @@ LOCAL_STRONG = 0.5   # a window's tempo candidates considered: autocorrelation a
 
 REGULAR_TOL = 0.05   # (confidence) a tracked beat gap counts as regular within 5% of its span's beat period
 OCTAVE_TOL = 0.06    # two tempos within 6% of 2:1 are taken as one tempo read an octave apart
+CHANGE_WINDOWS = 3   # (confidence) local-tempo windows looked at on each side of a change
+MAP_GAIN = 0.25      # (confidence) a map whose beats fit the onsets 25% better than the steady grid gets full credit
+METRICAL = (2.0, 1.5, 4 / 3, 3.0, 0.5, 2 / 3, 0.75, 1 / 3)   # ratios a window can misread the tempo by (Task 7)
 
 
 def _octave_step(x, ref):
@@ -244,6 +250,29 @@ def _octave_step(x, ref):
     return 0
 
 
+def _metrical(r):
+    """The simple metrical ratio (METRICAL) r is within OCTAVE_TOL of, else None."""
+    q = min(METRICAL, key=lambda m: abs(np.log(r / m)))
+    return q if abs(np.log(r / q)) <= np.log(1 + OCTAVE_TOL) else None
+
+
+def _fold_metrical(x, strong):
+    """Step 2b of local_tempo (Task 7): a window read at a simple metrical ratio (METRICAL: 2, 3/2, 4/3, 3 and their
+    inverses) of the song's dominant tempo D (the median window) is a misread when its own autocorrelation still has a
+    candidate in D's octave family (at least alias_present x its best one): the tempo it locked onto is a subdivision
+    or grouping of D, and D is still there. Such a window is folded to D's family (divided by the ratio). A real change
+    leaves no peak at the old tempo, so it is kept; a real change at exactly one of these ratios WITH the old tempo
+    still audible in the window reads as steady (accepted, like the exact 2:1 change)."""
+    D = float(np.median(x))
+    fam = lambda c: abs((np.log2(c / D) + 0.5) % 1 - 0.5) <= np.log2(1 + OCTAVE_TOL)
+    out = x.copy()
+    for i, v in enumerate(x):
+        q = _metrical(v / D)
+        if q is not None and any(fam(c) for c in strong[i]):
+            out[i] = v / q
+    return out
+
+
 def local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec=8.0, hop_sec=2.0):
     """Per window (win_sec long, every hop_sec): (window centre in envelope seconds, bpm). Each window takes its
     strongest candidate (tempo_candidates is analyze_song's, passed in; among candidates whose autocorrelation is at
@@ -252,12 +281,17 @@ def local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec=8.0, ho
     1. a window about 2:1 from the median of its neighbours (+-2 windows) is folded to their octave;
     2. walking forward, a window about 2:1 from the previous one is folded to its octave (a whole run read an octave
        out follows the song before it);
+    2b. (Task 7) a window at a simple metrical ratio (2, 3/2, 4/3, 3 or an inverse) of the dominant (median) tempo
+       whose own autocorrelation still holds the dominant tempo's family is folded to it (_fold_metrical): a 4:3 or
+       3:2 read of a steady song is a misread, not a change;
     3. the whole curve moves by the octave (x2, 1, /2) that puts most windows within 6% of global_bpm, so a steady song
        read at double tempo reports the global tempo's octave (Review Focus 2).
-    Non-octave ratios (1.5, 1.33, ...) are kept as real changes; a true exact 2:1 change reads as steady (accepted).
+    Other ratios (1.2, 1.25, ...) are kept as real changes, and so is a change at a metrical ratio after which the old
+    tempo is gone from the windows. Accepted limits: a true exact 2:1 change reads as steady, and so does a real change
+    at one of the 2b ratios while the old tempo is still strong (at least alias_present) in the new section's windows.
     Windows with no candidate are skipped."""
     win, hop = int(round(win_sec * fps_env)), max(1, int(round(hop_sec * fps_env)))
-    ts, xs = [], []
+    ts, xs, strong = [], [], []
     for a in range(0, len(full_env) - win + 1, hop):
         cands = tempo_candidates(np.asarray(full_env[a:a + win], float))
         if not cands:
@@ -266,6 +300,7 @@ def local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec=8.0, ho
         best = max((c for c in cands if c[1] >= LOCAL_STRONG * top), key=lambda c: c[2])
         ts.append((a + win / 2) / fps_env)
         xs.append(float(best[0]))
+        strong.append([c[0] for c in cands if c[1] >= THRESHOLDS["alias_present"] * top])
     x = np.array(xs)
     for i in range(len(x)):
         nb = np.concatenate([x[max(0, i - 2):i], x[i + 1:i + 3]])
@@ -273,6 +308,8 @@ def local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec=8.0, ho
             x[i] /= 2.0 ** _octave_step(x[i], float(np.median(nb)))
     for i in range(1, len(x)):
         x[i] /= 2.0 ** _octave_step(x[i], x[i - 1])
+    if len(x):
+        x = _fold_metrical(x, strong)
     if len(x):
         near = lambda m: int(np.sum(np.abs(x * 2.0 ** m / global_bpm - 1) <= OCTAVE_TOL))
         m = max((0, 1, -1), key=near)  # ties keep the octave read
@@ -420,16 +457,32 @@ def _clock(t):
     return f"{int(t // 60)}:{t % 60:04.1f}"
 
 
-def _map_confidence(full_env, fps_env, env_beats, segments, curve, time_offset, win_sec):
+def _steady_grid(env, fps_env, bpm):
+    """The single steady grid at bpm (envelope seconds) whose phase sits on most onset energy (fit_grid's comb, tempo
+    held): what the analyser would lay without a map, the baseline a map's fit is measured against."""
+    p = 60.0 * fps_env / bpm
+    k = np.arange(int((len(env) - 1) / p))
+    idx = np.arange(len(env))
+    phases = np.arange(0, p, 0.5)
+    scores = np.interp(phases[:, None] + p * k[None, :], idx, env, right=0.0).mean(1)
+    return (phases[int(scores.argmax())] + p * k) / fps_env
+
+
+def _map_confidence(full_env, fps_env, env_beats, segments, curve, time_offset, win_sec, global_bpm):
     """Confidence of a tempo map, from evidence the segmentation itself does not use (0..1):
-        confidence = min over steady spans of salience  x  window agreement
+        confidence = min over steady spans of salience  x  change agreement  x  fit gain
     - a steady span runs from an anchor to the next one (not into a ramp), the last to the end;
     - salience of a span = contrast x regularity, where contrast = clip(1 - mean(env over the span's frames) /
       mean(env at its tracked beats), 0, 1) (about 0.93 for clean clicks; lower when the beats stand out less from
       everything else) and regularity = share of the span's tracked beat gaps within REGULAR_TOL of 60 / bpm (the DP
       snaps to noise peaks, which lifts contrast on noise, but then its gaps are irregular);
-    - window agreement = share of the local-tempo windows lying wholly inside a steady span whose bpm is within
-      tempo_change of that span's tempo (0.5, neutral, when no window fits inside any span).
+    - change agreement (Task 7) = the worst, over every change (each pair of neighbouring steady spans), of the share
+      of the CHANGE_WINDOWS local-tempo windows nearest the change on each side (lying wholly inside that span) whose
+      bpm is within tempo_change of the span's tempo; a side with no such window counts 0.5 (neutral). A real change
+      has steady windows on both sides; a false map's "segments" disagree window to window;
+    - fit gain (Task 7) = clip((G - 1) / MAP_GAIN, 0, 1), G = mean envelope at the map's tracked beats / mean envelope
+      at the single steady grid (global_bpm, best phase). A real change lifts the fit (G 1.5 on a clean step); a
+      misread tempo fits the onsets no better than the steady grid (G about 1).
     env_beats are in envelope seconds; segments' t in song seconds (env time + time_offset)."""
     env = np.asarray(full_env, float)
     T = THRESHOLDS
@@ -440,7 +493,7 @@ def _map_confidence(full_env, fps_env, env_beats, segments, curve, time_offset, 
         if nxt is not None and nxt["ramp"]:
             continue
         spans.append((a["t"], nxt["t"] if nxt else end, a["bpm"]))
-    sal, agree, n_win = [], 0, 0
+    sal = []
     song_beats = env_beats + time_offset
     for t0, t1, bpm in spans:
         inb = env_beats[(song_beats >= t0) & (song_beats < t1)]
@@ -451,12 +504,18 @@ def _map_confidence(full_env, fps_env, env_beats, segments, curve, time_offset, 
             gaps = np.diff(inb)
             steady = float(np.mean(np.abs(gaps * bpm / 60 - 1) <= REGULAR_TOL)) if len(gaps) else 0.0
             sal.append(contrast * steady)
-        for c, b in curve:
-            if t0 <= c - win_sec / 2 + time_offset and c + win_sec / 2 + time_offset <= t1:
-                n_win += 1
-                agree += abs(b / bpm - 1) <= T["tempo_change"]
     salience = min(sal) if sal else 0.0
-    return round(salience * (agree / n_win if n_win else 0.5), 2)
+
+    def side(t0, t1, bpm, nearest_end):
+        inside = [(c, b) for c, b in curve if t0 <= c - win_sec / 2 + time_offset and c + win_sec / 2 + time_offset <= t1]
+        inside = inside[-CHANGE_WINDOWS:] if nearest_end else inside[:CHANGE_WINDOWS]
+        return float(np.mean([abs(b / bpm - 1) <= T["tempo_change"] for _, b in inside])) if inside else 0.5
+    agree = min((min(side(*l, True), side(*r, False)) for l, r in zip(spans, spans[1:])), default=0.5)
+    steady = _steady_grid(env, fps_env, global_bpm)
+    base = float(np.mean(at(env, fps_env, steady))) if len(steady) else 0.0
+    gain = float(np.mean(at(env, fps_env, env_beats))) / base if base > 0 and len(env_beats) else 1.0
+    fit = float(np.clip((gain - 1) / MAP_GAIN, 0, 1))
+    return round(salience * agree * fit, 2)
 
 
 def _refine_steps(full_env, fps_env, env_beats, segments, beats_per_bar, time_offset):
@@ -501,7 +560,8 @@ def _map_curve(segments, time_offset):
 
 def detect_tempo_map(full_env, fps_env, global_bpm, beats_per_bar, tempo_candidates, *, time_offset,
                      win_sec=8.0, hop_sec=2.0):
-    """A tempo-map suggestion: local tempo -> DP beats -> segments; suggested when there are at least two anchors.
+    """A tempo-map suggestion: local tempo -> DP beats -> segments; suggested when there are at least two anchors and
+    its confidence (_map_confidence) is at least tempo_map_min.
     time_offset (required: the analyser's ENV_TIME_OFFSET) turns envelope time into song seconds, so `beats` and the
     segments' `t` are song seconds. None for a song shorter than two windows (Review Focus 5) or a steady one."""
     if len(full_env) < 2 * win_sec * fps_env:
@@ -521,7 +581,10 @@ def detect_tempo_map(full_env, fps_env, global_bpm, beats_per_bar, tempo_candida
     segments, _ = _segments(beats, beats_per_bar)
     if len(segments) < 2:
         return None
-    confidence = _map_confidence(full_env, fps_env, beats - time_offset, segments, curve, time_offset, win_sec)
+    confidence = _map_confidence(full_env, fps_env, beats - time_offset, segments, curve, time_offset, win_sec,
+                                 global_bpm)
+    if confidence < THRESHOLDS["tempo_map_min"]:
+        return None
     moves = []
     for prev, a in zip(segments, segments[1:]):
         if a["ramp"]:

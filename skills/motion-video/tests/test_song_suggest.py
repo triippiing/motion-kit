@@ -249,6 +249,46 @@ class TempoMap(unittest.TestCase):
         r = S.detect_tempo_map(noise, A.FPS_ENV, 120.0, 4, A.tempo_candidates, time_offset=A.ENV_TIME_OFFSET)
         self.assertTrue(r is None or r["confidence"] <= 0.2, r and r["confidence"])
 
+    def steady_with_a_4_3_section(self):
+        """A steady 90 BPM click with a louder 120 BPM click mixed in from 20 to 40 s (four against three): the
+        windows there read 120, 4:3 of the song's tempo, while the 90 clicks carry on underneath (Tease Me's misread)."""
+        a = click_track(self.tmp / "a.wav", 90, seconds=60.0)
+        b = click_track(self.tmp / "b.wav", 120, seconds=60.0, hat=0.45, seed=5)
+        params, x = _read(a)
+        _, y = _read(b)
+        gate = np.zeros_like(y)
+        gate[20 * params.framerate:40 * params.framerate] = 1
+        path = self.tmp / "m.wav"
+        with wave.open(str(path), "wb") as w:
+            w.setparams(params)
+            w.writeframes(np.clip(x + y * gate, -32768, 32767).astype("<i2").tobytes())
+        full, low, _ = A.envelopes(A.decode(path))
+        return full, low
+
+    def test_a_4_3_misread_section_is_folded_and_gets_no_map(self):   # Task 7, problem A
+        full, low = self.steady_with_a_4_3_section()
+        bpm = A.beat_grid(full, low)["bpm"]
+        curve = S.local_tempo(full, A.FPS_ENV, bpm, A.tempo_candidates)
+        self.assertTrue(all(abs(b / 90 - 1) <= 0.03 for _, b in curve), curve)
+        self.assertIsNone(self.detect(full, bpm))
+
+    def test_a_false_map_scores_below_the_floor(self):   # Task 7: confidence alone also rejects the misread
+        full, low = self.steady_with_a_4_3_section()
+        bpm = A.beat_grid(full, low)["bpm"]
+        saved = S.THRESHOLDS["alias_present"]
+        try:
+            S.THRESHOLDS["alias_present"] = 2.0   # no window folded: the 4:3 section is segmented as a change
+            self.assertIsNone(self.detect(full, bpm))
+        finally:
+            S.THRESHOLDS["alias_present"] = saved
+
+    def test_step_96_to_120_is_kept(self):   # a real change at a non-metrical ratio (1.25)
+        full, low = self.envs(tempo_map=[(0, 96, False), (20, 120, False)])
+        r = self.detect(full, A.beat_grid(full, low)["bpm"])
+        self.assertIsNotNone(r)
+        self.assertEqual([round(s["bpm"]) for s in r["segments"]], [96, 120], r["segments"])
+        self.assertGreaterEqual(r["confidence"], 0.8, r["confidence"])
+
     def test_three_percent_wobble_gets_none(self):
         full, low = self.envs(tempo_map=[(0, 120, False), (15, 116.4, False), (30, 120, False), (45, 123.6, False)])
         self.assertIsNone(self.detect(full, A.beat_grid(full, low)["bpm"]))
@@ -277,7 +317,7 @@ class At(unittest.TestCase):
     def test_thresholds_are_the_planned_starting_values(self):
         self.assertEqual(set(S.THRESHOLDS), {"swing_min", "swing_share", "triplet_tol", "meter_margin",
                                              "pickup_onset", "tempo_change", "tempo_bars", "ramp_bars",
-                                             "triplet_fit"})
+                                             "triplet_fit", "alias_present", "tempo_map_min"})
 
 
 if __name__ == "__main__":
