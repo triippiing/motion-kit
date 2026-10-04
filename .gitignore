@@ -9,3 +9,4 @@ song.json.bak
 song.json.bak.tmp
 *.tmp-*
 .song.json.*
+.swap-backup/
