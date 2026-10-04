@@ -126,7 +126,7 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | Home | playhead to the loop start |
 | ↑ / ↓ | nudge the grid 5 ms later / earlier; with Shift, 20 ms |
 | T | tap the tempo; after 8 taps (a gap over 2 s starts again) the readout shows the tapped BPM |
-| Enter | apply the tapped BPM (40 to 240) |
+| Enter | apply the tapped BPM (40 to 240); it replaces a kept tempo map (its row then reads "removed"), since a map wins over a tempo on Save |
 | M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it |
 | click a flag, then type in "add a note" | select a marker (its line in the markers list then shows a note field, pre-filled) and write a note on it. Enter or clicking away keeps a changed note, Esc drops the edit, an empty note removes it; Save or Ctrl/Cmd+S writes it (Ctrl/Cmd+S inside the field keeps it and saves in one step). Hover a flag to read its note. A note (at most 200 characters) is for people only: it never moves the grid and does not clear "Sounds right" |
 | N | focus the selected marker's note field |
@@ -150,7 +150,7 @@ checked by ear, any markers outside the loop, and:
 | Says | Means |
 |---|---|
 | grid follows detected hits | each beat sounds on the detected hit near it (`cue_t`), as the analyser measured |
-| even grid: detected hits off | a nudge (other than 0) or a tapped tempo is set, so the ear wins: every beat sits exactly on the even grid, with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it. A kept tempo map also sits its beats on the grid once saved (no snapping), though this line does not show it |
+| even grid: detected hits off | a nudge (other than 0), a tapped tempo or a tempo map is set (saved or pending), so the ear wins: every beat sits exactly on the user's grid (even, or at the map's tempo), with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it |
 | preview is approximate until you save | a tempo or meter change is pending. The clicks follow an even grid at the new tempo over the **old** loop length, so expect a flam at the loop seam; the animation keeps the saved tempo. Save fits the real grid. Save keeps `--bars N`, so a tempo change alters the loop's length in seconds and a meter change alters its length in beats (bars times beats a bar): afterwards re-read song.json's `beats` and `loop.duration_sec` and redo the bars and the tables |
 | unsaved changes / saving: re-cutting the clip / saved HH:MM:SS | the Save state |
 
@@ -174,9 +174,16 @@ The page lists them above the controls ("tempo map: 72 → 144 at 1:52", "swing 
   apply to the current grid like the controls' previews). Press again to stop. Nothing is saved. A pickup has no
   Try: it only applies to a loop made with `--from-start` (the row says so, and how to make one).
 - **Keep**: puts its fields into the pending sync; Save re-runs the analyser, which fits it. Keeping a tempo map,
-  a tempo, a meter or a pickup clears "Sounds right", as those controls do; a swing alone does not.
+  a tempo, a meter or a pickup clears "Sounds right", as those controls do; a swing alone does not. Keeping a tempo
+  map drops a pending tempo, and keeping a swing that carries a tempo drops a tempo map (a map wins over a tempo on
+  Save, so the page keeps only the one it previews); keeping it again puts back what it replaced.
 - **Dismiss**: adds `{ "key", "value" }` to `sync.dismissed` (pending until Save); it stays hidden until the
   analyser's value for that key changes. Dismiss on a kept one un-keeps it first.
+
+A tempo map or a pickup already saved in the sync is listed first as **kept** ("tempo map: 90 → 120 at 0:19 ·
+kept"), with **Remove**: it takes the field out of the pending sync (a grid change, so it clears "Sounds right"; the
+row then reads "removed: save to apply"), again puts it back, and Save applies it (the analyser may then suggest it
+afresh). A tapped tempo replaces a kept tempo map the same way.
 
 A tempo-map suggestion is offered alone: swing, meter and pickup would be measured on the single steady grid the map
 says is wrong, so they appear after the map is kept or dismissed and saved. A suggestion equal to what the sync

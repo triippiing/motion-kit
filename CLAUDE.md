@@ -162,7 +162,11 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   a pickup has none), **Keep** (puts its fields in the pending sync; Save applies it) and **Dismiss** (adds
   `{key, value}` to `sync.dismissed`; hidden until the analyser's value for it changes). A tempo-map suggestion is
   offered alone (the others would be measured on the single grid it says is wrong): they appear once it is kept or
-  dismissed and saved. No tempo map is suggested once `sync.tempo_map` is set, and no swing when the meter is (or is
+  dismissed and saved. A tempo map or pickup already saved in `sync` is listed as **kept** with **Remove** (clears it
+  in the pending sync, which clears `checked_by_ear` like any grid change; again restores it; Save applies it); a
+  tapped tempo replaces a kept tempo map, keeping a tempo map drops a pending tempo, and keeping a swing with a tempo
+  drops a tempo map (a map wins over `bpm` on Save, so the page keeps only what it previews). No tempo map is
+  suggested once `sync.tempo_map` is set, and no swing when the meter is (or is
   suggested as, not dismissed) 6/8 (its thirds read as swing). Keeping a tempo map, a swing with a tempo, a meter or a pickup clears `checked_by_ear`
   (a swing alone does not). A straight steady 4/4 song gets none, and with none the page is as before. They are
   guesses: Claude cannot hear, so never keep one for the user or say one is right.

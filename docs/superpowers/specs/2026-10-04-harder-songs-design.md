@@ -115,6 +115,10 @@ maps; their parity tests with no new fields must still pass.
     *As built:* a pickup has no Try (it only applies to a `--from-start` loop, which the clip cannot play before).
   - **Keep:** adds it to the pending sync (the matching fields above); Save re-runs the analyser, which fits it.
   - **Dismiss:** adds `{ key, value }` to `sync.dismissed` (pending until Save).
+- *As built:* a tempo map or pickup already saved in `sync` is listed as a **kept** row with **Remove** (clears the
+  field in the pending sync, a grid change that clears `checked_by_ear`; again restores it; Save applies it). Tap
+  tempo replaces a kept tempo map, Keep on a tempo map drops a pending `bpm`, and Keep on a swing that carries a `bpm`
+  drops a pending `tempo_map`, so what the page previews is what Save does.
 - Keeping a grid-changing suggestion (tempo map, bpm, meter, pickup) clears `checked_by_ear`, like any grid change;
   swing does not (C1's rule).
 - With no suggestions the page is exactly as today.
