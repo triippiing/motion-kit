@@ -201,6 +201,62 @@ class TempoMap(unittest.TestCase):
         gaps = np.diff(got)
         self.assertLess(np.max(np.abs(gaps - 0.5)), 0.03)
 
+    def test_step_80_to_120(self):   # a change bigger than x sqrt(2) is not folded away
+        full, low = self.envs(tempo_map=[(0, 80, False), (20, 120, False)])
+        r = self.detect(full, A.beat_grid(full, low)["bpm"])
+        self.assertIsNotNone(r)
+        segs = r["segments"]
+        self.assertEqual(len(segs), 2, segs)
+        self.assertLessEqual(abs(segs[0]["bpm"] / 80 - 1), 0.02, segs)
+        self.assertLessEqual(abs(segs[1]["bpm"] / 120 - 1), 0.02, segs)
+        self.assertLessEqual(abs(segs[1]["t"] - 20.0), 4 * 60 / 80, segs)
+        self.assertLessEqual(abs(segs[1]["t"] - 20.0), 60 / 80, segs)      # in fact within a beat
+        # no beat invented across the change: every tracked beat sits on a click
+        want = np.array(beat_times(80, 60.0, tempo_map=[(0, 80, False), (20, 120, False)]))
+        got = np.array(r["beats"])
+        off = np.array([np.min(np.abs(want - g)) for g in got if want[0] < g < want[-1]])
+        self.assertLess(off.max(), 0.03, off.max())
+
+    def test_one_octave_window_in_a_steady_song_gets_none(self):
+        full, low = self.envs(bpm=120)
+        calls = []
+
+        def flaky(env):   # the 6th window's strongest candidate is the octave above
+            cands = A.tempo_candidates(env)
+            calls.append(1)
+            if len(calls) == 6:
+                c = cands[0]
+                cands = [(2 * c[0], c[1] * 1.1, c[2] * 1.1)] + cands
+            return cands
+        curve = S.local_tempo(full, A.FPS_ENV, 120.0, flaky)
+        self.assertTrue(all(abs(b / 120 - 1) <= 0.03 for _, b in curve), curve)
+        calls.clear()
+        self.assertIsNone(S.detect_tempo_map(full, A.FPS_ENV, 120.0, 4, flaky, time_offset=A.ENV_TIME_OFFSET))
+
+    def test_confidence_is_high_on_a_clean_step(self):
+        full, low = self.envs(tempo_map=[(0, 90, False), (20, 120, False)])
+        r = self.detect(full, A.beat_grid(full, low)["bpm"])
+        self.assertGreaterEqual(r["confidence"], 0.8, r["confidence"])
+
+    def test_confidence_is_low_on_a_noisy_step(self):
+        full, low = self.envs(tempo_map=[(0, 90, False), (20, 120, False)])
+        clean = self.detect(full, A.beat_grid(full, low)["bpm"])["confidence"]
+        rng = np.random.default_rng(3)
+        noisy = full + rng.exponential(12 * full.mean(), len(full))   # dense random onsets bury the clicks
+        r = self.detect(noisy, A.beat_grid(full, low)["bpm"])
+        self.assertTrue(r is None or r["confidence"] <= 0.5 * clean, (clean, r and r["confidence"]))
+        noise = rng.exponential(30.0, len(full))   # no beat at all: whatever the tracker finds is not believed
+        r = S.detect_tempo_map(noise, A.FPS_ENV, 120.0, 4, A.tempo_candidates, time_offset=A.ENV_TIME_OFFSET)
+        self.assertTrue(r is None or r["confidence"] <= 0.2, r and r["confidence"])
+
+    def test_three_percent_wobble_gets_none(self):
+        full, low = self.envs(tempo_map=[(0, 120, False), (15, 116.4, False), (30, 120, False), (45, 123.6, False)])
+        self.assertIsNone(self.detect(full, A.beat_grid(full, low)["bpm"]))
+
+    def test_one_odd_first_bar_is_not_a_segment(self):
+        beats = beat_times(100, 60.0, offset=0.0, tempo_map=[(0, 100, False), (2.4, 120, False)])
+        self.assertEqual(len(S.segment_tempo(beats, 4)), 1, S.segment_tempo(beats, 4))
+
     def test_segment_tempo_on_exact_beats(self):
         steady = S.segment_tempo(beat_times(120, 60.0), 4)
         self.assertEqual(len(steady), 1)
