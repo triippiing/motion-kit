@@ -15,9 +15,12 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
+import song_suggest as S  # noqa: E402
 from click_track import SR, beat_times, click_track  # noqa: E402,F401  (also imported from here by older commands)
 
 # sha256 of click_track(path, 120, seconds=10) from click_track.py on main before C2b (defaults must stay byte-identical)
+# main before C2b: the last commit before this sub-project first changed analyze_song.py (the parity reference)
+PRE_C2B = "f762389d5eb156aacafa2c02b5724d3ae9bbb5ae"
 KNOWN_120_10S = "9d2ba13dd3a29f5309b955ac6acb6b23bafbf845ccbd293857d04fc13ef7bc70"
 
 
@@ -497,6 +500,25 @@ class SuggestionTests(unittest.TestCase):
         segs = A.analyze(self.step, bars=2)["suggestions"]["tempo_map"]["segments"]
         self.assertNotIn("tempo_map", A.analyze(self.step, bars=2, sync={"tempo_map": segs})["suggestions"])
 
+    def test_a_tempo_map_suggestion_holds_back_the_grid_detectors(self):
+        # meter, swing and pickup measured on a single grid the tempo map says is wrong are not offered
+        sug = A.analyze(self.step, bars=2)["suggestions"]
+        self.assertEqual(set(sug), {"tempo_map"}, sug)
+        tm = sug["tempo_map"]
+        calls = []
+        real = S.detect_pickup
+        try:
+            S.detect_pickup = lambda *a, **k: calls.append(1) or real(*a, **k)
+            dismissed = A.analyze(self.step, bars=2,
+                                  sync={"dismissed": [{"key": "tempo_map", "value": tm["segments"]}]})["suggestions"]
+        finally:
+            S.detect_pickup = real
+        self.assertNotIn("tempo_map", dismissed)
+        self.assertTrue(calls, "dismissing the map runs the other detectors again")
+        kept = A.analyze(self.step, bars=2, sync={"tempo_map": tm["segments"]})["suggestions"]
+        self.assertNotIn("tempo_map", kept)
+        self.assertNotIn("pickup", kept)   # measured on the map grid: no false pickup
+
     def test_bad_new_sync_values_exit_2(self):
         ok = [{"t": 0, "bpm": 90, "ramp": False}, {"t": 20, "bpm": 120, "ramp": False}]
         bad = [
@@ -597,12 +619,12 @@ class SuggestionTests(unittest.TestCase):
                 self.assertIn("error:", err)
 
     def test_same_song_json_as_main_without_the_new_fields(self):
-        """The analyser on main (before C2b) and this one write the same song.json, but for `suggestions`."""
+        """The analyser on main before C2b (PRE_C2B) and this one write the same song.json, but for `suggestions`."""
         repo = SCRIPTS.parent.parent.parent
-        r = subprocess.run(["git", "-C", str(repo), "show", "main:skills/motion-video/scripts/analyze_song.py"],
+        r = subprocess.run(["git", "-C", str(repo), "show", f"{PRE_C2B}:skills/motion-video/scripts/analyze_song.py"],
                            capture_output=True, text=True)
-        if r.returncode != 0:
-            self.skipTest(f"main's analyser is not available: {r.stderr.strip()}")
+        self.assertEqual(r.returncode, 0, f"cannot read the pre-C2b analyser ({PRE_C2B}) from git, which this parity "
+                                          f"test needs (a full clone of the repo): {r.stderr.strip()}")
         old = self.tmp / "old"
         old.mkdir(exist_ok=True)
         (old / "analyze_song.py").write_text(r.stdout)

@@ -597,13 +597,19 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
     """The analyser's `suggestions`: the four detectors on the grid in use (beat_times in envelope time), keeping only
     what differs from that grid (no tempo map when sync has one; no meter equal to sync's; no swing within SWING_SAME
     of sync's; no pickup equal to sync's pickup_beats) and is not in sync.dismissed with the same value. Swing is not
-    suggested when the meter is (or is suggested as) 6/8: its thirds read as swing. Returns {key: suggestion}."""
+    suggested when the meter is (or is suggested as) 6/8: its thirds read as swing. A tempo-map suggestion (not
+    dismissed) is offered alone: meter, swing and pickup would be measured on the single grid it says is wrong.
+    Returns {key: suggestion}."""
     s = sync or {}
-    out = {}
+    hidden = lambda key, sug: any(d["key"] == key and suggestion_value(key, sug) == d["value"]
+                                  for d in s.get("dismissed", []))
     if s.get("tempo_map") is None:
         tm = detect_tempo_map(full_env, fps_env, bpm, beats_per_bar, tempo_candidates, time_offset=time_offset)
-        if tm is not None:
-            out["tempo_map"] = tm
+        if tm is not None and not hidden("tempo_map", tm):
+            # the single grid the others would be measured on is the one the map says is wrong: they wait until the
+            # map is kept (then they run on its grid) or dismissed
+            return {"tempo_map": tm}
+    out = {}
     meter = detect_meter(low_env, full_env, fps_env, beat_times)
     if meter is not None and meter["value"] != s.get("meter", "4/4"):
         out["meter"] = meter
@@ -619,7 +625,4 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
     pk = detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar)
     if pk is not None and pk["beats"] != s.get("pickup_beats", 0):
         out["pickup"] = pk
-    for d in s.get("dismissed", []):
-        if d["key"] in out and suggestion_value(d["key"], out[d["key"]]) == d["value"]:
-            del out[d["key"]]
-    return out
+    return {k: v for k, v in out.items() if not hidden(k, v)}
