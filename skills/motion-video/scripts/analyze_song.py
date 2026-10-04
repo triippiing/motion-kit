@@ -41,6 +41,7 @@ FPS_ENV = SR / HOP
 # Spectral flux peaks a little after the window first contains an onset.
 # Calibrated against the click-track tests (downbeat within one video frame).
 ENV_TIME_OFFSET = N_FFT / SR
+HIGH_HZ = 5000.0  # the high band's floor (song_suggest's swing)
 COMFORT = (100.0, 130.0)
 SPRING_ZETA = 0.85
 SETTLE_BEATS = 0.6
@@ -85,7 +86,8 @@ def env_time(i):
 
 
 def envelopes(x):
-    """Spectral-flux onset envelopes: full band, and a low band (<150 Hz) for kicks."""
+    """Spectral-flux onset envelopes: full band, a low band (<150 Hz) for kicks, the spectral centroid, and a high band
+    (>= 5 kHz) where hi-hats, rides and ghost notes carry a swung off-beat (song_suggest's swing reads it)."""
     frames = np.lib.stride_tricks.sliding_window_view(x, N_FFT)[::HOP] * np.hanning(N_FFT)
     S = np.log1p(100 * np.abs(np.fft.rfft(frames, axis=1)))
     d = np.maximum(np.diff(S, axis=0), 0)
@@ -94,8 +96,9 @@ def envelopes(x):
     low = np.concatenate([[0.0], d[:, freqs <= 150].sum(1)])
     k = np.hanning(7); k /= k.sum()
     smooth = lambda e: np.convolve(e - np.convolve(e, np.ones(43) / 43, "same"), k, "same").clip(0)
+    high = np.concatenate([[0.0], d[:, freqs >= HIGH_HZ].sum(1)])
     centroid = (S[:, :] * freqs).sum(1) / (S.sum(1) + 1e-9)
-    return smooth(full), smooth(low), centroid
+    return smooth(full), smooth(low), centroid, smooth(high)
 
 
 def tempo_candidates(env, lo=60.0, hi=180.0):
@@ -260,7 +263,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     user_grid = bool(s.get("nudge_ms")) or s.get("bpm") is not None or s.get("tempo_map") is not None
     x = decode(path)
     song_sec = len(x) / SR
-    full, low, centroid = envelopes(x)
+    full, low, centroid, high = envelopes(x)
     g = beat_grid(full, low, sync)
     bpm, confidence, pos, times, j = g["bpm"], g["confidence"], g["pos"], g["times"], g["j"]
     beat_sec = 60.0 / bpm
@@ -391,7 +394,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
 
     suggestions = song_suggest.suggest(full, low, FPS_ENV, pos / FPS_ENV, bpm, g["alternatives"], j, bpb, sync,
                                        tempo_candidates=tempo_candidates, refit=lambda b: refit_beats(full, b),
-                                       time_offset=ENV_TIME_OFFSET)
+                                       time_offset=ENV_TIME_OFFSET, high_env=high)
     song = {
         "source": Path(path).name, "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
         "alternatives": g["alternatives"],

@@ -33,6 +33,7 @@ SWING_RATIO = 1.5            # the off-beat must be this much stronger than the 
 THIRDS = (1 / 3, 2 / 3)      # 6/8: each dotted beat divides in three
 THIRDS_TOL = 0.06            # how close (fraction of the beat) a peak must be to a third
 THIRDS_SHARE = 0.60          # share of beats that must show both thirds
+HIGH_QUIET = 0.10            # (Task 7) a high band below this share of the full band's mean is near silent
 PICKUP_QUIET = 0.10          # the beat before a pickup must be below this share of the median onset
 PEAK_FRAMES = 2              # a beat's own peak: the envelope's maximum within +-2 frames
 
@@ -66,18 +67,23 @@ def _offbeat(env, fps_env, b, d, lo, hi):
 
 
 def _swing_on(full_env, fps_env, beat_times):
-    """Swing read on one grid: (value, confidence, reason) or None."""
+    """Swing read on one grid (full_env is whichever envelope swing is read on): (value, confidence, reason) or None.
+    The share counts only beats with an onset of their own (Task 7): a beat in a break, a rest or a silent intro says
+    nothing about how the off-beats sit, so it is not counted against swing."""
     T = THRESHOLDS
     starts, ds = _intervals(beat_times)
     if len(ds) < 4:
         return None
-    fracs = []
+    fracs, sounding = [], 0
     for b, d in zip(starts, ds):
         own = _peak(full_env, fps_env, b)
+        sounding += own > 0
         ob = _offbeat(full_env, fps_env, b, d, *SWING_WINDOW)
         if own > 0 and ob is not None and ob[1] >= ONSET_SHARE * own:
             fracs.append(ob[0])
-    share = len(fracs) / len(ds)
+    if sounding < 4:
+        return None
+    share = len(fracs) / sounding
     if share < T["swing_share"]:
         return None
     value = round(float(np.median(fracs)), 2)
@@ -90,7 +96,7 @@ def _swing_on(full_env, fps_env, beat_times):
     if ratio < SWING_RATIO:
         return None
     times = lambda r: "over 10x" if r > 10 else f"{r:.1f}x"
-    reason = (f"{share:.0%} of beats have an off-beat at about {value:.2f} of the beat, "
+    reason = (f"{share:.0%} of the beats that sound have an off-beat at about {value:.2f} of the beat, "
               f"{times(ratio)} stronger than a straight 8th"
               + (f" ({times(cand / (three_q + 1e-12))} the 3/4 position)" if abs(value - 0.75) > THIRDS_TOL else ""))
     return value, round(share * min(1.0, (ratio - 1) / 2), 2), reason
@@ -102,16 +108,28 @@ def _comb(full_env, fps_env, beat_times):
     return float(np.mean(at(full_env, fps_env, b))) if len(b) else 0.0
 
 
-def detect_swing(full_env, fps_env, beat_times, bpm, alternatives, refit=None):
+def swing_env(full_env, high_env):
+    """The envelope swing is read on: the high band (hats, rides, ghost notes: the off-beat a loud kick and snare mask
+    in the full band), or the full band when there is no high band or it is near silent (its mean below HIGH_QUIET x
+    the full band's)."""
+    if high_env is None or float(np.mean(high_env)) < HIGH_QUIET * float(np.mean(full_env)):
+        return full_env
+    return high_env
+
+
+def detect_swing(full_env, fps_env, beat_times, bpm, alternatives, refit=None, high_env=None):
     """Swing: the median position of each beat's strongest off-beat onset, when most beats have one, it is late enough,
     and it is clearly stronger than a straight 8th (so 16th-note hats at 1/4, 1/2, 3/4 are not read as swing).
     Triplet correction: a shuffle's triplets can pull the measured tempo to 4/3 of the real one, and on that grid no
     swing shows. So when none is found and `refit(bpm_guess) -> (bpm, beat_times)` is given, a grid is fitted near 3/4
     of the tempo (seeded by an alternative within triplet_tol of it, if any); swing found there, on a grid whose comb
     score is at least triplet_fit x the current grid's, is suggested with that tempo. Swing found on the current grid
-    never offers a slower tempo."""
+    never offers a slower tempo.
+    Swing (here and on the re-fitted grid) is read on swing_env(full_env, high_env); the grids' comb scores stay on
+    the full band."""
     T = THRESHOLDS
-    here = _swing_on(full_env, fps_env, beat_times)
+    env = swing_env(full_env, high_env)
+    here = _swing_on(env, fps_env, beat_times)
     if here is not None:
         value, confidence, reason = here
         return {"value": value, "confidence": confidence, "reason": reason}
@@ -122,7 +140,7 @@ def detect_swing(full_env, fps_env, beat_times, bpm, alternatives, refit=None):
     if near:
         guess = min(near, key=lambda a: abs(a / guess - 1))
     slow_bpm, slow_beats = refit(guess)
-    there = _swing_on(full_env, fps_env, slow_beats)
+    there = _swing_on(env, fps_env, slow_beats)
     if there is None:
         return None
     cur, slow = _comb(full_env, fps_env, beat_times), _comb(full_env, fps_env, slow_beats)
@@ -656,7 +674,7 @@ def suggestion_value(key, suggestion):
 
 
 def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_index, beats_per_bar, sync=None, *,
-            tempo_candidates, refit, time_offset):
+            tempo_candidates, refit, time_offset, high_env=None):
     """The analyser's `suggestions`: the four detectors on the grid in use (beat_times in envelope time), keeping only
     what differs from that grid (no tempo map when sync has one; no meter equal to sync's; no swing within SWING_SAME
     of sync's; no pickup equal to sync's pickup_beats) and is not in sync.dismissed with the same value. Swing is not
@@ -679,7 +697,7 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
     if "6/8" not in (s.get("meter"), meter and meter["value"]):
         # on a tempo-mapped grid a single slower tempo could not be kept (the map replaces bpm): no triplet re-fit
         sw = detect_swing(full_env, fps_env, beat_times, bpm, alternatives,
-                          refit=None if s.get("tempo_map") is not None else refit)
+                          refit=None if s.get("tempo_map") is not None else refit, high_env=high_env)
         if sw is not None:
             kept = abs(sw["value"] - s.get("swing", 0.5)) <= SWING_SAME + 1e-9 and (
                 "bpm" not in sw or (s.get("bpm") is not None and abs(s["bpm"] - sw["bpm"]) <= 0.5))

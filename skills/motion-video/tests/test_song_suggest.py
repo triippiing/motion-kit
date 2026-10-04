@@ -19,6 +19,40 @@ def _read(path):
         return w.getparams(), np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(np.float64)
 
 
+def _write(path, x, sr=44100):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+    return path
+
+
+def band_shuffle(path, bpm=110, swing=0.66, seconds=30.0, hat=0.02, sr=44100, seed=0):
+    """A loud straight band (a 55 Hz kick on every beat, a low-passed noise snare on 2 and 4) with the swing carried
+    only by a quiet high-passed hi-hat on each beat and at beat + swing x beat: on a real mix the off-beat is a hat or
+    a ghost note, masked in the full band by the kick and snare."""
+    rng = np.random.default_rng(seed)
+    x = np.zeros(int(seconds * sr))
+    n, m = int(0.05 * sr), int(0.2 * sr)
+    tt, tk = np.arange(n) / sr, np.arange(m) / sr
+    kick = 0.9 * np.exp(-tk * 18) * np.sin(2 * np.pi * 55 * tk)
+
+    def add(t, sig):
+        s = int(t * sr)
+        k = min(len(sig), len(x) - s)
+        x[s:s + k] += sig[:k]
+    beat, t, i = 60.0 / bpm, 0.37, 0
+    while t < seconds - 0.5:
+        add(t, kick)
+        if i % 2:
+            add(t, 0.8 * np.exp(-tt * 40) * 4 * np.convolve(rng.standard_normal(n + 15), np.ones(16) / 16, "valid"))
+        for f in (0.0, swing):
+            add(t + f * beat, hat * np.exp(-tt * 150) * np.diff(rng.standard_normal(n + 1)))
+        t, i = t + beat, i + 1
+    return _write(path, x + 0.001 * rng.standard_normal(len(x)), sr)
+
+
 class SwingMeterPickup(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -43,7 +77,7 @@ class SwingMeterPickup(unittest.TestCase):
                 w.writeframes(pcm.tobytes())
         sync = {"bpm": force_bpm} if force_bpm is not None else None
         song = A.analyze(path, bars=2, sync=sync)
-        full, low, _ = A.envelopes(A.decode(path))
+        full, low, _, self.high = A.envelopes(A.decode(path))
         self.grid = A.beat_grid(full, low, sync)
         self.assertEqual(self.grid["bpm"], song["bpm"])
         return full, low, self.grid["pos"] / A.FPS_ENV, song
@@ -67,6 +101,39 @@ class SwingMeterPickup(unittest.TestCase):
         self.assertLessEqual(abs(r["value"] - 0.62), 0.03)
         self.assertEqual(set(r) - {"bpm"}, {"value", "confidence", "reason"})
         self.assertTrue(0 <= r["confidence"] <= 1)
+
+    def test_swing_carried_by_a_quiet_hat_is_read_on_the_high_band(self):   # Task 7, problem B
+        path = band_shuffle(self.tmp / "band.wav")
+        full, low, _, high = A.envelopes(A.decode(path))
+        g = A.beat_grid(full, low)
+        beats = g["pos"] / A.FPS_ENV
+        self.assertLess(abs(g["bpm"] - 110), 0.5)
+        # the full band alone misses it: the kick and snare mask the hat
+        self.assertIsNone(S.detect_swing(full, A.FPS_ENV, beats, g["bpm"], g["alternatives"]))
+        r = S.detect_swing(full, A.FPS_ENV, beats, g["bpm"], g["alternatives"], high_env=high)
+        self.assertIsNotNone(r)
+        self.assertLessEqual(abs(r["value"] - 0.66), 0.03)
+        self.assertNotIn("bpm", r)
+        sug = A.analyze(path, bars=2)["suggestions"]   # the analyser passes its high band
+        self.assertLessEqual(abs(sug["swing"]["value"] - 0.66), 0.03, sug)
+
+    def test_a_near_silent_high_band_falls_back_to_the_full_band(self):
+        full, low, beats, song = self.track(bpm=110, swing=0.62)
+        r = S.detect_swing(full, A.FPS_ENV, beats, song["bpm"], song["alternatives"], high_env=np.zeros_like(full))
+        self.assertLessEqual(abs(r["value"] - 0.62), 0.03)
+
+    def test_beats_without_an_onset_are_not_evidence_against_swing(self):
+        # a shuffle that drops out every other 2 s (breaks, rests): the beats in the gaps have no onset of their own
+        path = click_track(self.tmp / "s.wav", 110, seconds=30.0, swing=0.66)
+        params, x = _read(path)
+        sr = params.framerate
+        for k in range(1, 15, 2):
+            x[k * 2 * sr:(k + 1) * 2 * sr] = 0
+        full, low, _, high = A.envelopes(A.decode(_write(self.tmp / "gaps.wav", x / 32768, sr)))
+        g = A.beat_grid(full, low, {"bpm": 110})
+        r = S.detect_swing(full, A.FPS_ENV, g["pos"] / A.FPS_ENV, g["bpm"], g["alternatives"], high_env=high)
+        self.assertIsNotNone(r)
+        self.assertLessEqual(abs(r["value"] - 0.66), 0.03)
 
     def refit(self, full):
         return lambda bpm: A.refit_beats(full, bpm)
@@ -126,7 +193,7 @@ class TempoMap(unittest.TestCase):
     def envs(self, seconds=60.0, bpm=120, **kw):
         path = self.tmp / "t.wav"
         click_track(path, bpm, seconds=seconds, **kw)
-        full, low, _ = A.envelopes(A.decode(path))
+        full, low, _, _ = A.envelopes(A.decode(path))
         return full, low
 
     def detect(self, full, global_bpm, bpb=4):
@@ -262,7 +329,7 @@ class TempoMap(unittest.TestCase):
         with wave.open(str(path), "wb") as w:
             w.setparams(params)
             w.writeframes(np.clip(x + y * gate, -32768, 32767).astype("<i2").tobytes())
-        full, low, _ = A.envelopes(A.decode(path))
+        full, low, _, _ = A.envelopes(A.decode(path))
         return full, low
 
     def test_a_4_3_misread_section_is_folded_and_gets_no_map(self):   # Task 7, problem A
