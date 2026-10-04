@@ -170,14 +170,13 @@ def validate_sync(sync):
     return sync
 
 
-def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_near=None):
+def beat_grid(full, low, sync=None):
+    """The whole-song beat grid analyze() uses: tempo, phase and downbeat from the envelopes (and the user's sync).
+    pos are envelope frame indices (pos / FPS_ENV is the envelope's own time base, what song_suggest samples);
+    times are song seconds (with the nudge); j is the index of the first downbeat."""
     s = sync or {}
     bpb = METERS[s.get("meter", "4/4")]
     nudge = s.get("nudge_ms", 0) / 1000
-    user_grid = bool(s.get("nudge_ms")) or s.get("bpm") is not None
-    x = decode(path)
-    song_sec = len(x) / SR
-    full, low, centroid = envelopes(x)
     cands = tempo_candidates(full)
     if not cands:
         raise SongError("could not find a beat in this song")
@@ -187,15 +186,27 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     else:
         bpm, phase = fit_grid(full, cands[0][0])
     bpm = round(bpm, 3)  # song.json stores 3 decimals; derive everything from the stored value
-    confidence = cands[0][1]
-    beat_sec = 60.0 / bpm
     p = 60 * FPS_ENV / bpm
     n_beats = int((len(full) - 1 - phase) / p) + 1
     pos = phase + p * np.arange(n_beats)
     times = np.array([env_time(q) for q in pos]) + nudge
-
     low_at = np.interp(pos, np.arange(len(low)), low)
     j = int(np.argmax([low_at[k::bpb].mean() for k in range(bpb)]))
+    return {"bpm": bpm, "confidence": cands[0][1], "alternatives": [round(c[0], 2) for c in cands[1:4]],
+            "pos": pos, "times": times, "j": j}
+
+
+def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_near=None):
+    s = sync or {}
+    bpb = METERS[s.get("meter", "4/4")]
+    user_grid = bool(s.get("nudge_ms")) or s.get("bpm") is not None
+    x = decode(path)
+    song_sec = len(x) / SR
+    full, low, centroid = envelopes(x)
+    g = beat_grid(full, low, sync)
+    bpm, confidence, pos, times, j = g["bpm"], g["confidence"], g["pos"], g["times"], g["j"]
+    beat_sec = 60.0 / bpm
+    n_beats = len(pos)
     downbeat_sec = float(times[j])
     n_bars = (n_beats - j) // bpb
 
@@ -298,7 +309,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
 
     song = {
         "source": Path(path).name, "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
-        "alternatives": [round(c[0], 2) for c in cands[1:4]],
+        "alternatives": g["alternatives"],
         "beat_sec": beat_sec, "beats_per_bar": bpb, "downbeat_sec": round(downbeat_sec, 6), "fps": fps,
         "loop": {"start_sec": round(start_sec, 6), "start_bar": start, "bars": bars,
                  "duration_sec": duration, "frames": frames, "frame_dt": frame_dt},
