@@ -101,6 +101,14 @@ def envelopes(x):
     return smooth(full), smooth(low), centroid, smooth(high)
 
 
+def frame_level(x):
+    """RMS level of each envelope frame (index i: the N_FFT samples from i * HOP, as envelopes() frames them): how
+    loud the audio is, where the envelopes say how new. song_suggest's pickup reads it to see silence before the grid."""
+    c = np.concatenate([[0.0], np.cumsum(x * x)])
+    i = np.arange(len(x) - N_FFT + 1)[::HOP]
+    return np.sqrt(np.maximum(c[i + N_FFT] - c[i], 0.0) / N_FFT)
+
+
 def tempo_candidates(env, lo=60.0, hi=180.0):
     e = env - env.mean()
     n = len(e)
@@ -400,7 +408,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
 
     suggestions = song_suggest.suggest(full, low, FPS_ENV, pos / FPS_ENV, bpm, g["alternatives"], j, bpb, sync,
                                        tempo_candidates=tempo_candidates, refit=lambda b: refit_beats(full, b),
-                                       time_offset=ENV_TIME_OFFSET, high_env=high)
+                                       time_offset=ENV_TIME_OFFSET, high_env=high, level_env=frame_level(x))
     song = {
         "source": Path(path).name, "bpm": round(bpm, 3), "bpm_confidence": round(confidence, 3),
         "alternatives": g["alternatives"],

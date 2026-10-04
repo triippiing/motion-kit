@@ -166,7 +166,7 @@ each run, never user data). Each entry has a `confidence` (0..1) and a one-line 
 | `tempo_map` | `segments` `[{t, bpm, ramp}]` (song seconds) for a song whose tempo steps or ramps, plus the suggested `beats` | `sync.tempo_map` |
 | `swing` | `value`, the off-beat's place in the beat; with `bpm` when a shuffle's triplets pulled the measured tempo to about 4/3 of the real one | `sync.swing` (and `sync.bpm`) |
 | `meter` | `3/4` or `6/8` | `sync.meter` |
-| `pickup` | `beats` with audible onsets before the first downbeat | `sync.pickup_beats` |
+| `pickup` | `beats` with audible onsets before the first downbeat, after silence the analyser can see (a song with sound from its first sample, before the grid's first beat, gets none: that audio is unknown, not silent) | `sync.pickup_beats` |
 
 The page lists them above the controls ("tempo map: 72 → 144 at 1:52", "swing 0.62 and tempo 96.6", "meter 3/4",
 "pickup: 2 beats"), with the confidence and reason and three toggles:

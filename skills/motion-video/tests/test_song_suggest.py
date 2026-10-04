@@ -215,6 +215,27 @@ class SwingMeterPickup(unittest.TestCase):
         self.assertEqual(S.first_downbeat(env, A.FPS_ENV, beats, 0, 4), 4)
         self.assertIsNone(S.detect_pickup(env, A.FPS_ENV, beats, 0, 4))
 
+    def test_white_noise_gets_no_pickup(self):   # final review: noise from the first sample is not "after silence"
+        rng = np.random.default_rng(1)
+        wav = _write(self.tmp / "noise.wav", 0.3 * rng.standard_normal(40 * 44100))
+        self.assertNotIn("pickup", A.analyze(wav, bars=2)["suggestions"])
+
+    def test_a_pickup_needs_quiet_before_it_when_the_grid_starts_on_it(self):
+        # beats 0 and 1 loud, the downbeat 2 loud: a 2-beat pickup only when the level before beat 0 is quiet
+        def clicks(first):
+            beats = np.arange(first, 20.0, 0.5)
+            env = np.zeros(int(21 * A.FPS_ENV))
+            env[np.round(beats * A.FPS_ENV).astype(int)] = 1.0
+            return beats, env
+        beats, env = clicks(0.6)
+        loud = env.copy()
+        loud[:int(0.3 * A.FPS_ENV)] = 1.0   # sound from the file start (a beat the envelope cannot see)
+        self.assertEqual(S.detect_pickup(env, A.FPS_ENV, beats, 2, 4, level_env=env)["beats"], 2)
+        self.assertIsNone(S.detect_pickup(env, A.FPS_ENV, beats, 2, 4, level_env=loud))
+        # too little audio before the first beat to know (under a quarter beat): no pickup either
+        beats, env = clicks(0.1)
+        self.assertIsNone(S.detect_pickup(env, A.FPS_ENV, beats, 2, 4, level_env=env))
+
     def test_no_pickup_when_song_starts_on_the_downbeat(self):
         full, low, beats, song = self.track(bpm=100, offset=0.5)
         self.assertIsNone(S.detect_pickup(full, A.FPS_ENV, beats, self.downbeat(song), 4))

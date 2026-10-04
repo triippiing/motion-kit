@@ -662,6 +662,21 @@ class SuggestionTests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertLess(abs(self.song()["loop"]["start_sec"] - first), 1 / 60 + 0.015, self.song()["loop"])
 
+    def test_no_pickup_when_the_first_beat_is_at_the_file_start(self):   # final review
+        # the first click within ~40 ms of the file start has no onset in the envelope (no frame before it), so the
+        # grid starts a beat later; the audio before that beat is unknown, not silent, and is not a pickup's silence
+        for offset in (0.0, 0.01, 0.03, 0.06, 0.1):
+            with self.subTest(offset=offset):
+                wav = str(click_track(self.tmp / f"edge{offset}.wav", 120, seconds=30, offset=offset))
+                code, err = self.run_main(wav, "--bars", "2", "--from-start")
+                self.assertEqual(code, 0, err)
+                song = self.song()
+                self.assertEqual(song["suggestions"], {})
+                # (a guard: --from-start already started on bar 0 before this fix; a kept false pickup relabelled it)
+                self.assertEqual(song["loop"]["start_bar"], 0)
+                self.assertEqual(song["beats"][0]["bar"], 0)
+                self.assertEqual(song["beats"][0]["beat_in_bar"], 0)
+
     def test_same_song_json_as_main_without_the_new_fields(self):
         """The analyser on main before C2b (PRE_C2B) and this one write the same song.json, but for `suggestions`."""
         repo = SCRIPTS.parent.parent.parent

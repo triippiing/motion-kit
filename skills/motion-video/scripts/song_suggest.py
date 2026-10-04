@@ -237,11 +237,26 @@ def first_downbeat(full_env, fps_env, beat_times, downbeat_index, beats_per_bar)
     return _first_bar(onset, med, downbeat_index, beats_per_bar)
 
 
-def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
+def _seen_quiet(level, fps_env, beat_times, first, med):
+    """(final review) Whether the audio before grid beat `first` is seen to be quiet: the level from the file start to
+    a quarter beat before that beat stays under PICKUP_QUIET x the median level at the beats, and there is at least a
+    quarter beat of it. Before the grid's first beat nothing else is known: the envelope cannot show an onset in the
+    file's first frame (a click at 0 s has no frame before it), and a beat before 0 s is not in the file at all."""
+    b = np.asarray(beat_times, float)
+    q = 0.25 * float(np.median(np.diff(b)))
+    end = int((b[first] - q) * fps_env)
+    if end < q * fps_env:
+        return False
+    return float(np.max(level[:end + 1])) < PICKUP_QUIET * med
+
+
+def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar, level_env=None):
     """A pickup: grid beats with audible onsets directly before the first downbeat, after silence. downbeat_index is
     the grid's downbeat phase (any downbeat); the first bar's downbeat is first_downbeat's (_first_bar), so leading
     silence is skipped and a silent 1 after the pickup is not. Counts backwards from it and stops at the first quiet
-    beat."""
+    beat. When that runs back to the grid's first beat, the silence must be seen (_seen_quiet) in level_env (the
+    analyser's frame level, same frames as full_env: how loud, not how new; full_env when it is not given): audio
+    before the grid's first beat is unknown, not silent."""
     b = np.asarray(beat_times, float)
     if len(b) < 2:
         return None
@@ -260,6 +275,10 @@ def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
         return None
     if before >= 0 and onset[before] >= PICKUP_QUIET * med:
         return None
+    if before < 0:
+        level = np.asarray(full_env if level_env is None else level_env, float)
+        if not _seen_quiet(level, fps_env, b, d - n, np.median([_peak(level, fps_env, t) for t in b])):
+            return None
     weakest = float(onset[d - n:d].min()) / med
     return {"beats": n, "confidence": round(min(1.0, weakest), 2),
             "reason": (f"{n} beats with audible onsets come" if n > 1 else "1 beat with an audible onset comes")
@@ -716,7 +735,7 @@ def suggestion_value(key, suggestion):
 
 
 def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_index, beats_per_bar, sync=None, *,
-            tempo_candidates, refit, time_offset, high_env=None):
+            tempo_candidates, refit, time_offset, high_env=None, level_env=None):
     """The analyser's `suggestions`: the four detectors on the grid in use (beat_times in envelope time), keeping only
     what differs from that grid (no tempo map when sync has one; no meter equal to sync's; no swing within SWING_SAME
     of sync's; no pickup equal to sync's pickup_beats) and is not in sync.dismissed with the same value. Swing is not
@@ -747,7 +766,7 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
                 "bpm" not in sw or (s.get("bpm") is not None and abs(s["bpm"] - sw["bpm"]) <= 0.5))
             if not kept:
                 out["swing"] = sw
-    pk = detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar)
+    pk = detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar, level_env=level_env)
     if pk is not None and pk["beats"] != s.get("pickup_beats", 0):
         out["pickup"] = pk
     return {k: v for k, v in out.items() if not hidden(k, v)}
