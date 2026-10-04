@@ -108,12 +108,13 @@ running until stopped, so start it in the background (or let the user run it) an
 `--song PATH` first records where the original song is now (see Save). Bad usage exits 2 with `error: ...`.
 
 **Layout.** Left: the project's own `index.html` in a frame, driven by `seek(t)` from the audio clock, so
-what plays is what renders. Right: the Suggestions list when song.json has any (see Suggestions below), then a zoomed waveform (about 2 bars) that follows the playhead, with bars
+what plays is what renders. Right: a zoomed waveform (about 2 bars) that follows the playhead, with bars
 as strong lines and numbers, beats faint, swung half-beats fainter, and markers as orange flags. Under
 it, the whole loop as a strip with the view's window on it, then the markers list (one line each: name,
 song time m:ss.mmm, note; click a line to select the marker and move the playhead there; markers outside the
 loop are listed as "outside loop" and cannot be jumped to). The selected marker's line holds a note field
-("add a note"). Then Play, Clicks, Sounds right, Save, the
+("add a note"). Then the Suggestions list when song.json has any (see Suggestions below), then Play, Clicks,
+Sounds right, Save, the
 readouts (nudge, tempo, meter, swing) and a status line.
 
 **Keys and mouse.**
@@ -154,8 +155,8 @@ checked by ear, any markers outside the loop, and:
 | unsaved changes / saving: re-cutting the clip / saved HH:MM:SS | the Save state |
 
 Nudge and swing preview exactly (clicks, lines and animation). Swing does not clear "Sounds right" (the
-beats themselves do not move); a nudge, tempo or meter change does, and the server applies the same rule
-as a backstop.
+beats themselves do not move); a nudge, tempo, meter, tempo map or pickup change does, and the server applies the
+same rule as a backstop.
 
 **Suggestions.** Every `analyze_song.py` run writes a derived top-level `suggestions` object to song.json (rebuilt
 each run, never user data). Each entry has a `confidence` (0..1) and a one-line `reason`:
@@ -179,7 +180,8 @@ The page lists them above the controls ("tempo map: 72 → 144 at 1:52", "swing 
 
 A tempo-map suggestion is offered alone: swing, meter and pickup would be measured on the single steady grid the map
 says is wrong, so they appear after the map is kept or dismissed and saved. A suggestion equal to what the sync
-already uses is not offered. A straight, steady 4/4 song gets none, and with none the page is as before. They are
+already uses is not offered: no tempo map once `sync.tempo_map` is set, and no swing when the meter is (or is
+suggested as) 6/8, whose thirds read as swing. A straight, steady 4/4 song gets none, and with none the page is as before. They are
 guesses: Claude cannot hear, so never keep one for the user, and say which ones there are when handing over the page.
 
 **What Save does.** Save sends the `sync` section to the server, which:

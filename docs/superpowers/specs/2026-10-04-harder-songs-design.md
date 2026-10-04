@@ -1,7 +1,7 @@
 # Harder songs (sub-project C2b): design
 
 Date: 2026-10-04
-Status: approved in conversation, awaiting spec review
+Status: approved; built (parts that changed in the build are marked *as built*)
 Part of: the motion-kit roadmap (A, B, C1, C2a, F1, F2 done; then D, E). C2b fills in what C1's data format left for
 later: tempo changes, swing and meter suggestions, and pickups (moved here from F).
 
@@ -39,26 +39,43 @@ suggestion; downloading or committing music.
 The current grid stays the default output. A new derived top-level `suggestions` object is written on every run
 (like the derived `markers`: never user data, rebuilt each time). A suggestion is included only when its confidence is
 at or above its threshold and it differs from what the current grid already uses (so a kept suggestion stops being
-suggested). Each has `confidence` (0..1) and `reason` (one line, plain words).
+suggested). Each has `confidence` (0..1) and `reason` (one line, plain words). *As built:* a tempo-map suggestion is
+offered alone (swing, meter and pickup would be measured on the single grid it says is wrong; they appear once it is
+kept or dismissed), none is suggested once `sync.tempo_map` is set, and swing is never suggested when the meter is (or
+is suggested as) 6/8, whose thirds read as swing.
 
 - **Tempo map.** Local tempo is estimated in overlapping windows (about 8 s, hop about 2 s) with the existing tempo
-  estimator, octave-consistent with the global tempo. Beats are then tracked with a dynamic-programming beat tracker
+  estimator. *As built:* a window read at a simple metrical ratio of the dominant tempo (`METRICAL`: 2, 3/2, 4/3, 3
+  and their inverses) is folded back to it (`_fold_metrical`) while that tempo is still present in the window (a
+  candidate at least `alias_present` of its best). Beats are then tracked with a dynamic-programming beat tracker
   (Ellis 2007) whose tempo prior follows the local estimates. Segmentation: a change of more than about 4% that lasts
   at least 4 bars starts a new segment; a change spread over more than 2 bars is a ramp. Suggested when there are at
-  least two segments.
+  least two segments *and (as built)* its confidence is at least `tempo_map_min`. That confidence comes from evidence
+  the segmentation does not use: the worst steady span's salience (beat contrast x gap regularity) x change agreement
+  (the local-tempo windows either side of each change agree with their span) x fit gain (the map's beats fit the
+  onsets better than the single steady grid).
   `"tempo_map": { "segments": [{ "t": 0.0, "bpm": 72.1 }, { "t": 112.4, "bpm": 144.0, "ramp": false }], "beats": [song
   times], "confidence", "reason" }` — `beats` lets the page play the suggested grid before Save.
 - **Swing.** For each beat, the strongest onset between 40% and 85% of the way to the next beat; the suggestion is the
   median position, rounded to 0.01, when at least 60% of beats have such an onset and the median is at least 0.56.
-  Triplet correction: when swing is detected and the chosen tempo is about 4/3 (±2%) of an alternative tempo
-  candidate, also suggest that tempo: `"swing": { "value": 0.62, "bpm": 96.6?, "confidence", "reason" }`.
+  *As built:* it is read on a high-band (≥ 5 kHz: hats, rides, ghost notes) envelope, falling back to the full band
+  when that band is near silent; the share counts only beats that sound (an onset of their own); the off-beats must
+  cluster (`swing_cluster`: enough of them within 0.06 of the median); and the off-beat must be `SWING_RATIO` (1.5x)
+  stronger than the straight 8th, so 16th-note hats are not read as swing.
+  Triplet correction (*as built*): only when **no** swing is found on the current grid, a grid is re-fitted near 3/4
+  of the tempo (seeded by an alternative within ±2% of it, if any); swing found there, on a grid whose comb score is
+  at least `triplet_fit` of the current grid's, is suggested with that tempo:
+  `"swing": { "value": 0.62, "bpm": 96.6?, "confidence", "reason" }`. Swing found on the current grid never offers a
+  slower tempo.
 - **Meter.** Autocorrelation of the low-band (kick) energy sampled at beats, at lags of 3 and 4 beats; 3/4 is suggested
   when the 3-beat periodicity clearly exceeds the 4-beat one. 6/8 when the beats themselves divide in three (onset
   energy at thirds of the beat) and the bar periodicity is 2 dotted beats. `"meter": { "value": "3/4", ... }`.
-- **Pickup.** The first strong downbeat is found as today; if the grid has 1 to (beats per bar − 1) beats with audible
-  onsets before it, that count is suggested. `"pickup": { "beats": 2, ... }`.
+- **Pickup.** *As built:* counted back from the downbeat of the first audible bar (`_first_bar`: leading silence is
+  skipped, and a silent 1 after a pickup still starts the bar); if 1 to (beats per bar − 1) beats with audible onsets
+  come before it and the beat before them is quiet (below `PICKUP_QUIET` of the median onset), that count is
+  suggested. `"pickup": { "beats": 2, ... }`.
 
-Thresholds are constants in one place in analyze_song.py, tuned on the synthetic tests and checked against the five
+Thresholds are constants in one place (*as built:* `THRESHOLDS` in song_suggest.py, which holds the detectors), tuned on the synthetic tests and checked against the five
 songs; the plan records the values chosen.
 
 ## 2. Data: new `sync` fields
@@ -69,10 +86,10 @@ The user-owned `sync` section (C1) gains, all optional:
 |---|---|
 | `tempo_map` | `[{ "t": seconds, "bpm": number, "ramp": boolean }]`, sorted by `t`, first `t` 0; replaces `bpm` when present. `ramp: true` means the tempo changes linearly from the previous anchor to this one. |
 | `pickup_beats` | integer 0 to beats-per-bar − 1: beats before the first downbeat |
-| `dismissed` | list of suggestion keys the user dismissed (`"tempo_map"`, `"swing"`, `"meter"`, `"pickup"`); dismissed suggestions are not written again until the analyser's suggestion value changes |
+| `dismissed` | *as built:* list of `{ "key", "value" }`: the key of a suggestion the user dismissed (`"tempo_map"`, `"swing"`, `"meter"`, `"pickup"`) and its value then; dismissed suggestions are not written again until the analyser's suggestion value changes |
 
 `swing`, `meter` and `bpm` already exist and are reused by Keep. Validation follows C1's rules (bad values →
-`error: ...`, exit 2): tempo-map anchors sorted, bpm 30 to 300, `pickup_beats` in range.
+`error: ...`, exit 2): tempo-map anchors sorted, bpm 40 to 240 (*as built*, as for `sync.bpm`), `pickup_beats` in range.
 
 **Applying them:** with `tempo_map`, the analyser builds the grid from the map (the beat tracker constrained to it, then
 phase-fitted per segment) instead of one tempo; `cue_t` equals the grid time, as for any ear-set grid. With
@@ -80,9 +97,10 @@ phase-fitted per segment) instead of one tempo; `cue_t` equals the grid time, as
 already follows the grid's own spacing (C1), so `beatT`, the engine, render and the validator need no change for tempo
 maps; their parity tests with no new fields must still pass.
 
-**`--from-start`:** a new analyser option (and `new_project.sh` / `swap_song.mjs` passthrough) that starts the loop on
-the first pickup beat (or the first downbeat when there is no pickup), so an intro can begin with the song. Beat 0 of
-the tables is then that beat; `beats[i].bar` / `beat_in_bar` say where bar 1 starts.
+**`--from-start`:** a new analyser option (and `new_project.sh` / `swap_song.mjs` passthrough) that starts the loop,
+*as built*, on the downbeat of the first audible bar, or on the first pickup beat before it only when
+`sync.pickup_beats` is kept, so an intro can begin with the song. Beat 0 of the tables is then that beat;
+`beats[i].bar` / `beat_in_bar` say where bar 1 starts (bar 1 is `bar: 0`; pickup beats are `bar: -1`).
 
 ## 3. The sync page: suggestions
 
@@ -91,8 +109,9 @@ the tables is then that beat; `beats[i].bar` / `beat_in_bar` say where bar 1 sta
   confidence and reason, and three buttons:
   - **Try:** the clicks and grid lines switch to the suggested grid (tempo map: the `beats` list; swing/meter/pickup:
     applied to the current grid on the page, as nudge and swing are previewed today). Toggles off. Nothing is saved.
+    *As built:* a pickup has no Try (it only applies to a `--from-start` loop, which the clip cannot play before).
   - **Keep:** adds it to the pending sync (the matching fields above); Save re-runs the analyser, which fits it.
-  - **Dismiss:** adds its key to `sync.dismissed` (pending until Save).
+  - **Dismiss:** adds `{ key, value }` to `sync.dismissed` (pending until Save).
 - Keeping a grid-changing suggestion (tempo map, bpm, meter, pickup) clears `checked_by_ear`, like any grid change;
   swing does not (C1's rule).
 - With no suggestions the page is exactly as today.
