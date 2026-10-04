@@ -172,13 +172,20 @@ is the Sync section of `skills/motion-video/SKILL.md`.
 `watching: http://127.0.0.1:PORT/__watch` and opens it (unless `--no-open`). The page plays clip.wav and drives
 the project's index.html in an iframe with `seek(t)`; on every save of index.html, MOTION-BRIEF.md, song.json,
 theme.json, theme.css, project.json or anything in components/ (changes within 200 ms are one) only the iframe
-reloads, so the song and the playhead carry on. Before reloading, the tables are run: if they throw (a syntax
-error, an unknown marker), the page keeps the last good frame and shows the error; the next good save reloads.
+reloads, so the song and the playhead carry on. Before reloading, the tables are run and checked with the
+engine's validator (non-strict, as the page's createScene does): if they throw or fail it (a syntax error, an
+unknown marker, a component typo), the version stays, the terminal prints `error: ...` and the page keeps the last
+good frame with the error in its panel; the next good save reloads. The page loads each new version into a second,
+unseen iframe and swaps it in only once its `ready` resolves; an error only the page can see (a throw in `content`)
+keeps the old frame too, and the page POSTs it to `/__watch/page-error` so the terminal and the status have it
+until the next reload. A broken table never blanks the preview.
 When MOTION-BRIEF.md exists, check_brief re-runs (frame check included) and prints its lines in the terminal
 (`warning:` / `error:`, then `brief OK` or `brief has N error(s)`); the page's corner panel shows the same (errors
 red, warnings amber, OK green; click to collapse; a dot when clean). `GET /__watch/status` returns
 `{ ok, errors, warnings, at, version, brief }`. `--brief` serves the brief's tables in place of index.html's (as
-check_brief's frame check does), so it works while planning. It writes nothing to the project; Ctrl+C stops it.
+check_brief's frame check does), so it works while planning; until the brief's tables first pass, index.html is not
+served (the frame waits and the status says why). It writes nothing to the project; Ctrl+C stops it; a watcher that
+fails prints `error: ...` and stops it.
 
 ## The planner
 

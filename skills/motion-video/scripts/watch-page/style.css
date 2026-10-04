@@ -11,7 +11,9 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   -webkit-font-smoothing: antialiased; overflow: hidden; }
 
 #frame-box { position: fixed; inset: 0; overflow: hidden; }
-#frame { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #ECEAE6; }
+#frame-box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #ECEAE6; }
+/* laid out (fonts and text measure as they will show) but not seen */
+#frame-box iframe.spare { visibility: hidden; }
 
 #overlay { position: fixed; inset: 0; width: 100%; border: 0; background: rgb(0 0 0 / 0.35); color: var(--text);
   font: 500 18px/1 var(--font); letter-spacing: 0.01em; cursor: pointer; }

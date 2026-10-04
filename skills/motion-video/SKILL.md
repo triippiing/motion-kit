@@ -287,17 +287,24 @@ exits 2 with `error: ...`.
 
 - The page plays clip.wav (click "Click to play"; Space plays and stops) and drives the project's `index.html` in an iframe with `seek(t)`.
 - It watches `index.html`, `MOTION-BRIEF.md`, `song.json`, `theme.json`, `theme.css`, `project.json` and
-  `components/`; changes within 200 ms are one. On a change it first runs the tables that will be served: if they
-  throw (a syntax error, an unknown marker), the terminal prints `error: ...`, the page keeps the last good frame
-  and its panel shows the error; otherwise it prints `reloaded (version N)` and only the iframe reloads, so the
-  song and the playhead carry on. A new song (a swap, a moved loop) reloads the audio too.
+  `components/`; changes within 200 ms are one. On a change it first runs the tables that will be served and checks
+  them with the engine's validator (non-strict, as the page does): if they throw or fail it (a syntax error, an
+  unknown marker, a component typo), the version stays, the terminal prints `error: ...`, the page keeps the last
+  good frame and its panel shows the error; otherwise it prints `reloaded (version N)` and only the iframe reloads,
+  so the song and the playhead carry on. A new song (a swap, a moved loop) reloads the audio too.
+- The page loads each new version into a second, unseen iframe and swaps it in only once its `ready` resolves. If it
+  fails there instead (an error only the browser sees, such as a throw in `content`), the old frame stays, the panel
+  shows the error, and the page sends it to the server (`POST /__watch/page-error`): the terminal prints
+  `error: ...` and the status carries it until the next reload. A broken table never blanks the preview.
 - When `MOTION-BRIEF.md` exists, check_brief re-runs after each reload (frame check included, a few seconds) and
   prints as its CLI does (`warning:` / `error:` lines, then `brief OK` or `brief has N error(s)`). The page's corner
   panel shows the same, plus the page's own errors: errors red, warnings amber, `brief OK` green; click to collapse;
   a dot when all is clean. `GET /__watch/status` returns `{ ok, errors, warnings, at, version, brief }`.
 - `--brief` serves the brief's tables spliced into index.html (as check_brief's frame check does), so it works while
-  planning, before the tables are pasted in. Without it, index.html as is.
-- Nothing is written to the project; Ctrl+C stops the server. It is a preview: the render is still the reference.
+  planning, before the tables are pasted in. Until the brief's tables first pass, index.html is not served: the
+  frame waits and the panel and status say so. Without it, index.html as is.
+- Nothing is written to the project; Ctrl+C stops the server. A watcher that fails (the folder removed) prints
+  `error: ...` and stops it. It is a preview: the render is still the reference.
 
 ## Export
 

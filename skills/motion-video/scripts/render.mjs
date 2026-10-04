@@ -57,7 +57,8 @@ export function spliceTables(html, code) {
 
 // `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in, `loop` (a boolean) with that
 // "loop"; `tables` serves index.html with those tables spliced in (spliceTables); a function is called on each request
-// for the code (null: index.html as is), so a watcher can change it. Nothing is written.
+// for the code (null: index.html as is; false: index.html is a 503, nothing to show yet), so a watcher can change
+// it. Nothing is written.
 // `tablesSpliced` says whether the splice took.
 // `routes` maps 'METHOD /path' to a handler(req, res, root), checked before static files; a key ending in '/'
 // also answers every path under it (HEAD falls back to the GET route). With routes, any other method than GET or
@@ -92,7 +93,11 @@ export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
       try {
         let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
         const code = typeof tables === 'function' ? tables() : tables;
-        if (code != null && (rel === '/' || rel === '/index.html')) {
+        if (code === false && (rel === '/' || rel === '/index.html')) {
+          res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' });
+          return res.end('nothing to show yet');
+        }
+        if (code != null && code !== false && (rel === '/' || rel === '/index.html')) {
           const spliced = spliceTables(body.toString('utf8'), code);
           if (spliced != null) { body = spliced; state.tablesSpliced = true; }
         }
