@@ -135,6 +135,26 @@ class SwingMeterPickup(unittest.TestCase):
         self.assertIsNotNone(r)
         self.assertLessEqual(abs(r["value"] - 0.66), 0.03)
 
+    def test_scattered_off_beats_are_not_swing(self):   # Task 7 fix round 1
+        # a straight 150 click with sparse sections and one off-beat hat per beat jittered over 0.6, 0.7, 0.8 of the
+        # beat: the median (0.7) looks swung and is clear of 0.5, but only a third of the off-beats sit near it
+        path = click_track(self.tmp / "s.wav", 150, seconds=30.0)
+        params, x = _read(path)
+        sr, beat = params.framerate, 0.4
+        x = x / 32768
+        n = int(0.04 * sr)
+        rng = np.random.default_rng(1)
+        for i, t in enumerate(beat_times(150, 30.0)[:-1]):
+            s = int((t + (0.6, 0.7, 0.8)[i % 3] * beat) * sr)
+            x[s:s + n] += 0.18 * np.exp(-np.arange(n) / sr * 120) * rng.standard_normal(n)
+        for k in range(1, 15, 4):
+            x[k * 2 * sr:(k + 1) * 2 * sr] = 0
+        full, low, _, high = A.envelopes(A.decode(_write(self.tmp / "scattered.wav", x, sr)))
+        g = A.beat_grid(full, low)
+        self.assertLess(abs(g["bpm"] - 150), 0.5)
+        self.assertIsNone(S.detect_swing(full, A.FPS_ENV, g["pos"] / A.FPS_ENV, g["bpm"], g["alternatives"],
+                                         refit=self.refit(full), high_env=high))
+
     def refit(self, full):
         return lambda bpm: A.refit_beats(full, bpm)
 
@@ -404,7 +424,7 @@ class At(unittest.TestCase):
     def test_thresholds_are_the_planned_starting_values(self):
         self.assertEqual(set(S.THRESHOLDS), {"swing_min", "swing_share", "triplet_tol", "meter_margin",
                                              "pickup_onset", "tempo_change", "tempo_bars", "ramp_bars",
-                                             "triplet_fit", "alias_present", "tempo_map_min"})
+                                             "triplet_fit", "alias_present", "tempo_map_min", "swing_cluster"})
 
 
 if __name__ == "__main__":

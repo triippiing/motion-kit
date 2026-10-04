@@ -24,11 +24,15 @@ THRESHOLDS = {
     "tempo_bars": 4,        # (Task 3) bars a change must last
     "ramp_bars": 2,         # (Task 3) a change spread over more bars than this is a ramp
     "alias_present": 0.35,  # (Task 7) a window's candidate this share of its best still counts as present
+    "swing_cluster": 0.45,  # (Task 7 fix) share of the off-beats within CLUSTER_TOL of their median; off-beats spread
+                            # evenly over SWING_WINDOW put 0.27 there, so this asks for 1.7x that (Home at Last 0.51,
+                            # Bohemian's smear 0.36)
     "tempo_map_min": 0.125, # (Task 7) a tempo map is suggested at or above this confidence (0.5 x 0.5 x 0.5: its three
                             # terms all at least neutral)
 }
 SWING_WINDOW = (0.40, 0.85)  # where in the beat the swung off-beat is looked for
 ONSET_SHARE = 0.25           # an off-beat counts when its peak is at least this share of the beat's own peak
+CLUSTER_TOL = 0.06           # (swing_cluster) how close, in fractions of the beat, an off-beat must be to the median
 SWING_RATIO = 1.5            # the off-beat must be this much stronger than the straight 0.5 position (not 16ths)
 THIRDS = (1 / 3, 2 / 3)      # 6/8: each dotted beat divides in three
 THIRDS_TOL = 0.06            # how close (fraction of the beat) a peak must be to a third
@@ -88,6 +92,9 @@ def _swing_on(full_env, fps_env, beat_times):
         return None
     value = round(float(np.median(fracs)), 2)
     if value < T["swing_min"]:
+        return None
+    # (fix round 1) the off-beats must sit together: a swung player lands in one place, a scatter only has a median
+    if np.mean(np.abs(np.array(fracs) - float(np.median(fracs))) <= CLUSTER_TOL) < T["swing_cluster"]:
         return None
     cand = float(np.median([_peak(full_env, fps_env, b + value * d, 1) for b, d in zip(starts, ds)]))
     half = float(np.median([_peak(full_env, fps_env, b + 0.5 * d, 1) for b, d in zip(starts, ds)]))
