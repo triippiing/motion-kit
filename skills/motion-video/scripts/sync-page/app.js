@@ -522,7 +522,8 @@ function newMarker() {
   draft = { t: Math.round((t + S.song.loop.start_sec) * 1000) / 1000 };
   if (!S.playing) S.t = t;
   // a name picked from the to-place list needs no prompt
-  if (S.placing) { const name = S.placing; S.placing = null; commitDraft(name); return; }
+  // (should that fail, the draft goes: a draft without its flag would block every later M)
+  if (S.placing) { const name = S.placing; S.placing = null; if (!commitDraft(name)) cancelDraft(); return; }
   drawWave();
 }
 
@@ -614,17 +615,26 @@ function renderMarkerList() {
   }));
 }
 
-// The to-place list: the saved names still to place, less those already among the pending markers.
+// The to-place list: the saved names still to place, less those already among the pending markers. A table name the
+// page cannot give a marker (tables accept any string) is listed, not selectable, with a note to rename it.
 function renderToPlace() {
   const box = $('#to-place'), have = new Set(S.pending.markers.map((m) => m.name));
   const names = S.needed.filter((n) => !have.has(n));
-  if (!names.includes(S.placing)) S.placing = null;
+  if (!names.includes(S.placing) || !NAME.test(S.placing)) S.placing = null;
   box.hidden = !names.length;
   const cap = document.createElement('span');
   cap.className = 'cap'; cap.textContent = 'To place';
   box.replaceChildren(cap, ...names.map((name) => {
     const b = document.createElement('button');
-    b.textContent = name;
+    b.textContent = name; b.dataset.name = name;
+    if (!NAME.test(name)) {
+      b.disabled = true;
+      const why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = ' \u2014 rename it in the table: marker names are lowercase letters, digits and -';
+      b.append(why);
+      return b;
+    }
     b.setAttribute('aria-pressed', String(S.placing === name));
     b.title = `Pick ${name}, then M drops it at the playhead`;
     b.addEventListener('mousedown', (e) => e.preventDefault());

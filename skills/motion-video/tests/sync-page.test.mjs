@@ -398,3 +398,23 @@ test('sync page: a project with nothing to place loads the animation at once, no
   assert.equal(await page.locator('.namebox').count(), 1);
   assert.deepEqual(errors, []);
 });
+
+test('sync page: a table marker name the page cannot use is listed with a rename note, never selectable; M still works', async () => {
+  const dir = project({ states: "[{ at: 0, use: 'button' }, { at: 'Drop', use: 'button' }, { at: 2, use: 'button' }, { at: END - 2, use: 'button' }]",
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  const { page, errors, state } = await open(dir);
+  assert.ok(await page.locator('#to-place').isVisible());
+  assert.match(await page.locator('#to-place').innerText(), /Drop.*rename it in the table: marker names are lowercase letters, digits and -/);
+  assert.equal(await page.locator('#to-place button:not([disabled])').count(), 0, 'nothing to select');
+  await page.locator('#to-place [data-name="Drop"]').click({ force: true });
+  assert.equal(await state(() => window.syncState.placing), null);
+  assert.match(await page.locator('#anim').innerText(), /place these moments to see the animation: Drop/);
+  // M is a normal draft with the name prompt; Escape cancels it; M works again
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.namebox').count(), 0);
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 1);
+  assert.deepEqual(errors, []);
+});
