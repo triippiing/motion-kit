@@ -677,6 +677,58 @@ class SuggestionTests(unittest.TestCase):
                 self.assertEqual(got["new"], got["old"])
 
 
+class KeptTempoMapTests(unittest.TestCase):
+    """Final review: a tempo map kept as the analyser suggested it (analyse, copy suggestions.tempo_map.segments into
+    sync.tempo_map, re-analyse), never a hand-written map."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.cases = {}
+        for name, tm in (("80-140", [(0, 80, False), (30, 140, False)]),
+                         ("110-88-132", [(0, 110, False), (15, 88, False), (30, 132, False)])):
+            wav = str(click_track(cls.tmp / f"{name}.wav", tm[0][1], seconds=60, tempo_map=tm))
+            segs = A.analyze(wav, bars=2)["suggestions"]["tempo_map"]["segments"]
+            cls.cases[name] = (wav, tm, segs)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp(dir=self.tmp))
+
+    def run_main(self, wav, *args, sync=None):
+        (self.d / "song.json").write_text(json.dumps({"sync": sync}))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = A.main([wav, "--out", str(self.d), *args])
+        self.assertEqual(code, 0, err.getvalue())
+        return json.loads((self.d / "song.json").read_text())
+
+    def test_the_kept_map_grid_has_one_beat_per_click(self):
+        for name, (wav, tm, segs) in self.cases.items():
+            with self.subTest(name=name, segments=segs):
+                full, low, _, _ = A.envelopes(A.decode(wav))
+                grid = A.beat_grid(full, low, {"tempo_map": segs})["times"]
+                clicks = np.array(beat_times(tm[0][1], 60, tempo_map=tm))
+                missed = [round(c, 3) for c in clicks if np.min(np.abs(grid - c)) > 0.03]
+                # beats past the last click (the track stops 0.3 s early) are not extra: the grid runs to the end
+                inside = grid[(grid > clicks[0] - 0.1) & (grid < clicks[-1] + 0.1)]
+                extra = [round(t, 3) for t in inside if np.min(np.abs(clicks - t)) > 0.03]
+                self.assertEqual((missed, extra), ([], []))
+
+    def test_downbeats_land_on_the_kicks(self):
+        wav, tm, segs = self.cases["80-140"]
+        song = self.run_main(wav, "--bars", "2", "--start-bar", "2", sync={"tempo_map": segs})
+        kicks = np.array(beat_times(80, 60, tempo_map=tm))[::4]
+        start = song["loop"]["start_sec"]
+        downs = [start + b["t"] for b in song["beats"] if b["beat_in_bar"] == 0]
+        self.assertEqual(len(downs), 2)
+        for t in downs:
+            self.assertLess(np.min(np.abs(kicks - t)), 0.03, (t, downs))
+
+
 class ClickTrackCliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

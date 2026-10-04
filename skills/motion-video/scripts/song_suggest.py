@@ -635,7 +635,8 @@ def detect_tempo_map(full_env, fps_env, global_bpm, beats_per_bar, tempo_candida
             "reason": "the tempo " + "; then ".join(moves)}
 
 
-MAP_EDGE = 0.15   # (map_grid) how far, in beats, a span's grid may run past its end anchor
+MAP_EDGE = 0.25   # (map_grid) how far, in beats, a span's grid runs past either end (its anchors); final review: 0.15 -> 0.25
+                  # (an anchor 0.18 beat before the beat it marks, 80->140 with clicks from 0.6 s, lost that beat)
 
 
 def map_grid(full_env, fps_env, segments, time_offset):
@@ -643,10 +644,13 @@ def map_grid(full_env, fps_env, segments, time_offset):
     with the map as the tracker's tempo prior (track_beats), then each span between anchors is laid exactly at the
     map's tempo (constant, or linear into a ramp anchor) with its phase fitted to the tracked beats in it (a circular
     mean weighted by the onset at each beat, so beats tracked through silence count for little). A span with no
-    tracked beat keeps the previous span's phase. At a junction a span's grid may run MAP_EDGE of a beat past its end
-    anchor, and a beat of the next span within half a beat of the previous beat is dropped, so an anchor set on (or a
-    few ms either side of) the last beat at the old tempo gives that beat, not an extra one. Returns beat times in the envelope's own time base (frame index /
-    fps_env), like track_beats; the analyser adds its ENV_TIME_OFFSET (and the user's nudge) for song seconds."""
+    tracked beat keeps the previous span's phase.
+    At a change (final review): each span's grid runs MAP_EDGE of a beat past both of its anchors, at its own tempo,
+    so an anchor set a few ms after (or before) the beat it marks still gives that beat. Where beats of two spans fall
+    within half a beat (half the mean of their two beat lengths) of each other, the one with the stronger onset is kept
+    (on a tie, as in silence, the later span's), never just whichever came first.
+    Returns beat times in the envelope's own time base (frame index / fps_env), like track_beats; the analyser adds
+    its ENV_TIME_OFFSET (and the user's nudge) for song seconds."""
     env = np.asarray(full_env, float)
     segs = [{"t": float(a["t"]), "bpm": float(a["bpm"]), "ramp": bool(a.get("ramp", False))} for a in segments]
     dur = len(env) / fps_env
@@ -662,7 +666,7 @@ def map_grid(full_env, fps_env, segments, time_offset):
     tempo = bpm[k] + np.where(ramp, (bpm[nxt] - bpm[k]) * frac, 0.0)
     phi = np.concatenate([[0.0], np.cumsum((tempo[1:] + tempo[:-1]) / 2 * np.diff(tau) / 60.0)])
     w = at(env, fps_env, tracked) + 1e-9
-    beats, phase = [], 0.0
+    cands, phase = [], 0.0   # (time, span, beat length there)
     bounds = list(np.clip(starts, 0.0, dur)) + [dur]
     bounds[0] = 0.0
     for i in range(len(segs)):
@@ -673,14 +677,31 @@ def map_grid(full_env, fps_env, segments, time_offset):
         if inside.any():
             ang = 2 * np.pi * np.interp(tracked[inside], tau, phi)
             phase = float(np.angle(np.sum(w[inside] * np.exp(1j * ang))) / (2 * np.pi)) % 1.0
-        # a span's grid may run MAP_EDGE of a beat past its end (an anchor placed on its last beat, give or take the
-        # tracker's jitter); the next span's beats closer than half a beat to the one before are dropped
-        end = min(dur, hi + MAP_EDGE * 60.0 / float(np.interp(hi, tau, tempo)))
-        p_lo, p_end = np.interp(lo, tau, phi), np.interp(end, tau, phi)
-        ks = np.arange(np.ceil(p_lo - phase), np.ceil(p_end - phase))
-        for t in np.interp(ks + phase, phi, tau):
-            if t < end and (not beats or t - beats[-1] >= 0.5 * 60.0 / np.interp(t, tau, tempo)):
-                beats.append(float(t))
+        p_lo, p_hi = float(np.interp(lo, tau, phi)), float(np.interp(hi, tau, phi))
+        # the span's own beat length at each end (past hi the map has the next span's tempo, so it is not read there)
+        b_lo = 60.0 / segs[i]["bpm"]
+        b_hi = 60.0 / (segs[i + 1]["bpm"] if i + 1 < len(segs) and segs[i + 1]["ramp"] else segs[i]["bpm"])
+        for q in np.arange(np.ceil(p_lo - MAP_EDGE - phase), np.ceil(p_hi + MAP_EDGE - phase)) + phase:
+            if q < p_lo:
+                t, b = lo - (p_lo - q) * b_lo, b_lo
+            elif q >= p_hi:
+                t, b = hi + (q - p_hi) * b_hi, b_hi
+            else:
+                t = float(np.interp(q, phi, tau))
+                b = 60.0 / float(np.interp(t, tau, tempo))
+            if 0.0 <= t < dur:
+                cands.append((float(t), i, b))
+    cands.sort()
+    beats, owner, length = [], [], []
+    for t, i, b in cands:
+        while beats and owner[-1] != i and t - beats[-1] < 0.25 * (length[-1] + b):
+            # two spans' beats within half a beat: the stronger onset stays (a tie goes to the later span)
+            mine, theirs = _peak(env, fps_env, t), _peak(env, fps_env, beats[-1])
+            if theirs > mine or (theirs == mine and owner[-1] > i):
+                break
+            beats.pop(), owner.pop(), length.pop()
+        else:
+            beats.append(t), owner.append(i), length.append(b)
     return np.array(beats)
 
 
