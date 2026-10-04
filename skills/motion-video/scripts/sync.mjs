@@ -3,11 +3,13 @@
 //
 //   node sync.mjs DIR [--port N] [--no-open] [--song PATH]
 //
-// Serves DIR on 127.0.0.1 (render.mjs serve) with two routes added:
+// Serves DIR on 127.0.0.1 (render.mjs serve) with three routes added:
 //   GET  /__sync         the page (scripts/sync-page/index.html, app.js, style.css); its own files are under /__sync/,
 //                        and /__sync/timing.js is the kit's timing module (for a project copied before it existed)
 //   POST /__sync/save    body {"sync": {...}}. Replies 200 {"song": <the new song.json>}, 400 {"error"} for
 //                        invalid input or a song that has moved, 500 {"error"} when the analyser fails otherwise.
+//   GET  /__sync/needed  {"names": [...]}: the marker names the tables use (index.html's and the brief's) that
+//                        song.json's sync.markers has not placed yet, worked out afresh on each request (read only)
 // Save writes the user's sync section into song.json and re-runs analyze_song.py on the original song (its path is
 // in DIR/.source.json), so song.json and clip.wav are rebuilt with the same bars, fps and loop window. The previous
 // song.json is kept as song.json.bak; on failure it is put back. --song PATH records where the song is now.
@@ -19,6 +21,7 @@ import { renameSync } from 'node:fs';
 import { copyFile, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { serve, inside, TYPES, UsageError } from './render.mjs';
+import { projectMarkerNames } from './tables.mjs';
 import { isMain } from './is_main.mjs';
 
 // The analyser ran but failed for a reason other than bad input: a 500.
@@ -207,6 +210,17 @@ async function servePage(req, res) {
   } catch { res.writeHead(404); res.end(); }
 }
 
+// The names still to place: the tables' marker names minus those in song.json's sync section (a song.json that is
+// missing or unreadable places none). The page holds the animation until this is empty.
+async function neededRoute(req, res, root) {
+  let placed = [];
+  try { placed = JSON.parse(await readFile(path.join(root, 'song.json'), 'utf8')).sync?.markers ?? []; } catch {}
+  const have = new Set(Array.isArray(placed) ? placed.map((m) => m?.name) : []);
+  try { sendJson(res, 200, { names: projectMarkerNames(root).filter((n) => !have.has(n)) }); } catch (e) {
+    sendJson(res, 500, { error: e.message }); // the page then places nothing and loads the animation as before
+  }
+}
+
 async function saveRoute(req, res, root, python) {
   // JSON only: a cross-site form or text/plain post cannot send it without a CORS preflight, which this server fails
   if (!/^application\/json\s*(;|$)/i.test(req.headers['content-type'] ?? '')) {
@@ -240,7 +254,8 @@ export async function startSync(dir, { port = 0, song, python } = {}) {
     if (!(await stat(abs).then((s) => s.isFile(), () => false))) throw new UsageError(`--song ${song}: no such file`);
     await writeJsonAtomic(path.join(root, '.source.json'), { path: abs });
   }
-  const routes = { 'GET /__sync': servePage, 'GET /__sync/': servePage, 'POST /__sync/save': (req, res, root) => saveRoute(req, res, root, python) };
+  const routes = { 'GET /__sync': servePage, 'GET /__sync/': servePage, 'GET /__sync/needed': neededRoute,
+    'POST /__sync/save': (req, res, root) => saveRoute(req, res, root, python) };
   const { server } = await serve(root, port, { routes });
   return { server, url: `http://127.0.0.1:${server.address().port}/__sync`,
     close: () => new Promise((resolve) => { server.close(() => resolve()); server.closeAllConnections?.(); }) };

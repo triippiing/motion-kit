@@ -17,7 +17,8 @@
 </header>
 <main id="main">
   <section id="anim" aria-label="Animation">
-    <div id="frame-box"><iframe id="frame" title="The project's animation, driven by the playhead" tabindex="-1" scrolling="no"></iframe></div>
+    <div id="frame-box"><iframe id="frame" title="The project's animation, driven by the playhead" tabindex="-1" scrolling="no"></iframe>
+      <div id="frame-wait" class="muted" hidden></div></div>
   </section>
   <section id="side">
     <div id="wave-wrap">
@@ -25,6 +26,7 @@
       <div id="flags"></div>
     </div>
     <canvas id="overview" aria-label="The whole loop; drag the window or click to jump"></canvas>
+    <div id="to-place" aria-label="Moments to place" hidden></div>
     <div id="marker-list" aria-label="Markers" hidden></div>
     <div id="transport">
       <button id="play" class="primary" title="Play / stop (Space)"><span class="icon" aria-hidden="true"></span><span class="label">Play</span></button>

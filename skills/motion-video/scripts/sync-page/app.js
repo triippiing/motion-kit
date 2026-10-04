@@ -4,6 +4,11 @@
 // /__sync/save, which re-runs the analyser and re-cuts clip.wav; the page then reloads the grid, the audio and the
 // animation. window.syncState exposes the state (tests read it); window.syncReady is true once loaded.
 //
+// To place: /__sync/needed lists the marker names the tables use that song.json has not placed (after a song swap,
+// say). The page lists those not yet among the pending markers; pick one and M drops it at the playhead, named. While
+// the saved list is not empty the animation waits (its tables would throw on the unknown markers): the pane says
+// which moments to place, and the animation loads once a Save leaves nothing to place.
+//
 // Timing: everything that sounds is scheduled with AudioBufferSourceNode.start(when) on the AudioContext clock. The
 // song loops in one source node (loop points on the decoded buffer, exactly the loop's length in samples). Clicks
 // go out from a lookahead loop: every 25 ms it schedules the clicks that fall in the next 100 ms, so the timer only
@@ -53,6 +58,9 @@ const S = window.syncState = {
   viewStart: 0, viewBars: 2, follow: true, selected: null,
   dirty: false, saving: false, saves: 0, error: null, warning: null, lastSaved: null,
   rebuilds: 0, iframeReloads: 0,
+  needed: [],           // marker names the tables use that the saved song.json has not placed (/__sync/needed)
+  placing: null,        // the to-place name M drops next
+  animReady: false,     // the animation is loaded (false while it waits for names to place)
   clockT: () => clockT(),
   scheduled: () => [playWhen, scheduledUntil], // the audio-clock span the scheduler has covered since Play
 };
@@ -285,7 +293,7 @@ const frame = $('#frame');
 let fwin = null, stage = { width: 1440, height: 1440 }, forceSeek = true;
 
 async function loadFrame(reload) {
-  fwin = null;
+  fwin = null; S.animReady = false;
   const loaded = new Promise((resolve) => frame.addEventListener('load', resolve, { once: true }));
   if (reload) frame.contentWindow.location.reload(); else frame.src = '/index.html';
   await loaded;
@@ -293,8 +301,34 @@ async function loadFrame(reload) {
   if (typeof w.seek !== 'function' || !w.ready) throw new Error('index.html has no seek(t) and ready (is this a motion-video project?)');
   await w.ready;
   stage = w.STAGE ?? stage;
-  fwin = w; forceSeek = true;
+  fwin = w; forceSeek = true; S.animReady = true;
   fitFrame();
+}
+
+// The saved names still to place, from the server; a failed fetch places none, so the animation loads as before.
+async function loadNeeded() {
+  try {
+    const r = await fetch('/__sync/needed', { cache: 'no-store' });
+    S.needed = r.ok ? (await r.json()).names ?? [] : [];
+  } catch { S.needed = []; }
+}
+
+// After a marker change: the list as the server has it now (the tables may have changed meanwhile).
+const refetchNeeded = () => loadNeeded().then(renderToPlace);
+
+// The animation waits while names are still to place: no page in the iframe, the pane says which.
+function holdFrame() {
+  fwin = null; S.animReady = false;
+  if (frame.hasAttribute('src')) { frame.removeAttribute('src'); frame.contentWindow.location.replace('about:blank'); }
+  frame.hidden = true;
+  const wait = $('#frame-wait');
+  wait.textContent = `place these moments to see the animation: ${S.needed.join(', ')}`;
+  wait.hidden = false;
+}
+
+async function showFrame() {
+  $('#frame-wait').hidden = true; frame.hidden = false;
+  await loadFrame(false);
 }
 
 function fitFrame() {
@@ -487,6 +521,8 @@ function newMarker() {
   const t = clockT();
   draft = { t: Math.round((t + S.song.loop.start_sec) * 1000) / 1000 };
   if (!S.playing) S.t = t;
+  // a name picked from the to-place list needs no prompt
+  if (S.placing) { const name = S.placing; S.placing = null; commitDraft(name); return; }
   drawWave();
 }
 
@@ -500,6 +536,7 @@ function commitDraft(name) {
   draft = null; el?.remove();
   S.selected = name; S.warning = null;
   refresh();
+  refetchNeeded();
   return true;
 }
 
@@ -577,10 +614,30 @@ function renderMarkerList() {
   }));
 }
 
+// The to-place list: the saved names still to place, less those already among the pending markers.
+function renderToPlace() {
+  const box = $('#to-place'), have = new Set(S.pending.markers.map((m) => m.name));
+  const names = S.needed.filter((n) => !have.has(n));
+  if (!names.includes(S.placing)) S.placing = null;
+  box.hidden = !names.length;
+  const cap = document.createElement('span');
+  cap.className = 'cap'; cap.textContent = 'To place';
+  box.replaceChildren(cap, ...names.map((name) => {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.setAttribute('aria-pressed', String(S.placing === name));
+    b.title = `Pick ${name}, then M drops it at the playhead`;
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => { S.placing = S.placing === name ? null : name; renderToPlace(); });
+    return b;
+  }));
+}
+
 function removeMarker(name) {
   S.pending.markers = S.pending.markers.filter((m) => m.name !== name);
   if (S.selected === name) S.selected = null;
   refresh();
+  refetchNeeded();
 }
 
 // ---------------- controls, readouts, status ----------------
@@ -610,6 +667,7 @@ function renderControls() {
   $('#save').classList.toggle('dirty', S.dirty);
   $('#save').disabled = S.saving;
   $('#save').textContent = S.saving ? 'Saving' : 'Save';
+  renderToPlace();
   renderMarkerList();
   renderStatus();
 }
@@ -683,7 +741,10 @@ async function save() {
     S.t = mod(S.t, S.loopSec); // the loop may be shorter now (a tempo or meter change)
     animKey = null;
     refresh();
-    if (fwin && typeof fwin.rebuild === 'function') rebuildFrame();
+    await loadNeeded();
+    if (S.needed.length) holdFrame();
+    else if (frame.hidden) await showFrame(); // the last names were placed: the animation loads now
+    else if (fwin && typeof fwin.rebuild === 'function') rebuildFrame();
     else { await loadFrame(true); S.iframeReloads++; rebuildQueued = false; }
     S.lastSaved = new Date();
     S.saves++;
@@ -716,7 +777,7 @@ addEventListener('keydown', (e) => {
     case 'n': if (S.selected) { take(); focusNote(); } break;
     case 'c': take(); toggleClicks(); break;
     case 'Delete': case 'Backspace': if (S.selected) { take(); removeMarker(S.selected); } break;
-    case 'Escape': S.selected = null; S.taps = []; S.tapBpm = null; renderControls(); break;
+    case 'Escape': S.selected = null; S.placing = null; S.taps = []; S.tapBpm = null; renderControls(); break;
   }
 }, true);
 
@@ -813,7 +874,8 @@ async function main() {
   songGain = ctx.createGain(); songGain.gain.value = 0.9; songGain.connect(ctx.destination);
   clickGain = ctx.createGain(); clickGain.gain.value = 0.5; clickGain.connect(ctx.destination);
   hiClick = makeClick(1500); loClick = makeClick(1000);
-  await Promise.all([loadClip(), loadFrame(false)]);
+  await loadNeeded();
+  await Promise.all([loadClip(), S.needed.length ? holdFrame() : loadFrame(false)]);
   S.pending = savedSync(S.song);
   refresh();
   rebuildQueued = false; // the iframe already shows the saved song
