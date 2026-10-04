@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, sync, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song (swap the song), watch a piece live while editing it, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, swap_song, sync, watch, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
 ---
 
 # Motion video
@@ -12,8 +12,9 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Check tooling | `scripts/doctor.sh` |
 | New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css]` |
 | Re-theme from a project | `python3 scripts/extract_theme.py app.css --out DIR [--map accent=--brand]` |
-| Re-time to a new song | `python3 scripts/analyze_song.py SONG --out DIR --bars 7` (delete `sync` from song.json first) |
+| Re-time to a new song | `node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B \| --start-near SEC] [--no-open] [--port N]` (backs up, clears `sync`, re-analyses, lists the marker names to place, opens the sync page; see Sync) |
 | Hear and fix the beat grid, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
+| Watch live while editing (reloads on save, re-runs check_brief) | `node scripts/watch.mjs DIR [--brief] [--port N] [--no-open]` (see Watch below) |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
 | Preview render | `node scripts/render.mjs DIR --preview` |
@@ -44,7 +45,8 @@ props; the cursor aims at its hotspots with `target:`.
 ## Build loop
 
 1. Start from the approved `DIR/MOTION-BRIEF.md` (motion-design). If there is no approved brief, go back and make one.
-2. Copy the `states()`/`cursor()` block under the brief's `## Beat table` over the example `states()` and `cursor()` in `DIR/index.html`. Rows with
+2. Copy the `states()`/`cursor()` block under the brief's `## Beat table` over the example `states()` and `cursor()` in `DIR/index.html`
+   (keep `node scripts/watch.mjs DIR` open in the background and give the user its URL: each save reloads the animation; see Watch). Rows with
    `use:` are library components (`components/CATALOG.md`); they need nothing else: no layer, no
    `content`. Only for something the library lacks, write a custom row (`name:` with `w`, `h`, `r`)
    plus a `.layer[data-state=NAME]` and a `content` function, or add a component
@@ -78,8 +80,8 @@ props; the cursor aims at its hotspots with `target:`.
 - Outside 100–130 BPM: follow the warning (half-time events or half-beat accents).
 - A commercial track is for local viewing: remind the user before they post. `export.mjs --silent` drops the audio.
 - `song.json` `sync` (set on the sync page) belongs to the user: every `analyze_song.py` run keeps it and applies it.
-  Re-timing to a **different** song? Delete the `sync` section from `song.json` first: its nudge, tempo and
-  markers were set by ear against the old song.
+  Re-timing to a **different** song? Use `node scripts/swap_song.mjs DIR NEWSONG` (see Sync, Swapping the song): it
+  clears the `sync` section first, since its nudge, tempo and markers were set by ear against the old song.
 
 ## Sync
 
@@ -174,6 +176,43 @@ The analyser validates it (a bad value is `error: ...`, exit 2) and lists the ma
 loop as top-level `markers: [{ name, song_t, t, in_loop, note }]` in `song.json` (`t` in loop seconds;
 `note` only when the marker has one).
 
+**Swapping the song.**
+
+```bash
+node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC] [--no-open] [--port N]
+```
+
+In order: checks DIR has a song.json and NEWSONG is a readable file (else `error: ...`, exit 2); copies song.json,
+clip.wav and .source.json (those present) to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/` (git-ignored: audio and a local
+path); lists the marker names the tables use (index.html's table block and the brief's `## Beat table` block, every
+`at:` that is a string); removes `sync` (and the derived `markers`) from song.json; runs
+`analyze_song.py NEWSONG --out DIR --bars N` with the project's `loop.bars` (or `--bars`), its `fps`, and
+`--start-bar` / `--start-near` when given (without them the analyser picks the loop window afresh for the new song,
+so pass `--start-bar` to keep a window chosen by hand). If the analyser fails, the backup is put back and the project is as it
+was; Ctrl+C while it runs stops it, puts the backup back and keeps the backup directory. Then it prints:
+
+```
+tempo: 109.00 -> 124.02 BPM (confidence 0.71)
+loop: 7 bars = 13.55 s (was 15.41 s)
+to place: drop, chorus                       (or: no markers to place)
+warning: the tables have 14 states; the new song allows 12 (shorten the table or pass --bars)   (only when over)
+reminder: update the brief's Song/Music line if the licence changed                           (only with a brief)
+backup: DIR/.swap-backup/20261004-142233
+```
+
+and, unless `--no-open`, runs `node scripts/sync.mjs DIR [--port N]` in the foreground (start it in the background
+and pass on the URL, as for sync.mjs). The swap never edits the tables: placing each listed name on the sync page
+makes them work again. Ask the user to listen again too (the grid is the analyser's until they press Sounds right).
+
+**To place.** The page asks the server (`GET /__sync/needed`, `{ "names": [...] }`) for the marker names the tables
+use that `sync.markers` has not placed, and lists them as "To place" above the markers list (hidden when empty).
+Click a name, then press M: the marker drops at the playhead with that name. Save, and the list shrinks. While a
+saved name is still to place, the animation pane shows `place these moments to see the animation: drop, chorus`
+instead of tables that would throw; once a Save leaves nothing to place, the animation loads. A table name that is
+not a valid marker name (see below) is listed but cannot be picked, with the note `rename it in the table: marker
+names are lowercase letters, digits and -`. check_brief's unknown-marker error ends
+`(after a song swap, place it on the sync page: node sync.mjs DIR)`.
+
 **Markers in tables.** A `states()` or `cursor()` row can sit on a marker by name, with an optional
 `offset` in beats:
 
@@ -234,6 +273,31 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   safe-zone check and sync)
   refuses any file in the project that is a symlink to somewhere outside it. `new_project.sh` copies files
   rather than linking them, so its projects are unaffected.
+
+## Watch
+
+```bash
+node scripts/watch.mjs DIR [--brief] [--port N] [--no-open]
+```
+
+A live preview for editing the tables. It serves DIR on 127.0.0.1 only, prints
+`watching: http://127.0.0.1:PORT/__watch` and opens it (macOS `open`) unless `--no-open`; it runs until stopped,
+so start it in the background and pass on the URL. `--port` is 0 to 65535 (default 0: any free port). Bad usage
+exits 2 with `error: ...`.
+
+- The page plays clip.wav (click "Click to play"; Space plays and stops) and drives the project's `index.html` in an iframe with `seek(t)`.
+- It watches `index.html`, `MOTION-BRIEF.md`, `song.json`, `theme.json`, `theme.css`, `project.json` and
+  `components/`; changes within 200 ms are one. On a change it first runs the tables that will be served: if they
+  throw (a syntax error, an unknown marker), the terminal prints `error: ...`, the page keeps the last good frame
+  and its panel shows the error; otherwise it prints `reloaded (version N)` and only the iframe reloads, so the
+  song and the playhead carry on. A new song (a swap, a moved loop) reloads the audio too.
+- When `MOTION-BRIEF.md` exists, check_brief re-runs after each reload (frame check included, a few seconds) and
+  prints as its CLI does (`warning:` / `error:` lines, then `brief OK` or `brief has N error(s)`). The page's corner
+  panel shows the same, plus the page's own errors: errors red, warnings amber, `brief OK` green; click to collapse;
+  a dot when all is clean. `GET /__watch/status` returns `{ ok, errors, warnings, at, version, brief }`.
+- `--brief` serves the brief's tables spliced into index.html (as check_brief's frame check does), so it works while
+  planning, before the tables are pasted in. Without it, index.html as is.
+- Nothing is written to the project; Ctrl+C stops the server. It is a preview: the render is still the reference.
 
 ## Export
 
