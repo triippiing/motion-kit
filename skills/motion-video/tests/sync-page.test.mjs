@@ -361,6 +361,8 @@ test('sync page: a moment to place holds the animation until it is placed and sa
   assert.equal(await state(() => window.syncState.placing), null);
   assert.ok(await page.locator('#to-place').isHidden(), 'nothing left to place in the pending markers');
   assert.equal(await page.locator('#frame').getAttribute('src'), null, 'still waiting for Save');
+  // every name is placed in the pending markers: the hold says to save, it no longer lists names
+  assert.match(await page.locator('#frame-wait').innerText(), /^save to see the animation$/);
 
   await page.keyboard.press('Control+s');
   await page.waitForFunction(() => window.syncState.saves === 1 || window.syncState.error, null, { timeout: 60000 });

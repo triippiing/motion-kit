@@ -316,14 +316,18 @@ async function loadNeeded() {
 // After a marker change: the list as the server has it now (the tables may have changed meanwhile).
 const refetchNeeded = () => loadNeeded().then(renderToPlace);
 
-// The animation waits while names are still to place: no page in the iframe, the pane says which.
+// The animation waits while names are still to place: no page in the iframe, the pane says which (those not yet
+// among the pending markers), or, once all of them are, that a Save shows it.
 function holdFrame() {
   fwin = null; S.animReady = false;
   if (frame.hasAttribute('src')) { frame.removeAttribute('src'); frame.contentWindow.location.replace('about:blank'); }
   frame.hidden = true;
-  const wait = $('#frame-wait');
-  wait.textContent = `place these moments to see the animation: ${S.needed.join(', ')}`;
-  wait.hidden = false;
+  holdText();
+  $('#frame-wait').hidden = false;
+}
+function holdText() {
+  const have = new Set(S.pending?.markers.map((m) => m.name) ?? []), names = S.needed.filter((n) => !have.has(n));
+  $('#frame-wait').textContent = names.length ? `place these moments to see the animation: ${names.join(', ')}` : 'save to see the animation';
 }
 
 async function showFrame() {
@@ -620,6 +624,7 @@ function renderMarkerList() {
 function renderToPlace() {
   const box = $('#to-place'), have = new Set(S.pending.markers.map((m) => m.name));
   const names = S.needed.filter((n) => !have.has(n));
+  if (!$('#frame-wait').hidden) holdText();
   if (!names.includes(S.placing) || !NAME.test(S.placing)) S.placing = null;
   box.hidden = !names.length;
   const cap = document.createElement('span');
