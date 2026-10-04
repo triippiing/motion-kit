@@ -4,9 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from './tmp.mjs';
+import { execFileSync } from 'node:child_process';
 import { clickTrack } from '../scripts/scaffold.mjs';
 import { UsageError } from '../scripts/render.mjs';
-import { analyseSequence, checkSequence, clock, initSequence, loadSequence } from '../scripts/sequence.mjs';
+import { analyseSequence, checkSequence, clock, initSequence, loadSequence, mergeSync } from '../scripts/sequence.mjs';
 
 const SCRIPT = path.join(import.meta.dirname, '..', 'scripts', 'sequence.mjs');
 const song = clickTrack(path.join(tempDir('mk-seq-song-'), 'song.wav'), 120, 40);
@@ -167,7 +168,7 @@ function freshSequence() {
   j.chapters[1].bars = 3;
   writeJson(f, j);
   editSong(d, 'intro', (s) => ({ ...s, sync: { nudge_ms: -10, swing: 0.6 } }));
-  editSong(d, 'kit', (s) => ({ ...s, sync: { nudge_ms: 25 } }));
+  editSong(d, 'kit', (s) => ({ ...s, sync: { nudge_ms: 25, markers: [{ name: 'drop', t: 6 }] } }));
   return d;
 }
 
@@ -205,8 +206,13 @@ test('analyse: chapters abut on the song, one line each; chapter 1\'s sync goes 
     assert.ok(Math.abs(cur.start_sec - (prev.start_sec + prev.duration_sec)) < 0.001, `chapter ${k + 1}: ${cur.start_sec} vs ${prev.start_sec + prev.duration_sec}`);
     assert.equal(cur.start_bar, prev.start_bar + prev.bars);
   }
-  for (const x of s) assert.deepEqual(x.sync, { nudge_ms: -10, swing: 0.6 });
-  assert.match(stdout, /^warning: kit's sync was replaced by intro's$/m);
+  // the grid is intro's; kit's marker (song time) is kept and shared with every chapter
+  for (const x of s) assert.deepEqual(x.sync, { nudge_ms: -10, swing: 0.6, markers: [{ name: 'drop', t: 6 }] });
+  assert.ok(s[1].markers.some((m) => m.name === 'drop' && m.in_loop), 'drop is in kit\'s loop');
+  const bak = path.join(dir, 'kit', 'song.json.bak');
+  assert.deepEqual(readJson(bak).sync, { nudge_ms: 25, markers: [{ name: 'drop', t: 6 }] }, 'kit\'s old song.json kept');
+  assert.match(stdout, new RegExp(`^warning: kit's sync was replaced by intro's \\(old song\\.json kept as ${bak.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)$`, 'm'));
+  assert.doesNotMatch(stdout, /intro's sync was replaced/);
   assert.doesNotMatch(stdout, /end's sync was replaced/, 'end had no sync of its own');
   const lines = stdout.split('\n').filter((l) => /^(intro|kit|end): /.test(l));
   assert.equal(lines.length, 3, stdout);
@@ -231,8 +237,9 @@ test('analyse (API): returns each chapter\'s window; a start_bar on chapter 1 is
     const L = songOf(d, x.name).loop;
     assert.deepEqual(x, { name: x.name, start_bar: L.start_bar, start_sec: L.start_sec, duration_sec: L.duration_sec });
   }
-  for (const c of ['intro', 'kit', 'end']) assert.equal(songOf(d, c).sync, undefined, c);
-  assert.deepEqual(warned, ["kit's sync was removed (intro has none)", "end's sync was removed (intro has none)"]);
+  // kit and end had intro's old grid; they keep only the shared marker
+  assert.deepEqual(warned, ['kit', 'end'].map((c) => `${c}'s sync was removed (intro has none) (old song.json kept as ${path.join(d, c, 'song.json.bak')})`));
+  for (const c of ['intro', 'kit', 'end']) assert.deepEqual(songOf(d, c).sync, { markers: [{ name: 'drop', t: 6 }] }, c);
   assert.deepEqual((await checkSequence(loadSequence(d), { frameCheck: noFrames })).errors, []);
 });
 
@@ -297,7 +304,10 @@ test('check: chapters with different bpm, sync or fps are errors', async () => {
   const bpm = songOf(analysedSequence().dir, 'intro').bpm;
   assert.deepEqual(await run((d) => editSong(d, 'end', (s) => ({ ...s, bpm: 121 }))), [`end: bpm 121 differs from intro's ${bpm}`]);
   assert.deepEqual(await run((d) => editSong(d, 'kit', (s) => ({ ...s, sync: { ...s.sync, swing: 0.5 } }))),
-    ["kit: sync differs from intro's (run sequence.mjs SEQ analyse to copy intro's to every chapter)"]);
+    ["kit: sync differs from the sequence's (intro's grid, every chapter's markers): run sequence.mjs SEQ analyse"]);
+  // a marker placed on one chapter after analyse: the others lack it
+  const late = await run((d) => editSong(d, 'end', (s) => ({ ...s, sync: { ...s.sync, markers: [...s.sync.markers, { name: 'outro', t: 12 }] } })));
+  assert.deepEqual(late, ['intro', 'kit'].map((c) => `${c}: sync differs from the sequence's (intro's grid, every chapter's markers): run sequence.mjs SEQ analyse`));
   const fps = await run((d) => {
     const L = songOf(d, 'kit').loop;
     const a = analyser(song, '--out', path.join(d, 'kit'), '--bars', '3', '--start-bar', String(L.start_bar), '--fps', '30');
@@ -316,3 +326,46 @@ test('check: chapters with different bpm, sync or fps are errors', async () => {
 function seqWithoutSong() {
   return seqDir({ song, chapters: [{ dir: 'b', bars: 2 }] }, ['b']);
 }
+
+test('mergeSync: grid from chapter 1, markers merged by name; a clash keeps chapter 1\'s (else the earlier) and warns', () => {
+  const ch = (name, sync) => ({ name, sync });
+  const m = mergeSync([
+    ch('intro', { nudge_ms: -10, markers: [{ name: 'drop', t: 10 }] }),
+    ch('kit', { nudge_ms: 5, bpm: 121, markers: [{ name: 'drop', t: 12 }, { name: 'hit', t: 7, note: 'snare' }] }),
+    ch('end', { markers: [{ name: 'hit', t: 8 }, { name: 'drop', t: 10 }] }),
+  ]);
+  assert.deepEqual(m.sync, { nudge_ms: -10, markers: [{ name: 'drop', t: 10 }, { name: 'hit', t: 7, note: 'snare' }] });
+  assert.deepEqual(m.warnings, [
+    'marker "drop": intro has it at 10.000 s, kit at 12.000 s; keeping intro\'s',
+    'marker "hit": kit has it at 7.000 s, end at 8.000 s; keeping kit\'s',
+  ]);
+  assert.deepEqual(mergeSync([ch('a', undefined), ch('b', { swing: 0.6 })]), { sync: undefined, warnings: [] });
+  assert.deepEqual(mergeSync([ch('a', { swing: 0.6 }), ch('b', undefined)]).sync, { swing: 0.6 });
+});
+
+test('analyse: a marker clash keeps chapter 1\'s time and warns with both', () => {
+  const d = copyOfAnalysed();
+  editSong(d, 'intro', (s) => ({ ...s, sync: { ...s.sync, markers: [{ name: 'drop', t: 2 }] } }));
+  const r = cli(d, 'analyse');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^warning: marker "drop": intro has it at 2\.000 s, kit at 6\.000 s; keeping intro's$/m);
+  for (const c of ['intro', 'kit', 'end']) assert.deepEqual(songOf(d, c).sync.markers, [{ name: 'drop', t: 2 }], c);
+  assert.equal(cli(d, 'check').status, 0);
+});
+
+test('analyse: chapter 1 from_start with a pickup beat still abuts', () => {
+  const t = tempDir('mk-seq-pick-');
+  const pick = path.join(t, 'pickup.wav');
+  execFileSync('python3', [path.join(import.meta.dirname, '..', 'scripts', 'click_track.py'), pick, '120', '--seconds', '30', '--pickup', '1'], { stdio: 'pipe' });
+  const d = path.join(t, 'seq');
+  initSequence(d, { song: pick, names: ['a', 'b'], bars: 2 });
+  editSong(d, 'a', (s) => ({ ...s, sync: { pickup_beats: 1 } }));
+  const r = cli(d, 'analyse');
+  assert.equal(r.status, 0, r.stderr);
+  const [a, b] = ['a', 'b'].map((c) => songOf(d, c).loop);
+  assert.equal(a.from_start, true);
+  assert.equal(songOf(d, 'a').beats.length, 9, 'the pickup beat plus 2 bars');
+  assert.ok(Math.abs(b.start_sec - (a.start_sec + a.duration_sec)) < 0.001, `${b.start_sec} vs ${a.start_sec + a.duration_sec}`);
+  assert.equal(b.start_bar, a.start_bar + 2);
+  assert.equal(cli(d, 'check').status, 0);
+});

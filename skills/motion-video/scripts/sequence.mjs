@@ -24,16 +24,18 @@
 //   init   creates SEQ/sequence.json (song from --song, one chapter per NAME, --bars N each, default 4; chapter 1
 //          from_start) and runs new_project.sh for each chapter, setting "loop": false. Refuses an existing
 //          sequence.json or chapter directory.
-//   analyse  the grid is chapter 1's: its song.json `sync` (set by ear with sync.mjs on chapter 1) is copied to every
-//            other chapter first (a chapter whose own sync differed is warned about; with none on chapter 1, the
-//            others' are removed). Then analyze_song.py runs on each chapter in order with its bars and fps: chapter 1
+//   analyse  the grid is chapter 1's: its song.json `sync` grid (nudge, tempo, meter, swing, pickup...; set by ear with
+//            sync.mjs on chapter 1) is copied to every other chapter first, and the markers (song time) placed on any
+//            chapter's sync page are merged by name into every chapter's (a name with two times keeps chapter 1's,
+//            else the earlier chapter's, with a warning). A chapter whose sync changes keeps its old song.json as
+//            song.json.bak; one whose own grid differed is warned about (with none on chapter 1, it is removed). Then analyze_song.py runs on each chapter in order with its bars and fps: chapter 1
 //            --from-start, --start-bar N or the analyser's own pick; chapter k>1 --start-bar = chapter k-1's
 //            loop.start_bar + bars, so the windows abut. Prints `name: bars A-B, m:ss.s-m:ss.s` per chapter. The
 //            analyser's `error:` is surfaced with the chapter's name (exit 2 when it exits 2).
 //   check    each chapter's MOTION-BRIEF.md (when there is one) through check_brief, not as a loop; then that every
 //            chapter is analysed with sequence.json's bars, starts where the previous one ends (within 1 ms), and has
-//            chapter 1's bpm (unless a tempo map is in sync: each loop's bpm is then its own mean beat), sync and
-//            fps. Errors exit 1.
+//            chapter 1's bpm (unless a tempo map is in sync: each loop's bpm is then its own mean beat) and fps, and
+//            the sequence's sync (chapter 1's grid, every chapter's markers, as analyse writes it). Errors exit 1.
 //   render, watch: see the sequences spec (docs/superpowers/specs/2026-10-04-sequences-design.md).
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -184,22 +186,54 @@ export function clock(sec) {
 // [{ name, start_bar, start_sec, duration_sec }] from each chapter's new song.json. `warn` gets each warning (a
 // chapter's sync replaced or removed). A failing analyser throws (UsageError when it exits 2) naming the chapter; the
 // chapters before it are already re-analysed.
+// The sequence's sync from each chapter's ({ name, sync }, in order): the grid fields (everything but markers) are
+// chapter 1's; markers (song time) are merged by name across the chapters, in chapter order. A name with two times
+// keeps the first (chapter 1's, else the earlier chapter's) and warns. Returns { sync (undefined when there is
+// nothing), warnings }.
+export function mergeSync(chapters) {
+  const warnings = [], markers = [], by = new Map();
+  for (const { name, sync } of chapters) {
+    for (const m of sync?.markers ?? []) {
+      const had = by.get(m.name);
+      if (!had) { by.set(m.name, { from: name, m }); markers.push(m); continue; }
+      if (Math.abs(had.m.t - m.t) >= 1e-6) {
+        warnings.push(`marker ${show(m.name)}: ${had.from} has it at ${had.m.t.toFixed(3)} s, ${name} at ${m.t.toFixed(3)} s; keeping ${had.from}'s`);
+      }
+    }
+  }
+  const { markers: _m, ...grid } = chapters[0]?.sync ?? {};
+  const sync = markers.length ? { ...grid, markers } : grid;
+  return { sync: Object.keys(sync).length || chapters[0]?.sync !== undefined ? sync : undefined, warnings };
+}
+
+const gridOf = (sync) => { const { markers: _m, ...g } = sync ?? {}; return g; };
+
+// Lines the chapters' loop windows up back to back on the song, on chapter 1's grid (see the header). Returns
+// [{ name, start_bar, start_sec, duration_sec }] from each chapter's new song.json. `warn` gets each warning (a
+// chapter's grid replaced or removed, a marker clash). A chapter whose sync changes keeps its old song.json as
+// song.json.bak (as sync.mjs Save does). A failing analyser throws (UsageError when it exits 2) naming the chapter;
+// the chapters before it are already re-analysed.
 export function analyseSequence(seq, { python = 'python3', warn = (m) => console.log(`warning: ${m}`) } = {}) {
-  const [first, ...rest] = seq.chapters;
-  const head = readSong(first.dir);
-  if (head.bad) throw new UsageError(`${first.name}: ${head.bad}`);
-  const sync = head.song?.sync;
-  for (const c of rest) {
+  const [first] = seq.chapters;
+  const songs = seq.chapters.map((c) => {
     const { song, bad } = readSong(c.dir);
     if (bad) throw new UsageError(`${c.name}: ${bad}`);
-    if (song?.sync !== undefined && !sameSync(song.sync, sync)) {
-      warn(sync === undefined ? `${c.name}'s sync was removed (${first.name} has none)` : `${c.name}'s sync was replaced by ${first.name}'s`);
+    return song;
+  });
+  const { sync, warnings } = mergeSync(seq.chapters.map((c, k) => ({ name: c.name, sync: songs[k]?.sync })));
+  seq.chapters.forEach((c, k) => {
+    const song = songs[k];
+    if (sameSync(song?.sync, sync)) return;
+    const file = path.join(c.dir, 'song.json'), bak = `${file}.bak`;
+    if (song) writeFileSync(bak, readFileSync(file));
+    if (k > 0 && song?.sync !== undefined && !sameSync(gridOf(song.sync), gridOf(sync))) {
+      const what = Object.keys(gridOf(songs[0]?.sync)).length ? `was replaced by ${first.name}'s` : `was removed (${first.name} has none)`;
+      warn(`${c.name}'s sync ${what} (old song.json kept as ${bak})`);
     }
-    if (song === null && sync === undefined) continue;
     const { sync: _old, ...keep } = song ?? {};
-    writeFileSync(path.join(c.dir, 'song.json'), `${JSON.stringify(sync === undefined ? keep : { ...keep, sync }, null, 2)}
-`);
-  }
+    writeFileSync(file, `${JSON.stringify(sync === undefined ? keep : { ...keep, sync }, null, 2)}\n`);
+  });
+  for (const w of warnings) warn(w);
   const env = childEnv(), out = [];
   let prev = null;
   for (const c of seq.chapters) {
@@ -245,6 +279,13 @@ export async function checkSequence(seq, { frameCheck } = {}) {
     songs.push(song);
   }
   const [first] = seq.chapters, head = songs[0];
+  const merged = mergeSync(seq.chapters.map((c, k) => ({ name: c.name, sync: songs[k]?.sync })));
+  warnings.push(...merged.warnings);
+  seq.chapters.forEach((c, k) => {
+    if (songs[k] && !sameSync(songs[k].sync, merged.sync)) {
+      errors.push(`${c.name}: sync differs from the sequence's (${first.name}'s grid, every chapter's markers): run sequence.mjs SEQ analyse`);
+    }
+  });
   for (let k = 1; k < songs.length; k++) {
     const s = songs[k], c = seq.chapters[k], p = songs[k - 1];
     if (!s) continue;
@@ -256,7 +297,6 @@ export async function checkSequence(seq, { frameCheck } = {}) {
     }
     if (!head) continue;
     if (head.sync?.tempo_map == null && s.bpm !== head.bpm) errors.push(`${c.name}: bpm ${s.bpm} differs from ${first.name}'s ${head.bpm}`);
-    if (!sameSync(s.sync, head.sync)) errors.push(`${c.name}: sync differs from ${first.name}'s (run sequence.mjs SEQ analyse to copy ${first.name}'s to every chapter)`);
     if (s.fps !== head.fps) errors.push(`${c.name}: fps ${s.fps} differs from ${first.name}'s ${head.fps}`);
   }
   return { errors, warnings };
