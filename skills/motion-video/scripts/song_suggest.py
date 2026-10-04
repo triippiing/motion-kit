@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """song_suggest.py -- detectors behind the analyser's `suggestions` (C2b): swing (with a triplet tempo correction),
-meter (3/4, 6/8) and a pickup before the first downbeat.
+meter (3/4, 6/8), a pickup before the first downbeat, and tempo maps (steps and ramps).
 
 Suggestions only: these functions never decide anything. Each returns a proposal (with a confidence 0..1 and a one-line
 reason) or None; only the user's `sync` (Keep + Save on the sync page) ever changes the grid.
 
 They take numpy arrays and plain numbers, never a path, so this module does not import analyze_song (which imports it).
 Time base: `beat_times` are in the envelopes' own time base, frame index / fps_env (analyze_song.beat_grid's
-`pos / FPS_ENV`), so an onset sits exactly on its beat. None of the detectors returns a time, so nothing converts back.
+`pos / FPS_ENV`), so an onset sits exactly on its beat. Swing, meter and pickup return no time; the tempo map returns
+song seconds (see its section below: detect_tempo_map adds the analyser's ENV_TIME_OFFSET, passed in as time_offset).
 """
 import numpy as np
 
@@ -198,3 +199,195 @@ def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
     return {"beats": n, "confidence": round(min(1.0, weakest), 2),
             "reason": f"{n} beat{'s' if n > 1 else ''} with audible onsets come before the first downbeat, "
                       "after silence"}
+
+
+# ---- Tempo maps (Task 3) ----------------------------------------------------------------------------------------------
+# Time bases: local_tempo and track_beats work in the envelope's own time base (frame index / fps_env). segment_tempo
+# reports times in whatever base its beat_times use. detect_tempo_map adds `time_offset` (the analyser's
+# ENV_TIME_OFFSET) so its `beats` and segment `t` are SONG seconds, the times the sync page plays clicks at.
+LOCAL_STRONG = 0.5   # a window's tempo candidates considered: autocorrelation at least this share of its best one
+
+
+def _fold(bpm, global_bpm):
+    """bpm moved by octaves (x2 / /2) to within x sqrt(2) of global_bpm."""
+    return float(bpm * 2.0 ** np.round(np.log2(global_bpm / bpm)))
+
+
+def local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec=8.0, hop_sec=2.0):
+    """Per window (win_sec long, every hop_sec): (window centre in envelope seconds, bpm). The bpm is the window's
+    strong tempo candidate (tempo_candidates is analyze_song's, passed in) nearest the global tempo's octave family,
+    folded to within x sqrt(2) of global_bpm, so a steady song read at double tempo stays steady (Review Focus 2).
+    Windows with no candidate are skipped."""
+    win, hop = int(round(win_sec * fps_env)), max(1, int(round(hop_sec * fps_env)))
+    out = []
+    for a in range(0, len(full_env) - win + 1, hop):
+        cands = tempo_candidates(np.asarray(full_env[a:a + win], float))
+        if not cands:
+            continue
+        top = max(c[1] for c in cands)
+        strong = [c for c in cands if c[1] >= LOCAL_STRONG * top]
+        best = min(strong, key=lambda c: (round(abs(np.log2(_fold(c[0], global_bpm) / global_bpm)), 6), -c[1]))
+        out.append(((a + win / 2) / fps_env, _fold(best[0], global_bpm)))
+    return out
+
+
+def track_beats(full_env, fps_env, tempo_curve, tightness=100.0):
+    """Ellis (2007) dynamic-programming beat tracker. score[t] = env[t] + max_p (score[p] - tightness *
+    log((t - p) / period(t))^2) over p in [t - 2 period, t - period / 2] (a chain restarts when that max is not
+    positive); the best frame in the last period is backtraced. period(t) comes from tempo_curve [(envelope seconds,
+    bpm)], linearly interpolated (held at the ends). env is scaled to unit standard deviation. Returns beat times in
+    the envelope's own time base (frame index / fps_env), refined to a fraction of a frame at the envelope's peak."""
+    env = np.asarray(full_env, float)
+    n = len(env)
+    if n == 0 or not tempo_curve:
+        return np.zeros(0)
+    e = env / (env.std() + 1e-12)
+    tc = np.array([c[0] for c in tempo_curve], float) * fps_env
+    bc = np.array([c[1] for c in tempo_curve], float)
+    period = 60.0 * fps_env / np.interp(np.arange(n), tc, bc)
+    score = e.copy()
+    back = np.full(n, -1)
+    for t in range(n):
+        P = period[t]
+        hi = t - int(round(P / 2))
+        if hi < 0:
+            continue
+        lo = max(0, t - int(round(2 * P)))
+        ps = np.arange(lo, hi + 1)
+        vals = score[lo:hi + 1] - tightness * np.log((t - ps) / P) ** 2
+        k = int(np.argmax(vals))
+        if vals[k] > 0:
+            score[t] = e[t] + vals[k]
+            back[t] = ps[k]
+    last = max(0, n - int(round(period[-1])))
+    t = last + int(np.argmax(score[last:]))
+    beats = []
+    while t >= 0:
+        beats.append(t)
+        t = back[t]
+    beats = np.array(beats[::-1], float)
+    # sub-frame: a parabola through the envelope around each beat frame
+    i = beats.astype(int)
+    ok = (i > 0) & (i < n - 1)
+    y0, y1, y2 = env[i[ok] - 1], env[i[ok]], env[i[ok] + 1]
+    den = y0 - 2 * y1 + y2
+    d = np.where((den < 0) & (y1 >= y0) & (y1 >= y2), 0.5 * (y0 - y2) / np.where(den == 0, 1, den), 0.0)
+    beats[ok] += np.clip(d, -0.5, 0.5)
+    return beats / fps_env
+
+
+def _segments(beat_times, beats_per_bar):
+    """segment_tempo's work: (anchors, share of steady bars within tempo_change of their segment's tempo)."""
+    T = THRESHOLDS
+    tol, tb = T["tempo_change"], int(T["tempo_bars"])
+    b = np.asarray(beat_times, float)
+    gaps = np.diff(b)
+    nbars = len(gaps) // beats_per_bar
+    if nbars < 1:
+        return ([{"t": 0.0, "bpm": round(60.0 / float(np.median(gaps)), 2), "ramp": False}] if len(gaps) else []), 0.0
+    bar_gaps = gaps[:nbars * beats_per_bar].reshape(nbars, beats_per_bar)
+    raw = 60.0 / np.median(bar_gaps, axis=1)
+    sm = raw.copy()
+    for k in range(1, nbars - 1):  # median over 3 bars: keeps a step a step
+        sm[k] = np.median(raw[k - 1:k + 2])
+    bar_t = b[np.arange(nbars + 1) * beats_per_bar]
+    off = lambda x, ref: abs(x / ref - 1)
+    segs = [{"steady": [0], "anchors": [{"t": 0.0, "ramp": False}]}]
+    k = 1
+    while k < nbars:
+        cur = segs[-1]["steady"]
+        ref = float(np.median(sm[cur]))
+        if off(sm[k], ref) <= tol:
+            cur.append(k)
+            k += 1
+            continue
+        j = k
+        while j < nbars and off(sm[j], ref) > tol:
+            j += 1
+        if j - k < tb:  # a short excursion (a fill, a stumble): not a tempo change
+            k = j
+            continue
+        settle = None  # the first run of tempo_bars bars at one new tempo
+        for s in range(k, nbars - tb + 1):
+            w = sm[s:s + tb]
+            m = float(np.median(w))
+            if all(off(x, m) <= tol / 2 for x in w) and off(m, ref) > tol:
+                settle, new = s, m
+                break
+        if settle is None:  # still moving at the end of the song: nothing to anchor
+            break
+        m0 = k - 1  # the last bar still at the old tempo
+        for q in range(settle - 1, k - 2, -1):
+            if off(sm[q], ref) <= tol / 2:
+                m0 = q
+                break
+        if settle - m0 - 1 > T["ramp_bars"]:
+            # tempo is linear in time on a ramp: a line through the moving bars, met with the old and new tempos
+            mid = (bar_t[:-1] + bar_t[1:]) / 2
+            q = np.arange(m0 + 1, settle)
+            slope, icept = np.polyfit(mid[q], raw[q], 1)
+            t0, t1 = float(bar_t[m0 + 1]), float(bar_t[settle])
+            if slope != 0:
+                t0 = float(np.clip((ref - icept) / slope, bar_t[m0], bar_t[m0 + 1]))
+                t1 = float(np.clip((new - icept) / slope, bar_t[settle], bar_t[settle + 1]))
+            anchors = [{"t": t0, "ramp": False, "same_as_previous": True}, {"t": t1, "ramp": True}]
+        else:
+            # a step: the first beat (from the first moving bar) whose gap is nearer the new tempo than the old
+            first = (m0 + 1) * beats_per_bar
+            last = settle * beats_per_bar
+            t = bar_t[settle]
+            for i in range(first, last + 1):
+                if abs(np.log(gaps[i] * new / 60)) < abs(np.log(gaps[i] * ref / 60)):
+                    t = b[i]
+                    break
+            anchors = [{"t": float(t), "ramp": False}]
+        segs.append({"steady": list(range(settle, settle + tb)), "anchors": anchors})
+        k = settle + tb
+    out, steady_ok, steady_n = [], 0, 0
+    for seg in segs:
+        bpm = 60.0 / float(np.median(bar_gaps[seg["steady"]]))
+        steady_ok += sum(off(raw[q], bpm) <= tol for q in seg["steady"])
+        steady_n += len(seg["steady"])
+        for a in seg["anchors"]:
+            same = a.pop("same_as_previous", False)
+            out.append({"t": round(a["t"], 3), "bpm": out[-1]["bpm"] if same else round(bpm, 2), "ramp": a["ramp"]})
+    return out, steady_ok / max(1, steady_n)
+
+
+def segment_tempo(beat_times, beats_per_bar):
+    """Tempo anchors [{t, bpm, ramp}] from beat times (bars counted from the first beat). Per-bar tempo is the median
+    of the bar's inter-beat gaps, smoothed by a median over 3 bars. A new segment starts where the tempo differs from
+    the running segment's by more than tempo_change for at least tempo_bars bars and then holds (tempo_bars bars within
+    half of tempo_change of each other). A move spread over more than ramp_bars bars is a ramp: an anchor at its start
+    (the old tempo) and one at its end with ramp True; otherwise a step anchored at the first beat of the new tempo.
+    The first anchor is at t 0; later t are in beat_times' own time base; bpm is the median over the steady bars."""
+    return _segments(beat_times, beats_per_bar)[0]
+
+
+def _clock(t):
+    return f"{int(t // 60)}:{t % 60:04.1f}"
+
+
+def detect_tempo_map(full_env, fps_env, global_bpm, beats_per_bar, tempo_candidates, *, time_offset,
+                     win_sec=8.0, hop_sec=2.0):
+    """A tempo-map suggestion: local tempo -> DP beats -> segments; suggested when there are at least two anchors.
+    time_offset (required: the analyser's ENV_TIME_OFFSET) turns envelope time into song seconds, so `beats` and the
+    segments' `t` are song seconds. None for a song shorter than two windows (Review Focus 5) or a steady one."""
+    if len(full_env) < 2 * win_sec * fps_env:
+        return None
+    curve = local_tempo(full_env, fps_env, global_bpm, tempo_candidates, win_sec, hop_sec)
+    if not curve:
+        return None
+    beats = track_beats(full_env, fps_env, curve) + time_offset
+    segments, share = _segments(beats, beats_per_bar)
+    if len(segments) < 2:
+        return None
+    moves = []
+    for prev, a in zip(segments, segments[1:]):
+        if a["ramp"]:
+            moves.append(f"ramps from {prev['bpm']:g} to {a['bpm']:g} BPM between {_clock(prev['t'])} and "
+                         f"{_clock(a['t'])}")
+        elif a["bpm"] != prev["bpm"]:
+            moves.append(f"changes from {prev['bpm']:g} to {a['bpm']:g} BPM at {_clock(a['t'])}")
+    return {"segments": segments, "beats": [round(float(x), 3) for x in beats], "confidence": round(float(share), 2),
+            "reason": "the tempo " + "; then ".join(moves)}

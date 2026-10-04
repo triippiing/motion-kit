@@ -11,7 +11,7 @@ SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
 import song_suggest as S  # noqa: E402
-from click_track import click_track  # noqa: E402
+from click_track import beat_times, click_track  # noqa: E402
 
 
 def _read(path):
@@ -111,6 +111,103 @@ class SwingMeterPickup(unittest.TestCase):
     def test_no_pickup_when_song_starts_on_the_downbeat(self):
         full, low, beats, song = self.track(bpm=100, offset=0.5)
         self.assertIsNone(S.detect_pickup(full, A.FPS_ENV, beats, self.downbeat(song), 4))
+
+
+class TempoMap(unittest.TestCase):
+    """Task 3: local tempo, the DP beat tracker and segmentation. Envelope time is frame index / FPS_ENV; song time
+    adds A.ENV_TIME_OFFSET (what click_track's beat times and the page's clicks use)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def envs(self, seconds=60.0, bpm=120, **kw):
+        path = self.tmp / "t.wav"
+        click_track(path, bpm, seconds=seconds, **kw)
+        full, low, _ = A.envelopes(A.decode(path))
+        return full, low
+
+    def detect(self, full, global_bpm, bpb=4):
+        return S.detect_tempo_map(full, A.FPS_ENV, global_bpm, bpb, A.tempo_candidates,
+                                  time_offset=A.ENV_TIME_OFFSET)
+
+    def test_step_90_to_120(self):
+        full, low = self.envs(tempo_map=[(0, 90, False), (20, 120, False)])
+        r = self.detect(full, A.beat_grid(full, low)["bpm"])
+        self.assertIsNotNone(r)
+        segs = r["segments"]
+        self.assertEqual(len(segs), 2, segs)
+        self.assertEqual(segs[0]["t"], 0.0)
+        self.assertLessEqual(abs(segs[0]["bpm"] / 90 - 1), 0.02, segs)
+        self.assertLessEqual(abs(segs[1]["bpm"] / 120 - 1), 0.02, segs)
+        self.assertLessEqual(abs(segs[1]["t"] - 20.0), 4 * 60 / 90, segs)   # within 1 bar
+        self.assertFalse(segs[1]["ramp"])
+        self.assertTrue(0 <= r["confidence"] <= 1)
+        self.assertIsInstance(r["reason"], str)
+        # beats are song seconds (3 decimals) on the clicks
+        want = beat_times(90, 60.0, tempo_map=[(0, 90, False), (20, 120, False)])
+        got = np.array(r["beats"])
+        self.assertTrue(all(round(b, 3) == b for b in r["beats"]))
+        err = np.array([got[np.argmin(np.abs(got - w))] - w for w in want[1:-1]])
+        self.assertLess(abs(np.median(err)), 0.02)                  # the analyser's ~13 ms calibration bias
+        self.assertLess(np.max(np.abs(err - np.median(err))), 0.015)
+
+    def test_ramp_100_to_120(self):
+        full, low = self.envs(tempo_map=[(0, 100, False), (20, 100, False), (30, 120, True)])
+        r = self.detect(full, A.beat_grid(full, low)["bpm"])
+        self.assertIsNotNone(r)
+        segs = r["segments"]
+        ramps = [s for s in segs if s["ramp"]]
+        self.assertEqual(len(ramps), 1, segs)
+        end = segs.index(ramps[0])
+        start = segs[end - 1]
+        self.assertLessEqual(abs(start["bpm"] / 100 - 1), 0.02, segs)
+        self.assertLessEqual(abs(ramps[0]["bpm"] / 120 - 1), 0.02, segs)
+        self.assertLessEqual(abs(start["t"] - 20.0), 4 * 60 / 100, segs)
+        self.assertLessEqual(abs(ramps[0]["t"] - 30.0), 4 * 60 / 120, segs)
+
+    def test_steady_120_gets_none(self):
+        full, low = self.envs(bpm=120)
+        self.assertIsNone(self.detect(full, A.beat_grid(full, low)["bpm"]))
+
+    def test_steady_70_read_as_140_gets_none(self):   # Review Focus 2
+        full, low = self.envs(bpm=70)
+        self.assertIsNone(self.detect(full, 140.0))
+        self.assertTrue(all(abs(b / 140 - 1) <= 0.03 for _, b in S.local_tempo(full, A.FPS_ENV, 140.0,
+                                                                                     A.tempo_candidates)))
+
+    def test_short_song_gets_none(self):   # Review Focus 5
+        full, low = self.envs(seconds=20.0, bpm=120)
+        self.assertIsNone(self.detect(full, 120.0))
+        full, low = self.envs(seconds=6.0, bpm=120)
+        self.assertIsNone(self.detect(full, 120.0))
+
+    def bias(self, full, low, want):
+        """The analyser's own grid sits ~13 ms after the clicks (env_time's calibration, 'within one video frame');
+        song_suggest's beats use the same time base, so they are compared to the clicks net of that shared bias."""
+        t = A.beat_grid(full, low)["times"]
+        return float(np.median([t[np.argmin(np.abs(t - w))] - w for w in want]))
+
+    def test_track_beats_on_a_steady_click(self):
+        full, low = self.envs(bpm=120)
+        got = S.track_beats(full, A.FPS_ENV, [(0.0, 120.0)]) + A.ENV_TIME_OFFSET
+        want = beat_times(120, 60.0)
+        err = np.array([got[np.argmin(np.abs(got - w))] - w for w in want])
+        bias = self.bias(full, low, want)
+        self.assertLess(abs(np.median(err) - bias), 0.002)          # same time base as the analyser's grid
+        self.assertLess(np.max(np.abs(err - bias)), 0.015)          # every click found within 15 ms
+        gaps = np.diff(got)
+        self.assertLess(np.max(np.abs(gaps - 0.5)), 0.03)
+
+    def test_segment_tempo_on_exact_beats(self):
+        steady = S.segment_tempo(beat_times(120, 60.0), 4)
+        self.assertEqual(len(steady), 1)
+        self.assertEqual(steady[0]["t"], 0.0)
+        step = S.segment_tempo(beat_times(90, 60.0, tempo_map=[(0, 90, False), (20, 120, False)]), 4)
+        self.assertEqual([round(s["bpm"]) for s in step], [90, 120])
+        self.assertEqual([s["ramp"] for s in step], [False, False])
 
 
 class At(unittest.TestCase):
