@@ -72,7 +72,8 @@ Exit 0 on success. The swap never edits the tables.
 
 `node watch.mjs DIR [--brief] [--port N] [--no-open]`
 
-- Serves DIR with render.mjs's `serve()` (127.0.0.1, same origin checks) and opens `?play&watch`. With `--brief`,
+- Serves DIR with render.mjs's `serve()` (127.0.0.1, same origin checks) and opens `/__watch` (as built; first written
+  as `?play&watch`). With `--brief`,
   the brief's tables are spliced into the served index.html (`serve(..., { tables })`, as check_brief's frame check
   does), so the same tool works while planning and after approval. Without `--brief`, index.html as is.
 - Watches `index.html`, `MOTION-BRIEF.md`, `song.json`, `theme.json`, `theme.css`, `project.json` and
@@ -80,17 +81,21 @@ Exit 0 on success. The swap never edits the tables.
 - On a change:
   - **check_brief** runs in-process (`checkBrief(DIR)`, frame check included) when MOTION-BRIEF.md exists;
     results print to the terminal (`warning:` / `error:` lines, then `brief OK` or `brief has N error(s)`).
-  - **Reload:** the server pushes `reload` over Server-Sent Events (`GET /__watch/events`); the page reloads and
-    resumes at the playhead it had (the page posts its time to sessionStorage before reloading; read back on load;
-    playing state kept).
+  - **Reload:** the server pushes `reload` over Server-Sent Events (`GET /__watch/events`); only the project's
+    iframe reloads, so the playhead and playing state are kept. (As built, a refinement from the plan: the watch
+    page at `/__watch` holds the audio and the clock and drives `index.html` in an iframe with `seek(t)`; a reload
+    replaces the iframe's page and seeks it to the current time, and the audio never stops. This replaces the
+    earlier idea of a full page reload that saved its time in sessionStorage.)
   - **Results panel:** the page fetches `GET /__watch/status` (`{ errors, warnings, ok, at }`) and shows a small
     corner panel: errors red, warnings amber, `brief OK` green; collapsible; collapsed to a dot when clean. Without
     a brief the panel shows only page errors.
 - **Broken tables:** before pushing a reload, the server checks that the new tables run (the same `vm` evaluation
   check_brief uses, 1 s timeout). If they don't, it pushes `error` with the message instead of `reload`; the page
   keeps showing the last good version and the panel shows the error. A later good save reloads normally.
-- The watch page is the normal `?play` page plus a small injected client (`/__watch/client.js`), added only when
-  served by watch.mjs; projects and the template are unchanged on disk.
+- The watch page is its own page (`scripts/watch-page/`, served at `/__watch`, as the sync page is) wrapping the
+  project's `index.html` in an iframe; nothing is injected into the project's page, and projects and the template
+  are unchanged on disk. (As built: this replaces the earlier `?play&watch` page with an injected
+  `/__watch/client.js`.)
 - Ctrl+C stops the server and the watchers; nothing is written to the project.
 
 ## Docs

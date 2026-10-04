@@ -15,11 +15,12 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import vm from 'node:vm';
 import { validate } from '../components/core/validate.js';
 import { isMain } from './is_main.mjs';
+import { briefCode, runTables, TablesError } from './tables.mjs';
 
 const SECTIONS = ['## Request', '## Decisions', '## Moments', '## Beat table'];
+export const SWAP_HINT = ' (after a song swap, place it on the sync page: node sync.mjs DIR)';
 
 export async function loadRegistry(dir) {
   const own = path.join(dir, 'components', 'index.js');
@@ -121,9 +122,7 @@ export async function checkBrief(dir, opts = {}) {
     if (pub.length && briefCommercial(md))
       warnings.push(`commercial music with public exports (${pub.join(', ')}) risks a mute or takedown: export those with --silent or use a licensed track`);
   }
-  const at = md.search(heading('## Beat table'));
-  const table = at < 0 ? '' : md.slice(at);
-  const code = [...table.matchAll(/```(?:js|javascript)\r?\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
+  const code = briefCode(md);
   if (!code.trim()) return { errors: [...errors, 'no ```js block with states() and cursor() under "## Beat table"'], warnings };
   const song = readJson(dir, 'song.json');
   if (!Array.isArray(song?.beats)) throw new Error('song.json has no beats list (re-run analyze_song.py)');
@@ -136,12 +135,9 @@ export async function checkBrief(dir, opts = {}) {
     return { errors: [...errors, e.message], warnings };
   }
   let states, cursor;
-  try {
-    const ctx = vm.createContext({ END: song.beats.length });
-    ({ states, cursor } = vm.runInContext(`${code}\n;({ states: states(), cursor: cursor() })`, ctx, { timeout: 1000 }));
-  } catch (e) {
-    const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
-    return { errors: [...errors, `beat table code ${why}`], warnings };
+  try { ({ states, cursor } = runTables(code, song.beats.length)); } catch (e) {
+    if (!(e instanceof TablesError)) throw e;
+    return { errors: [...errors, e.message], warnings };
   }
   // The project's page runs its own components/ copy, and one from before markers cannot place `at: 'name'` rows.
   const marked = [states, cursor].some((rows) => Array.isArray(rows) && rows.some((r) => typeof r?.at === 'string'));
@@ -152,7 +148,10 @@ export async function checkBrief(dir, opts = {}) {
   if (Array.isArray(cursor) && cursor.some((c) => c && typeof c === 'object' && Object.hasOwn(c, 'hide')) && !knowsHide(dir))
     errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
-  errors.push(...r.errors); warnings.push(...r.warnings);
+  // A marker the song lacks is usually one a song swap dropped: the sync page places it (validate.js stays as it is,
+  // pinned to demo 04's copy, so the hint is added here, unless the message already names sync.mjs).
+  const hint = (e) => (/^\S+ row \d+: unknown marker /.test(e) && !e.includes('sync.mjs') ? `${e}${SWAP_HINT}` : e);
+  errors.push(...r.errors.map(hint)); warnings.push(...r.warnings);
   // With errors the page (running the same tables) would only fail on what they already say.
   if (errors.length) return { errors, warnings };
   // The frame check always runs (cursor past the stage, text past its shape); presets with safe zones ride the

@@ -4,7 +4,7 @@ import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, rmSync, mkdirSync, cpSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { render, openProject, shoot } from '../scripts/render.mjs';
+import { render, openProject, shoot, serve } from '../scripts/render.mjs';
 import { fixture, probe, grayFrame, audioSamples } from './fixtures.mjs';
 import { tempDir } from './tmp.mjs';
 import { clickTrack } from '../scripts/scaffold.mjs';
@@ -326,4 +326,20 @@ test('"loop": false clamps subframe times to the piece, so frame 0 carries no gh
   assert.ok(looped > single + 20, `a loop still blends across the seam (${looped} vs ${single})`);
   const section = grayFrame(await render(oneOff, { workers: 2, from: 0, to: 0.5, out: path.join(oneOff, 'out', 'part.mp4') }), 0);
   assert.ok(Math.abs(section - single) < 2, `--from 0 section frame 0 is clamped too (${section})`);
+});
+
+test('serve: tables as a function is read on each request (null serves index.html as is)', async () => {
+  const dir = path.join(tempDir('mk-'), 'p');
+  mkdirSync(dir);
+  cpSync(path.join(SKILL, 'template', 'index.html'), path.join(dir, 'index.html'));
+  let code = 'const states = () => [];\nconst cursor = () => [];';
+  const { server, url } = await serve(dir, 0, { tables: () => code });
+  try {
+    const get = () => fetch(url).then((r) => r.text());
+    assert.match(await get(), /const states = \(\) => \[\];/);
+    code = "const states = () => ['changed'];\nconst cursor = () => [];";
+    assert.match(await get(), /\['changed'\]/);
+    code = null;
+    assert.equal(await get(), readFileSync(path.join(dir, 'index.html'), 'utf8'));
+  } finally { server.close(); server.closeAllConnections?.(); }
 });

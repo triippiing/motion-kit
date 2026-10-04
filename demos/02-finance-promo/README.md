@@ -26,10 +26,12 @@ node $S/render.mjs demos/02-finance-promo --serve  # watch live with audio (?pla
 node $S/render.mjs demos/02-finance-promo          # -> out/video.mp4
 ```
 
-`clip.wav` and `out/` are not committed. To recreate `clip.wav`, re-run
-`analyze_song.py "<your copy of the song>" --out demos/02-finance-promo --bars 7 --start-bar 7`.
+`clip.wav` and `out/` are not committed. To recreate `clip.wav` from your copy of the same song, re-run
+`analyze_song.py "<your copy of the song>" --out demos/02-finance-promo --bars 7 --start-bar 7`. For a different
+song, swap it in instead (backup, a fresh analysis, then the sync page):
+`node $S/swap_song.mjs demos/02-finance-promo "<your song>" --start-bar 7`.
 
 ## Licence note
 
 Tints is a commercial track. Keep this video for local viewing unless Jack decides otherwise.
-To post it anywhere, re-time it to a licensed or original track first (`analyze_song.py` with a new song).
+To post it anywhere, re-time it to a licensed or original track first (`swap_song.mjs` with the new song).

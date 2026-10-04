@@ -50,3 +50,16 @@ purity scan, renders every recipe in tests, and closed most of F1's review lefto
   stderr line prints above `error:`.
 - sync.mjs: narrow signal windows remain (the analyser exited 0 before close; the analyser not yet dead at the
   restore; a signal during the `.bak` rename).
+
+## Left over from C2a's reviews (2026-10-04)
+- watch: its check imports the project's components/ once (Node's module cache), so changing a component's
+  props/geometry/meta or adding one while watching gives false errors that hold good saves until restart (documented);
+  fix: run each check in a fresh child process or worker.
+- watch: a frame whose `ready` never settles stays hidden with nothing reported (add a ready timeout); no resync after
+  an SSE reconnect; trailing-only debounce (an autosave stream never reloads); no SSE heartbeat; a second Ctrl+C
+  does not force an exit; a missing or half-written index.html is not caught before a reload.
+- swap_song: SIGHUP is not handled (closing the terminal mid-swap leaves the analyser running; the backup stays);
+  no analyser timeout; analyserMessage/writeJsonAtomic duplicated from sync.mjs; user projects have no ignore for
+  `.swap-backup/`.
+- sync page: a deleted but unsaved placed marker does not reappear in "to place" until Save; the cancelDraft backstop
+  is unreachable by tests.

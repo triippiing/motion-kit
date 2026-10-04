@@ -18,9 +18,10 @@ after(async () => {
   for (const d of temps) rmSync(d, { recursive: true, force: true });
 });
 
-// A 4-bar project at 120 BPM whose loop starts at bar 2, so a nudge keeps the window inside the song.
-function project() {
-  const dir = makeProject({ bars: 4 });
+// A 4-bar project at 120 BPM whose loop starts at bar 2, so a nudge keeps the window inside the song. `opts` go to
+// makeProject (states, cursor).
+function project(opts = {}) {
+  const dir = makeProject({ bars: 4, ...opts });
   temps.push(path.dirname(dir));
   execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'),
     '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
@@ -333,5 +334,89 @@ test('sync page: a hostile checked_by_ear in song.json shows as text and never r
   assert.equal(await page.evaluate(() => window.__xss), undefined);
   assert.equal(await page.locator('#status img').count(), 0);
   assert.ok((await page.locator('#status').textContent()).includes(`checked by ear ${evil}`));
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: a moment to place holds the animation until it is placed and saved', async () => {
+  // the states table has a row at 'drop', which song.json does not have yet (as after a song swap): the project's own
+  // page would throw on it, so the animation waits
+  const dir = project({ states: "[{ at: 0, use: 'button' }, { at: 'drop', use: 'button' }, { at: 2, use: 'button' }, { at: END - 2, use: 'button' }]",
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  const { page, errors, state } = await open(dir);
+  assert.ok(await page.locator('#to-place').isVisible());
+  assert.deepEqual(await page.locator('#to-place button').allTextContents(), ['drop']);
+  assert.match(await page.locator('#anim').innerText(), /place these moments to see the animation: drop/);
+  assert.equal(await page.locator('#frame').getAttribute('src'), null, 'the animation is not loaded');
+  assert.equal(await state(() => window.syncState.animReady), false);
+
+  // select drop, put the playhead on beat 1 (between the rows at 0 and 2), M: the marker is named drop, no prompt
+  await page.locator('#to-place button', { hasText: 'drop' }).click();
+  assert.equal(await state(() => window.syncState.placing), 'drop');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Alt+ArrowRight');
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 0, 'no name prompt');
+  const ms = await state(() => window.syncState.pending.markers);
+  assert.deepEqual(ms.map((m) => m.name), ['drop']);
+  assert.equal(await state(() => window.syncState.placing), null);
+  assert.ok(await page.locator('#to-place').isHidden(), 'nothing left to place in the pending markers');
+  assert.equal(await page.locator('#frame').getAttribute('src'), null, 'still waiting for Save');
+  // every name is placed in the pending markers: the hold says to save, it no longer lists names
+  assert.match(await page.locator('#frame-wait').innerText(), /^save to see the animation$/);
+
+  await page.keyboard.press('Control+s');
+  await page.waitForFunction(() => window.syncState.saves === 1 || window.syncState.error, null, { timeout: 60000 });
+  assert.equal(await state(() => window.syncState.error), null);
+  await page.waitForFunction(() => window.syncState.animReady === true, null, { timeout: 30000 });
+  assert.ok(await page.locator('#to-place').isHidden());
+  assert.equal(await page.locator('#frame').getAttribute('src'), '/index.html');
+  assert.ok(await page.locator('#frame').isVisible());
+  assert.doesNotMatch(await page.locator('#anim').innerText(), /place these moments/);
+  assert.deepEqual(await state(() => window.syncState.needed), []);
+
+  // removing it again and saving holds the animation once more
+  await page.locator('#marker-list .mrow[data-marker="drop"] .mname').click();
+  await page.keyboard.press('Delete');
+  assert.equal(await state(() => window.syncState.pending.markers.length), 0);
+  await page.keyboard.press('Control+s');
+  await page.waitForFunction(() => window.syncState.saves === 2 || window.syncState.error, null, { timeout: 60000 });
+  assert.equal(await state(() => window.syncState.error), null);
+  assert.equal(await state(() => window.syncState.animReady), false);
+  assert.equal(await page.locator('#frame').getAttribute('src'), null);
+  assert.match(await page.locator('#anim').innerText(), /place these moments to see the animation: drop/);
+  assert.deepEqual(await page.locator('#to-place button').allTextContents(), ['drop']);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: a project with nothing to place loads the animation at once, no "to place" list', async () => {
+  const dir = project();
+  const { page, errors, state } = await open(dir);
+  assert.ok(await page.locator('#to-place').isHidden());
+  assert.equal(await state(() => window.syncState.animReady), true);
+  assert.equal(await page.locator('#frame').getAttribute('src'), '/index.html');
+  assert.doesNotMatch(await page.locator('#anim').innerText(), /place these moments/);
+  // M still asks for a name
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 1);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: a table marker name the page cannot use is listed with a rename note, never selectable; M still works', async () => {
+  const dir = project({ states: "[{ at: 0, use: 'button' }, { at: 'Drop', use: 'button' }, { at: 2, use: 'button' }, { at: END - 2, use: 'button' }]",
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  const { page, errors, state } = await open(dir);
+  assert.ok(await page.locator('#to-place').isVisible());
+  assert.match(await page.locator('#to-place').innerText(), /Drop.*rename it in the table: marker names are lowercase letters, digits and -/);
+  assert.equal(await page.locator('#to-place button:not([disabled])').count(), 0, 'nothing to select');
+  await page.locator('#to-place [data-name="Drop"]').click({ force: true });
+  assert.equal(await state(() => window.syncState.placing), null);
+  assert.match(await page.locator('#anim').innerText(), /place these moments to see the animation: Drop/);
+  // M is a normal draft with the name prompt; Escape cancels it; M works again
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.namebox').count(), 0);
+  await page.keyboard.press('m');
+  assert.equal(await page.locator('.namebox').count(), 1);
   assert.deepEqual(errors, []);
 });

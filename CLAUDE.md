@@ -60,7 +60,8 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
      resolve every warning
 6  show the brief and STOP until the user approves it
    -- motion-video --
-7  paste the brief's states()/cursor() block into DIR/index.html
+7  paste the brief's states()/cursor() block into DIR/index.html; keep node $S/watch.mjs DIR open while editing
+     (a live preview with the song: each save reloads the animation, check_brief re-runs; see Watching)
 8  node $S/beat_stills.mjs DIR  -> out/stills/contact-sheet.png (LOOK at it) + loop-seam check; iterate
 9  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
 10 node $S/export.mjs DIR --for reels,x,discord,web [--silent]
@@ -100,8 +101,17 @@ Details worth knowing:
   (rewrites only song.json, clip.wav and .source.json; song.json's `sync` section is kept, see Syncing).
   A window that still runs past the song's end (chosen with --start-bar or --start-near) gets a
   silence-padded clip.wav and a warning.
-- Re-timing to a different song: delete `sync` from song.json first (its nudge, tempo and markers were set
-  by ear against the old song; the analyser keeps and applies it whatever the song).
+- Re-timing to a different song: `node $S/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC]
+  [--no-open] [--port N]`. It backs up song.json, clip.wav and .source.json to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/`
+  (ignored in this repo; keep it out of your own commits), clears `sync` (its nudge, tempo and markers were set by
+  ear against the old song; the analyser would otherwise keep and apply it), re-analyses with the project's bars (or `--bars`) and fps (the loop window is picked afresh unless
+  `--start-bar` or `--start-near` is given), and prints
+  `tempo: A -> B BPM (confidence C)`, `loop: N bars = S s (was S s)`, `window: bar A -> B (pass --start-bar A to
+  keep it)` (or `window: bar B (unchanged)`), `to place: drop, chorus` (the marker names
+  the tables use; or `no markers to place`), a `warning:` when the tables have more states than the new song
+  allows, a reminder to update the brief's Song/Music line when a brief exists, and `backup: PATH`. Then it runs
+  `sync.mjs DIR` (unless `--no-open`) to place those names. A failed analyser or Ctrl+C during it puts the backup
+  back (Ctrl+C keeps the backup directory too). It never edits the tables. Bad usage exits 2 with `error: ...`.
 - Loop length vs states: each state holds at least `rules.min_hold_beats`, so `max_states` = beats / min hold.
   The template's 4 states exactly fill a 2-bar loop at ~120 BPM; use 7 bars for a 12-state piece.
 - The template's button uses the `accent` role; the house accent is black, so a new project looks black and
@@ -149,6 +159,35 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   `/__sync/timing.js` and, lacking `window.rebuild`, a reload after Save; their old `components/` copy does
   not know markers. Every script's page server refuses files symlinked from outside the project
   (`new_project.sh` copies, so its projects are fine).
+- **To place:** after a song swap the tables still name markers the new song lacks. `GET /__sync/needed` lists the
+  marker names the tables use (index.html's and the brief's) that `sync.markers` has not placed; the page shows them
+  as a "to place" list above the markers: click a name, press M, and the marker drops at the playhead with that
+  name. Until a Save leaves nothing to place, the animation pane says
+  `place these moments to see the animation: drop, chorus` instead of loading tables that would throw. A table
+  name that is not a valid marker name is listed with a note to rename it in the table. check_brief's unknown-marker
+  error adds `(after a song swap, place it on the sync page: node sync.mjs DIR)`.
+
+## Watching
+
+`node $S/watch.mjs DIR [--brief] [--port N] [--no-open]` serves the project on 127.0.0.1, prints
+`watching: http://127.0.0.1:PORT/__watch` and opens it (unless `--no-open`). The page plays clip.wav and drives
+the project's index.html in an iframe with `seek(t)`; on every save of index.html, MOTION-BRIEF.md, song.json,
+theme.json, theme.css, project.json or anything in components/ (changes within 200 ms are one) only the iframe
+reloads, so the song and the playhead carry on. Before reloading, the tables are run and checked with the
+engine's validator (non-strict, as the page's createScene does): if they throw or fail it (a syntax error, an
+unknown marker, a component typo), the version stays, the terminal prints `error: ...` and the page keeps the last
+good frame with the error in its panel; the next good save reloads. The page loads each new version into a second,
+unseen iframe and swaps it in only once its `ready` resolves; an error only the page can see (a throw in `content`)
+keeps the old frame too, and the page POSTs it to `/__watch/page-error` so the terminal and the status have it
+until the next reload. A broken table never blanks the preview.
+Watch reads the project's components/ once, when it starts: after changing a component's props, geometry or meta, or adding one, restart watch (until then its check can report false errors and hold good saves).
+When MOTION-BRIEF.md exists, check_brief re-runs (frame check included) and prints its lines in the terminal
+(`warning:` / `error:`, then `brief OK` or `brief has N error(s)`); the page's corner panel shows the same (errors
+red, warnings amber, OK green; click to collapse; a dot when clean). `GET /__watch/status` returns
+`{ ok, errors, warnings, at, version, brief }`. `--brief` serves the brief's tables in place of index.html's (as
+check_brief's frame check does), so it works while planning; until the brief's tables first pass, index.html is not
+served (the frame waits and the status says why). It writes nothing to the project; Ctrl+C stops it; a watcher that
+fails prints `error: ...` and stops it.
 
 ## The planner
 
@@ -292,12 +331,21 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   (every component in one project; --stills), export.mjs (ready-to-post files per
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
-                                  sync.mjs (the sync page's server: GET /__sync, POST /__sync/save; reuses render.mjs serve(),
+                                  sync.mjs (the sync page's server: GET /__sync, POST /__sync/save, GET /__sync/needed; reuses render.mjs serve(),
                                   which refuses files symlinked from outside the project), click_track.py (synthetic
                                   beat), scaffold.mjs (a project from tables on a click track; gallery + tests),
-                                  is_main.mjs (the entry guard every script uses)
+                                  is_main.mjs (the entry guard every script uses), tables.mjs (one place to
+                                  read, run and list a project's tables: briefCode, pageCode, runTables,
+                                  markerNames, projectMarkerNames; used by check_brief, render, swap_song, sync,
+                                  watch), swap_song.mjs (a new song on a project: backup, clear sync, re-analyse,
+                                  names to place; then the sync page), watch.mjs (the live preview's server:
+                                  GET /__watch, /__watch/events (SSE), /__watch/status; reuses serve())
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
-                                  nudge, tap tempo, meter, swing, markers, Save); tested by tests/sync-page.test.mjs
+                                  nudge, tap tempo, meter, swing, markers, to place, Save); tested by
+                                  tests/sync-page.test.mjs
+skills/motion-video/scripts/watch-page/ index.html, app.js, style.css: the watch page (the audio and playhead live
+                                  here; only its iframe of the project reloads; the check_brief corner panel); tested by
+                                  tests/watch.test.mjs
 skills/motion-video/presets.json  destination presets: shapes, platform limits with source/checked, safe margins
 skills/motion-video/template/     index.html: the seek(t) scaffold every project starts from (reads project.json:
                                   stage, optional loop and designScale; window.rebuild(song) is for the sync page only)

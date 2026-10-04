@@ -1,0 +1,33 @@
+/* The watch page: the animation fills the window on black; one small panel bottom right. */
+:root {
+  --bg: #0B0B0B; --panel: #1c1c1c; --line: #303030; --text: #ECEAE6; --muted: #8C8883;
+  --error: #ff6b5b; --warn: #f0b429; --ok: #3ccf7a;
+  --font: Geist, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 var(--font);
+  -webkit-font-smoothing: antialiased; overflow: hidden; }
+
+#frame-box { position: fixed; inset: 0; overflow: hidden; }
+#frame-box iframe { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: #ECEAE6; }
+/* laid out (fonts and text measure as they will show) but not seen */
+#frame-box iframe.spare { visibility: hidden; }
+
+#overlay { position: fixed; inset: 0; width: 100%; border: 0; background: rgb(0 0 0 / 0.35); color: var(--text);
+  font: 500 18px/1 var(--font); letter-spacing: 0.01em; cursor: pointer; }
+
+#panel { position: fixed; right: 16px; bottom: 16px; max-width: min(560px, calc(100vw - 32px)); max-height: 50vh;
+  overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+  cursor: pointer; user-select: text; }
+#panel .dot { display: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+#panel.collapsed { padding: 8px; border-radius: 50%; }
+#panel.collapsed .dot { display: block; }
+#panel.collapsed #lines { display: none; }
+#panel.warn .dot { background: var(--warn); }
+#panel.bad .dot { background: var(--error); }
+#lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+#lines .error { color: var(--error); }
+#lines .warning { color: var(--warn); }
+#lines .ok { color: var(--ok); }

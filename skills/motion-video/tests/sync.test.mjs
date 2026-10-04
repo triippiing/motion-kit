@@ -15,9 +15,9 @@ const servers = [];   // temp dirs are tempDir's (removed at exit, kept with MK_
 after(async () => { for (const s of servers) await s.close(); });
 
 // A 4-bar project (20 s click track at 120 BPM, beside it as ../beat.wav) whose loop starts at bar 2, so a nudge
-// keeps the window inside the song. The analyser has written .source.json.
-function project() {
-  const dir = makeProject({ bars: 4 });
+// keeps the window inside the song. The analyser has written .source.json. `opts` go to makeProject (states, cursor).
+function project(opts = {}) {
+  const dir = makeProject({ bars: 4, ...opts });
   execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'),
     '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
   return dir;
@@ -81,6 +81,26 @@ test('an invalid sync is a 400 with the analyser\'s message, and nothing changes
   assert.deepEqual(read(dir, 'song.json.bak'), bak);
   assert.deepEqual(read(dir, 'clip.wav'), clip);
   assert.ok(!existsSync(path.join(dir, 'song.json.bak.tmp')));
+});
+
+// A states table with a row at the 'drop' marker (between beats 0 and 2); the cursor rests clear of the component.
+const DROP_TABLES = { states: "[{ at: 0, use: 'button' }, { at: 'drop', use: 'button' }, { at: 2, use: 'button' }, { at: END - 2, use: 'button' }]",
+  cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' };
+
+test('GET /__sync/needed: the marker names the tables use that song.json has not placed', async () => {
+  const dir = project(DROP_TABLES);
+  const { url } = await serveProject(dir);
+  const needed = () => raw(url, 'GET', '/__sync/needed');
+  let r = await needed();
+  assert.equal(r.status, 200, r.text);
+  assert.match(r.type, /^application\/json/);
+  assert.deepEqual(r.json, { names: ['drop'] });
+  await saveSync(dir, { markers: [{ name: 'drop', t: song(dir).loop.start_sec + 0.5 }] });
+  r = await needed();
+  assert.deepEqual(r.json, { names: [] });
+  // a project whose tables use no markers has nothing to place
+  const plain = await serveProject(project());
+  assert.deepEqual((await raw(plain.url, 'GET', '/__sync/needed')).json, { names: [] });
 });
 
 test('a body without a sync object is a 400', async () => {

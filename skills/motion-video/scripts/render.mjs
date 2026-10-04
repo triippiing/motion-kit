@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime } from '../components/core/timing.js';
 import { isMain } from './is_main.mjs';
+import { START_MARK, pageCode } from './tables.mjs';
 
 // A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
 export class UsageError extends Error {}
@@ -35,16 +36,13 @@ export const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': '
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
-// The table block of the template's index.html runs from START_MARK to END_MARK.
-const START_MARK = '// ---------------- the three tables you edit ----------------';
-const END_MARK = '// ------------------------------------------------------------';
-
 // index.html with its states()/cursor() replaced by `code` (a brief's ```js block), keeping the page's own extraSfx
-// and content unless the code defines them. null when the page has no table markers.
+// and content unless the code defines them. null when the page has no table markers (START_MARK and END_MARK, from
+// tables.mjs).
 export function spliceTables(html, code) {
-  const a = html.indexOf(START_MARK), b = a < 0 ? -1 : html.indexOf(END_MARK, a + START_MARK.length);
-  if (a < 0 || b < 0) return null;
-  const block = html.slice(a + START_MARK.length, b);
+  const block = pageCode(html);
+  if (block == null) return null;
+  const a = html.indexOf(START_MARK), b = a + START_MARK.length + block.length;
   const defines = (src, name) => new RegExp(`\\b(?:const|let|var|function)\\s+${name}\\b`).test(src);
   let rest = '';
   if (!defines(code, 'extraSfx') && !defines(code, 'content')) {
@@ -58,7 +56,9 @@ export function spliceTables(html, code) {
 }
 
 // `stage` = [w, h] serves project.json (or {} when absent) with that stage merged in, `loop` (a boolean) with that
-// "loop"; `tables` serves index.html with those tables spliced in (spliceTables). Nothing is written.
+// "loop"; `tables` serves index.html with those tables spliced in (spliceTables); a function is called on each request
+// for the code (null: index.html as is; false: index.html is a 503, nothing to show yet), so a watcher can change
+// it. Nothing is written.
 // `tablesSpliced` says whether the splice took.
 // `routes` maps 'METHOD /path' to a handler(req, res, root), checked before static files; a key ending in '/'
 // also answers every path under it (HEAD falls back to the GET route). With routes, any other method than GET or
@@ -92,8 +92,13 @@ export function serve(dir, port = 0, { stage, loop, tables, routes } = {}) {
       if (real && !inside(realRoot, real)) { res.writeHead(403); return res.end(); }
       try {
         let body = (stage || loop != null) && rel === '/project.json' ? await stagedProject(file, { stage, loop }) : await readFile(file);
-        if (tables != null && (rel === '/' || rel === '/index.html')) {
-          const spliced = spliceTables(body.toString('utf8'), tables);
+        const code = typeof tables === 'function' ? tables() : tables;
+        if (code === false && (rel === '/' || rel === '/index.html')) {
+          res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' });
+          return res.end('nothing to show yet');
+        }
+        if (code != null && code !== false && (rel === '/' || rel === '/index.html')) {
+          const spliced = spliceTables(body.toString('utf8'), code);
           if (spliced != null) { body = spliced; state.tablesSpliced = true; }
         }
         res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
