@@ -30,8 +30,10 @@
 // it only applies to a loop that starts with the song (--from-start), where Save adds its beats before the first
 // downbeat, and the clip cannot play the song before its own start; Keep just stores pickup_beats until Save. Keep writes
 // its fields into the pending sync, Dismiss adds { key, value } to sync.dismissed (value as song_suggest.py compares
-// it); both toggle back and both wait for Save. Fields the page does not edit (tempo_map, pickup_beats, dismissed,
-// anything newer) are carried through Save unchanged.
+// it); both toggle back and both wait for Save. Keeping a tempo map drops a pending tempo, and keeping a swing that
+// carries a tempo (or tapping one) drops a tempo map: the analyser lets a map win over bpm, so the preview would lie.
+// A tempo map or pickup already saved is listed as kept, with Remove (pending until Save; again to undo). Fields the
+// page does not edit otherwise (tempo_map, pickup_beats, dismissed, anything newer) are carried through Save unchanged.
 // timing.js is the project's own copy (what its renders use); a project copied before timing.js existed gets the
 // kit's, which sync.mjs serves as /__sync/timing.js.
 let beatTime, beatAt;
@@ -122,13 +124,21 @@ function trySuggestion(key) {
   refresh({ gridMoved: true });
 }
 
-// Keep (again: back to the saved values). A grid field clears "Sounds right", as its control would.
+// The fields keeping a suggestion replaces, so what the page previews is what Save does: a tempo map replaces bpm
+// (the analyser ignores bpm under a map), and a tempo (a swing's bpm) replaces a tempo map.
+const displaced = (fields) => [...('tempo_map' in fields ? ['bpm'] : []), ...('bpm' in fields ? ['tempo_map'] : [])];
+// Clears a pending field: bpm goes back to null (savedSync's "detected"), any other field is deleted.
+function clearField(k) { if (k === 'bpm') S.pending.bpm = null; else delete S.pending[k]; }
+
+// Keep (again: back to the saved values, including what it replaced). A grid field clears "Sounds right", as its
+// control would.
 function keepSuggestion(key) {
   const s = S.song.suggestions[key], fields = sugFields(key, s), was = savedSync(S.song);
   if (isKept(key, s)) {
-    for (const k of Object.keys(fields)) { if (k in was) S.pending[k] = structuredClone(was[k]); else delete S.pending[k]; }
+    for (const k of [...Object.keys(fields), ...displaced(fields)]) { if (k in was) S.pending[k] = structuredClone(was[k]); else delete S.pending[k]; }
   } else {
     undismiss(key);
+    for (const k of displaced(fields)) clearField(k);
     Object.assign(S.pending, structuredClone(fields));
   }
   if (Object.keys(fields).some((k) => GRID_FIELDS.includes(k))) gridChanged(); else refresh({ gridMoved: true });
@@ -149,6 +159,20 @@ function dismissSuggestion(key) {
   refresh({ gridMoved: true });
 }
 
+// A tempo map or pickup already in the saved sync is listed as kept, with Remove: it clears the field in the pending
+// sync (a grid change, so it clears "Sounds right"); again puts the saved value back. Save applies it.
+const KEPT = { tempo_map: 'tempo_map', pickup_beats: 'pickup' }; // saved field -> the suggestion key it came from
+const keptFields = () => { const was = savedSync(S.song); return Object.keys(KEPT).filter((f) => was[f] != null); };
+function removeKept(field) {
+  const was = savedSync(S.song);
+  if (same(S.pending[field], was[field])) clearField(field);
+  else {
+    S.pending[field] = structuredClone(was[field]);
+    if (field === 'tempo_map') S.pending.bpm = null; // a map replaces a pending tempo, as Keep does
+  }
+  gridChanged();
+}
+
 const fmtMin = (t) => `${Math.floor(t / 60)}:${pad(Math.floor(t % 60))}`;
 function sugLabel(key, s) {
   if (key === 'tempo_map') {
@@ -163,13 +187,30 @@ function sugLabel(key, s) {
 // One line per suggestion: what it proposes, confidence and reason, and Try / Keep / Dismiss (toggles). Hidden when
 // there are none, so a project without suggestions sees the page as before.
 function renderSuggestions() {
-  const box = $('#suggestions'), list = suggestions();
+  const box = $('#suggestions'), list = suggestions(), kept = keptFields(), was = savedSync(S.song);
   if (S.trying && !list.some(([k]) => k === S.trying)) S.trying = null;
-  box.hidden = !list.length;
-  if (!list.length) return box.replaceChildren();
+  box.hidden = !list.length && !kept.length;
+  if (box.hidden) return box.replaceChildren();
   const cap = document.createElement('div');
   cap.className = 'cap'; cap.textContent = 'Suggestions';
-  box.replaceChildren(cap, ...list.map(([key, s]) => {
+  const keptRows = kept.map((field) => {
+    const removed = !same(S.pending[field], was[field]);
+    const row = document.createElement('div');
+    row.className = `srow saved${removed ? ' dismissed' : ''}`;
+    row.dataset.key = `kept:${field}`;
+    row.innerHTML = '<span class="slabel"></span><span class="sconf mono">kept</span><span class="sreason"></span><span class="sbuttons"></span>';
+    row.querySelector('.slabel').textContent = sugLabel(KEPT[field], field === 'tempo_map' ? { segments: was.tempo_map } : { beats: was.pickup_beats });
+    row.querySelector('.sreason').textContent = !removed ? 'saved in the sync; Remove takes it out'
+      : S.pending[field] == null ? 'removed: save to apply' : 'replaced: save to apply';
+    const b = document.createElement('button');
+    b.textContent = 'Remove'; b.title = 'Take it out of the sync to save (again to undo)';
+    b.setAttribute('aria-pressed', String(removed));
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    b.addEventListener('click', () => removeKept(field));
+    row.querySelector('.sbuttons').append(b);
+    return row;
+  });
+  box.replaceChildren(cap, ...keptRows, ...list.map(([key, s]) => {
     const kept = isKept(key, s), dismissed = dismissedIn(S.pending, key, s);
     const row = document.createElement('div');
     row.className = `srow${kept ? ' kept' : ''}${dismissed ? ' dismissed' : ''}`;
@@ -848,9 +889,10 @@ function renderStatus() {
   parts.push(`<span>${checked ? `checked by ear ${esc(checked)}` : 'not checked by ear'}</span>`);
   const outside = S.anim.markers.filter((m) => !m.in_loop).map((m) => m.name);
   if (outside.length) parts.push(`<span>outside the loop: ${outside.map(esc).join(', ')}</span>`);
-  // the analyser snaps beats to detected hits until the user sets a nudge or tempo; then the grid is even, so the
-  // first nudge can move clicks by more than its 5 ms
-  parts.push(`<span>${S.pending.nudge_ms || S.pending.bpm != null ? 'even grid: detected hits off' : 'grid follows detected hits'}</span>`);
+  // the analyser snaps beats to detected hits until the user sets a nudge, a tempo or a tempo map; then the grid is
+  // the user's, so the first nudge can move clicks by more than its 5 ms
+  const own = S.pending.nudge_ms || S.pending.bpm != null || S.pending.tempo_map != null;
+  parts.push(`<span>${own ? 'even grid: detected hits off' : 'grid follows detected hits'}</span>`);
   if (approximate()) parts.push('<span class="warn">preview is approximate until you save</span>');
   if (S.saving) parts.push('<span class="warn">saving: re-cutting the clip</span>');
   else if (S.dirty) parts.push('<span class="warn">unsaved changes</span>');
@@ -879,6 +921,7 @@ function applyTap() {
   S.taps = []; S.tapBpm = null;
   if (!(bpm >= BPM_RANGE[0] && bpm <= BPM_RANGE[1])) { S.warning = `a tapped tempo must be ${BPM_RANGE[0]} to ${BPM_RANGE[1]} BPM, got ${bpm}`; return renderControls(); }
   S.pending.bpm = bpm; S.warning = null;
+  delete S.pending.tempo_map; // a tapped tempo replaces a kept tempo map (the analyser would ignore bpm under one)
   gridChanged();
 }
 

@@ -633,7 +633,8 @@ test('sync page: Save carries the sync fields the page does not edit (tempo_map,
   s.sync = { ...(s.sync ?? {}), ...extra };
   writeFileSync(path.join(dir, 'song.json'), JSON.stringify(s, null, 2));
   const { page, errors, state } = await open(dir);
-  assert.ok(await page.locator('#suggestions').isHidden(), 'no suggestions: no list');
+  // no suggestions, but the saved tempo map and pickup are listed as kept (each with Remove)
+  assert.deepEqual(await page.locator('#suggestions .srow').evaluateAll((rs) => rs.map((r) => r.dataset.key)), ['kept:tempo_map', 'kept:pickup_beats']);
   await page.keyboard.press('ArrowDown');
   assert.equal(await state(() => window.syncState.dirty), true);
   await saveAndWait(page, 1);
@@ -642,5 +643,115 @@ test('sync page: Save carries the sync fields the page does not edit (tempo_map,
   assert.deepEqual(saved.tempo_map, extra.tempo_map);
   assert.equal(saved.pickup_beats, 1);
   assert.deepEqual(saved.dismissed, extra.dismissed);
+  assert.deepEqual(errors, []);
+});
+
+// ---------------- kept rows, tap tempo over a kept map (final review) ----------------
+
+// suggested()'s project after keeping the analyser's own suggestion: its fields copied into sync, then re-analysed.
+function keptProject(bpm, seconds, flags, key) {
+  const dir = suggested(bpm, seconds, flags);
+  const song = songOf(dir), sug = song.suggestions[key];
+  assert.ok(sug, `${key} is suggested: ${JSON.stringify(song.suggestions)}`);
+  const sync = key === 'tempo_map' ? { tempo_map: sug.segments } : { pickup_beats: sug.beats };
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify({ ...song, sync: { ...sync, checked_by_ear: '2026-10-04' } }, null, 2));
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'), '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
+  return { dir, sync };
+}
+const tapTempo = async (page) => {
+  for (let i = 0; i < 8; i++) { await page.keyboard.press('t'); await page.waitForTimeout(500); }
+  await page.keyboard.press('Enter');
+};
+
+test('sync page: a saved tempo map is a kept row; Remove clears it (and Sounds right), again restores it, Save applies', async () => {
+  const { dir, sync } = keptProject(90, 60, ['--tempo-map', '0:90,20:120'], 'tempo_map');
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="kept:tempo_map"]');
+  assert.ok(await page.locator('#suggestions').isVisible());
+  assert.match(await row.innerText(), /tempo map: 90 → 120 at 0:19/);
+  assert.match(await row.innerText(), /kept/);
+  assert.match(await page.locator('#status').innerText(), /even grid: detected hits off/, 'a kept map sits on its own grid');
+  const remove = row.locator('button', { hasText: 'Remove' });
+  assert.equal(await remove.getAttribute('aria-pressed'), 'false');
+  await remove.click();
+  assert.equal(await state(() => 'tempo_map' in window.syncState.pending), false);
+  assert.equal(await state(() => window.syncState.pending.checked_by_ear ?? null), null, 'clearing the map clears Sounds right');
+  assert.equal(await remove.getAttribute('aria-pressed'), 'true');
+  assert.match(await row.innerText(), /removed: save to apply/);
+  assert.match(await page.locator('#status').innerText(), /grid follows detected hits/);
+  await remove.click();
+  assert.deepEqual(await state(() => window.syncState.pending.tempo_map), sync.tempo_map, 'Remove again restores it');
+  await remove.click();
+  await saveAndWait(page, 1);
+  const saved = songOf(dir);
+  assert.ok(!('tempo_map' in saved.sync));
+  assert.ok(!('checked_by_ear' in saved.sync));
+  assert.ok(saved.suggestions.tempo_map, 'the analyser suggests the map again');
+  assert.equal(await page.locator('#suggestions .srow[data-key="kept:tempo_map"]').count(), 0);
+  assert.equal(await page.locator('#suggestions .srow[data-key="tempo_map"]').count(), 1);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: a saved pickup is a kept row; Remove + Save clears pickup_beats', async () => {
+  const { dir } = keptProject(100, 30, ['--pickup', '2'], 'pickup');
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="kept:pickup_beats"]');
+  assert.match(await row.innerText(), /pickup: 2 beats/);
+  await row.locator('button', { hasText: 'Remove' }).click();
+  assert.equal(await state(() => 'pickup_beats' in window.syncState.pending), false);
+  assert.equal(await state(() => window.syncState.pending.checked_by_ear ?? null), null);
+  await saveAndWait(page, 1);
+  assert.ok(!('pickup_beats' in songOf(dir).sync));
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: tap tempo replaces a kept tempo map; Keep on a tempo map drops a pending tempo', async () => {
+  const { dir } = keptProject(90, 60, ['--tempo-map', '0:90,20:120'], 'tempo_map');
+  const { page, errors, state } = await open(dir);
+  await tapTempo(page);
+  const p = await state(() => window.syncState.pending);
+  assert.ok(p.bpm >= 100 && p.bpm <= 140, `tapped ${p.bpm}`);
+  assert.ok(!('tempo_map' in p), 'a tapped tempo replaces the kept map (Save would otherwise ignore it)');
+  assert.match(await page.locator('#suggestions .srow[data-key="kept:tempo_map"]').innerText(), /removed: save to apply/);
+  await saveAndWait(page, 1);
+  const saved = songOf(dir);
+  assert.equal(saved.sync.bpm, p.bpm);
+  assert.ok(!('tempo_map' in saved.sync));
+  assert.equal(saved.bpm, p.bpm, 'what the page previewed is what Save did');
+
+  // the map is suggested again; keeping it drops the tapped tempo (a map replaces bpm), and un-keeping restores it
+  const row = page.locator('#suggestions .srow[data-key="tempo_map"]');
+  await row.locator('button', { hasText: 'Keep' }).click();
+  assert.equal(await state(() => window.syncState.pending.bpm), null);
+  assert.ok(await state(() => Array.isArray(window.syncState.pending.tempo_map)));
+  await row.locator('button', { hasText: 'Keep' }).click();
+  assert.equal(await state(() => window.syncState.pending.bpm), p.bpm, 'un-keeping puts the saved tempo back');
+  assert.ok(!(await state(() => 'tempo_map' in window.syncState.pending)));
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: Keep on a swing that carries a tempo drops a kept tempo map (and un-keeping restores it)', async () => {
+  // a 96 BPM shuffle read at 128 (its swing suggestion carries 96); song.json also holds a saved map (the analyser's
+  // own, from a stepped track: with one saved the analyser would not offer a tempo, so it is added after analysing)
+  const map = songOf(suggested(90, 60, ['--tempo-map', '0:90,20:120'])).suggestions.tempo_map.segments;
+  const dir = makeProject({ bars: 4 });
+  temps.push(path.dirname(dir));
+  const wav = path.join(path.dirname(dir), 'beat.wav');
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'click_track.py'), wav, '96', '--seconds', '30', '--swing', '0.667'], { stdio: 'pipe' });
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify({ sync: { bpm: 128 } }));
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), wav, '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
+  const song = songOf(dir), sw = song.suggestions.swing;
+  assert.ok(sw && sw.bpm != null, JSON.stringify(song.suggestions));
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify({ ...song, sync: { tempo_map: map } }, null, 2));
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="swing"]');
+  await row.locator('button', { hasText: 'Keep' }).click();
+  let p = await state(() => window.syncState.pending);
+  assert.equal(p.bpm, sw.bpm);
+  assert.ok(!('tempo_map' in p), 'the kept tempo replaces the map');
+  await row.locator('button', { hasText: 'Keep' }).click();
+  p = await state(() => window.syncState.pending);
+  assert.deepEqual(p.tempo_map, map, 'un-keeping restores the saved map');
+  assert.equal(p.bpm, null);
   assert.deepEqual(errors, []);
 });
