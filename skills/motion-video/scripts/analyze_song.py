@@ -196,6 +196,15 @@ def beat_grid(full, low, sync=None):
             "pos": pos, "times": times, "j": j}
 
 
+def refit_beats(full, bpm_guess):
+    """A constant-tempo grid fitted near bpm_guess (+-2 BPM), for song_suggest's triplet check:
+    (bpm, beat times in the envelope's own time base, frame index / FPS_ENV)."""
+    bpm, phase = fit_grid(full, bpm_guess)
+    p = 60 * FPS_ENV / bpm
+    pos = phase + p * np.arange(int((len(full) - 1 - phase) / p) + 1)
+    return bpm, pos / FPS_ENV
+
+
 def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_near=None):
     s = sync or {}
     bpb = METERS[s.get("meter", "4/4")]

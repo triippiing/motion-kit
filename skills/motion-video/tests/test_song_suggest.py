@@ -68,14 +68,31 @@ class SwingMeterPickup(unittest.TestCase):
         self.assertEqual(set(r) - {"bpm"}, {"value", "confidence", "reason"})
         self.assertTrue(0 <= r["confidence"] <= 1)
 
-    def test_triplet_tempo_correction(self):
-        # a 96 BPM shuffle whose tempo was read as 128 (4/3): the suggestion carries bpm ~96. The click track analyses
-        # at 96 (a forced 128 grid puts every other grid beat in silence, so no swing can be read on it); the swing is
-        # read on the 96 grid and the mis-read tempo is passed in, which is all the 4/3 correction looks at.
+    def refit(self, full):
+        return lambda bpm: A.refit_beats(full, bpm)
+
+    def test_shuffle_read_at_its_tempo_gets_swing_and_no_slower_tempo(self):
+        # 96 is 4/3 of the 72.05 alternative here: swing found on the current grid must never offer a slower tempo
         full, low, beats, song = self.track(bpm=96, swing=0.667)
-        r = S.detect_swing(full, A.FPS_ENV, beats, 128.0, song["alternatives"] + [96.0])
+        r = S.detect_swing(full, A.FPS_ENV, beats, song["bpm"], song["alternatives"], refit=self.refit(full))
+        self.assertLessEqual(abs(r["value"] - 0.667), 0.03)
+        self.assertNotIn("bpm", r)
+
+    def test_triplet_tempo_correction(self):
+        # the same shuffle on a 128 grid (4/3 of 96): no swing there, so a grid at 3/4 of the tempo is fitted and the
+        # swing found on it is suggested with that tempo
+        full, low, beats, song = self.track(bpm=96, swing=0.667, force_bpm=128.0)
+        r = S.detect_swing(full, A.FPS_ENV, beats, song["bpm"], song["alternatives"], refit=self.refit(full))
         self.assertLessEqual(abs(r["bpm"] - 96.0), 2.0)
-        self.assertIn("96", r["reason"])
+        self.assertLessEqual(abs(r["value"] - 0.667), 0.03)
+        self.assertIn("4/3", r["reason"])
+
+    def test_refit_finds_nothing_on_straight_or_sixteenth_tracks(self):
+        for kw in (dict(bpm=120), dict(bpm=110, mix_sixteenths=True)):
+            with self.subTest(**kw):
+                full, low, beats, song = self.track(**kw)
+                self.assertIsNone(S.detect_swing(full, A.FPS_ENV, beats, song["bpm"], song["alternatives"],
+                                                 refit=self.refit(full)))
 
     def test_three_four(self):
         full, low, beats, song = self.track(bpm=150, meter="3/4")
@@ -106,7 +123,8 @@ class At(unittest.TestCase):
 
     def test_thresholds_are_the_planned_starting_values(self):
         self.assertEqual(set(S.THRESHOLDS), {"swing_min", "swing_share", "triplet_tol", "meter_margin",
-                                             "pickup_onset", "tempo_change", "tempo_bars", "ramp_bars"})
+                                             "pickup_onset", "tempo_change", "tempo_bars", "ramp_bars",
+                                             "triplet_fit"})
 
 
 if __name__ == "__main__":
