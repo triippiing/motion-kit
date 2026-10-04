@@ -43,7 +43,7 @@ suggested). Each has `confidence` (0..1) and `reason` (one line, plain words). *
 offered alone (swing, meter and pickup would be measured on the single grid it says is wrong; they appear once it is
 kept or dismissed), no new tempo map is suggested once `sync.tempo_map` is set (meter, swing and pickup are then measured on the map's
 grid, with no triplet re-fit), and swing is never suggested when the meter is (or
-is suggested as) 6/8, whose thirds read as swing.
+is suggested as, *as built* while that suggestion is not dismissed) 6/8, whose thirds read as swing.
 
 - **Tempo map.** Local tempo is estimated in overlapping windows (about 8 s, hop about 2 s) with the existing tempo
   estimator. *As built:* a window read at a simple metrical ratio of the dominant tempo (`METRICAL`: 2, 3/2, 4/3, 3
@@ -93,8 +93,10 @@ The user-owned `sync` section (C1) gains, all optional:
 `error: ...`, exit 2): tempo-map anchors sorted, bpm 40 to 240 (*as built*, as for `sync.bpm`), `pickup_beats` in range.
 
 **Applying them:** with `tempo_map`, the analyser builds the grid from the map (the beat tracker constrained to it, then
-phase-fitted per segment) instead of one tempo; `cue_t` equals the grid time, as for any ear-set grid. With
-`pickup_beats`, bars are numbered from the first downbeat after the pickup (pickup beats are bar −1). The timing module
+phase-fitted per segment) instead of one tempo; `cue_t` equals the grid time, as for any ear-set grid
+(*as built:* song.json's `bpm`, `beat_sec` and `rules` then come from the loop's mean beat). With
+`pickup_beats`, *as built* only for a loop made with `--from-start` (see below), bars are numbered from the first
+downbeat after the pickup (pickup beats are bar −1); any other loop keeps whole bars. The timing module
 already follows the grid's own spacing (C1), so `beatT`, the engine, render and the validator need no change for tempo
 maps; their parity tests with no new fields must still pass.
 

@@ -720,7 +720,7 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
     """The analyser's `suggestions`: the four detectors on the grid in use (beat_times in envelope time), keeping only
     what differs from that grid (no tempo map when sync has one; no meter equal to sync's; no swing within SWING_SAME
     of sync's; no pickup equal to sync's pickup_beats) and is not in sync.dismissed with the same value. Swing is not
-    suggested when the meter is (or is suggested as) 6/8: its thirds read as swing. A tempo-map suggestion (not
+    suggested when the meter is (or is suggested as, and that suggestion is not dismissed) 6/8: its thirds read as swing. A tempo-map suggestion (not
     dismissed) is offered alone: meter, swing and pickup would be measured on the single grid it says is wrong.
     Returns {key: suggestion}."""
     s = sync or {}
@@ -736,7 +736,9 @@ def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_
     meter = detect_meter(low_env, full_env, fps_env, beat_times)
     if meter is not None and meter["value"] != s.get("meter", "4/4"):
         out["meter"] = meter
-    if "6/8" not in (s.get("meter"), meter and meter["value"]):
+    # a kept 6/8, or a 6/8 suggestion the user has not dismissed: its thirds would read as swing
+    six_eight = s.get("meter") == "6/8" or (meter is not None and meter["value"] == "6/8" and not hidden("meter", meter))
+    if not six_eight:
         # on a tempo-mapped grid a single slower tempo could not be kept (the map replaces bpm): no triplet re-fit
         sw = detect_swing(full_env, fps_env, beat_times, bpm, alternatives,
                           refit=None if s.get("tempo_map") is not None else refit, high_env=high_env)

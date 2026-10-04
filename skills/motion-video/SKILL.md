@@ -181,7 +181,7 @@ The page lists them above the controls ("tempo map: 72 → 144 at 1:52", "swing 
 A tempo-map suggestion is offered alone: swing, meter and pickup would be measured on the single steady grid the map
 says is wrong, so they appear after the map is kept or dismissed and saved. A suggestion equal to what the sync
 already uses is not offered: no tempo map once `sync.tempo_map` is set, and no swing when the meter is (or is
-suggested as) 6/8, whose thirds read as swing. A straight, steady 4/4 song gets none, and with none the page is as before. They are
+suggested as, not dismissed) 6/8, whose thirds read as swing. A straight, steady 4/4 song gets none, and with none the page is as before. They are
 guesses: Claude cannot hear, so never keep one for the user, and say which ones there are when handing over the page.
 
 **What Save does.** Save sends the `sync` section to the server, which:

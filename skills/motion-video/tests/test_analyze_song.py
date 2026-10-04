@@ -533,6 +533,23 @@ class SuggestionTests(unittest.TestCase):
         self.assertNotIn("tempo_map", kept)
         self.assertNotIn("pickup", kept)   # measured on the map grid: no false pickup
 
+    def test_a_dismissed_6_8_no_longer_hides_swing(self):   # final review
+        six = str(click_track(self.tmp / "six.wav", 60, seconds=30, meter="6/8"))
+        self.assertEqual(A.analyze(six, bars=2, sync={"bpm": 60})["suggestions"]["meter"]["value"], "6/8")
+        calls = []
+        real = S.detect_swing
+        try:
+            S.detect_swing = lambda *a, **k: calls.append(1) or real(*a, **k)
+            A.analyze(six, bars=2, sync={"bpm": 60})
+            self.assertEqual(calls, [], "a 6/8 suggestion hides swing (its thirds read as swing)")
+            A.analyze(six, bars=2, sync={"bpm": 60, "dismissed": [{"key": "meter", "value": "6/8"}]})
+            self.assertEqual(calls, [1], "once 6/8 is dismissed, swing is measured again")
+            calls.clear()
+            A.analyze(six, bars=2, sync={"bpm": 60, "meter": "6/8"})
+            self.assertEqual(calls, [], "a kept 6/8 hides swing")
+        finally:
+            S.detect_swing = real
+
     def test_bad_new_sync_values_exit_2(self):
         ok = [{"t": 0, "bpm": 90, "ramp": False}, {"t": 20, "bpm": 120, "ramp": False}]
         bad = [

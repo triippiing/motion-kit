@@ -163,7 +163,7 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   `{key, value}` to `sync.dismissed`; hidden until the analyser's value for it changes). A tempo-map suggestion is
   offered alone (the others would be measured on the single grid it says is wrong): they appear once it is kept or
   dismissed and saved. No tempo map is suggested once `sync.tempo_map` is set, and no swing when the meter is (or is
-  suggested as) 6/8 (its thirds read as swing). Keeping a tempo map, a swing with a tempo, a meter or a pickup clears `checked_by_ear`
+  suggested as, not dismissed) 6/8 (its thirds read as swing). Keeping a tempo map, a swing with a tempo, a meter or a pickup clears `checked_by_ear`
   (a swing alone does not). A straight steady 4/4 song gets none, and with none the page is as before. They are
   guesses: Claude cannot hear, so never keep one for the user or say one is right.
 - **New sync fields:** `tempo_map` `[{t, bpm, ramp}]` (sorted, first `t` 0, bpm 40 to 240; replaces `bpm`; `ramp:
