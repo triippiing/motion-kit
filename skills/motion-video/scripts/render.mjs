@@ -36,9 +36,9 @@ export const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': '
   '.css': 'text/css', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.svg': 'image/svg+xml', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
-
-// index.html (its table block from START_MARK to END_MARK, tables.mjs) with its states()/cursor() replaced by `code` (a brief's ```js block), keeping the page's own extraSfx
-// and content unless the code defines them. null when the page has no table markers.
+// index.html with its states()/cursor() replaced by `code` (a brief's ```js block), keeping the page's own extraSfx
+// and content unless the code defines them. null when the page has no table markers (START_MARK and END_MARK, from
+// tables.mjs).
 export function spliceTables(html, code) {
   const block = pageCode(html);
   if (block == null) return null;
