@@ -24,7 +24,8 @@ const SYNC = path.join(HERE, 'sync.mjs');
 const FILES = ['song.json', 'clip.wav', '.source.json'];
 const USAGE = 'usage: swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC] [--no-open] [--port N]';
 
-// A swap whose analyser has not finished (its backup and project), so the CLI can put the backup back on Ctrl+C.
+// A swap whose analyser has not finished ({ root, backup, pgid }), so the CLI can stop the analyser and put the
+// backup back when it is interrupted.
 let inFlight = null;
 
 async function writeJsonAtomic(file, value) {
@@ -57,11 +58,13 @@ function restore(root, backup) {
   }
 }
 
-// Runs the analyser; resolves { code, stderr, error } (code null and `error` set when it could not start).
+// Runs the analyser in its own process group (recorded in inFlight, so the CLI can stop all of it); resolves
+// { code, stderr, error } (code null and `error` set when it could not start).
 function run(cmd, args) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'],
+    const child = spawn(cmd, args, { detached: true, stdio: ['ignore', 'ignore', 'pipe'],
       env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ''}` } });
+    if (inFlight && child.pid) inFlight.pgid = child.pid;
     let stderr = '';
     child.stderr.on('data', (c) => { stderr += c; });
     child.on('error', (error) => resolve({ code: null, stderr, error }));
@@ -132,7 +135,9 @@ export async function swapSong(dir, song, { bars, startBar, startNear, python = 
     const r = await run(python, args);
     if (r.code !== 0) throw r.code === 2 ? new UsageError(analyserMessage(r)) : new Error(analyserMessage(r));
   } catch (e) {
-    restore(root, backup);
+    try { restore(root, backup); } catch (r) {
+      throw new Error(`${e.message}; then putting the backup back failed (${r.message}): the old files are in ${backup}`);
+    }
     // the project is as it was, so this backup holds nothing new
     await rm(backup, { recursive: true, force: true });
     throw e;
@@ -191,11 +196,16 @@ let syncChild = null;
 
 if (isMain(import.meta.url)) {
   // a handler replaces the default exit on these signals, so exit with the shell's code for them. While the analyser
-  // runs, put the backup back first (it shares our process group, so it stops too); once sync.mjs runs, pass the
-  // signal on and exit with it.
+  // runs (in its own process group, which a signal to this process alone does not reach), stop it first so it cannot
+  // write over the restored files, then put the backup back and keep it; once sync.mjs runs, pass the signal on and
+  // exit with it.
   for (const [sig, code] of [['SIGINT', 130], ['SIGTERM', 143]]) process.on(sig, () => {
     if (syncChild) { try { syncChild.kill(sig); } catch { /* already gone */ } return; }
-    if (inFlight) { try { restore(inFlight.root, inFlight.backup); rmSync(inFlight.backup, { recursive: true, force: true }); } catch { /* best effort */ } }
+    if (inFlight) {
+      if (inFlight.pgid) { try { process.kill(-inFlight.pgid, 'SIGTERM'); } catch { /* already gone */ } }
+      try { restore(inFlight.root, inFlight.backup); } catch { /* best effort: the backup below has the old files */ }
+      console.error(`backup kept at ${inFlight.backup}`);
+    }
     process.exit(code);
   });
   main().catch((e) => {

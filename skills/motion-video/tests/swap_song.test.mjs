@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { tempDir } from './tmp.mjs';
@@ -74,5 +74,38 @@ test('swap report: tables with more states than the new song allows warn with bo
   // a 1-bar loop at 100 BPM allows 2 states (4 beats, 2 beats each); index.html's table above has 4
   const dir = project();
   const r = await swapSong(dir, song100, { bars: 1 });
-  assert.match(r.budget ?? '', /^the tables have \d+ states; the new song allows \d+ \(shorten the table or pass --bars\)$/);
+  assert.equal(r.budget, 'the tables have 4 states; the new song allows 2 (shorten the table or pass --bars)');
+});
+
+// A signal to the swap process alone (kill PID, a wrapper) while the analyser runs: the analyser is stopped before
+// the backup goes back, so it cannot overwrite the restored files, and the backup is kept. The fake analyser sleeps,
+// then overwrites song.json; its argv carries a marker so pgrep finds only this test's process.
+test('swap CLI: SIGTERM to the swap stops the analyser, restores song.json and keeps the backup', { timeout: 30_000 }, async () => {
+  const dir = project();
+  const before = readFileSync(path.join(dir, 'song.json'));
+  const marker = `mk-swap-orphan-${process.pid}-${Date.now()}`;
+  const python = path.join(tempDir('mk-fakepy-'), 'python3');
+  writeFileSync(python, `#!/bin/sh\nexec python3 -c 'import sys, time; time.sleep(2); open(sys.argv[1], "w").write("{}")' ${JSON.stringify(path.join(dir, 'song.json'))} ${marker}\n`);
+  chmodSync(python, 0o755);
+  const running = () => spawnSync('pgrep', ['-f', marker]).status === 0;
+  const until = async (ok, ms) => { for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) if (ok()) return true; return ok(); };
+  const child = spawn(process.execPath, [SCRIPT, dir, song100, '--no-open'], { stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, MK_ANALYSER_PYTHON: python } });
+  let stderr = '';
+  child.stderr.on('data', (c) => { stderr += c; });
+  try {
+    assert.ok(await until(running, 10_000), 'the fake analyser started');
+    const code = await new Promise((resolve) => { child.on('exit', (c) => resolve(c)); child.kill('SIGTERM'); });
+    assert.equal(code, 143);
+    assert.ok(await until(() => !running(), 3000), 'the analyser is still running after the swap exited');
+    await new Promise((r) => setTimeout(r, 2500));   // past the fake analyser's write, had it survived
+    assert.deepEqual(readFileSync(path.join(dir, 'song.json')), before);
+    const kept = readdirSync(path.join(dir, '.swap-backup'));
+    assert.equal(kept.length, 1);
+    assert.ok(existsSync(path.join(dir, '.swap-backup', kept[0], 'song.json')));
+    assert.match(stderr, /^backup kept at .*\.swap-backup\/\d{8}-\d{6}$/m);
+  } finally {
+    child.kill('SIGKILL');
+    spawnSync('pkill', ['-KILL', '-f', marker]);
+  }
 });
