@@ -88,6 +88,7 @@ kbd { font: 11px/1 var(--mono); padding: 2px 4px; border: 1px solid var(--line-h
 .srow button { font: 500 12px/1 var(--font); padding: 4px 8px; }
 .srow button[aria-pressed="false"] { color: var(--text); }
 .srow button[aria-pressed="true"] { background: var(--text); color: var(--black); border-color: var(--text); }
+.srow .snote { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .srow.kept .sreason, .srow.dismissed .sreason { color: var(--text); }
 .srow.dismissed .slabel { color: var(--muted); text-decoration: line-through; }
 #overview { height: 48px; width: 100%; display: block; border: 1px solid var(--line); border-radius: 6px; background: var(--black);

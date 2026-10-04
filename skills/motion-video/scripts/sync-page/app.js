@@ -22,11 +22,13 @@
 // clicks and the animation's beats) by the pending nudge against the playing audio, with cue_t = t (a nudged grid
 // is the user's, no snapping to onsets). Swing previews exactly (timing.js applies it). Tempo and meter preview an
 // evenly spaced grid until Save fits the real one; the animation keeps the saved tempo meanwhile. A swung grid
-// clicks its off-beats too (softer), so swing is heard as well as seen.
+// clicks its off-beats too (lower and softer), so swing is heard as well as seen.
 //
 // Suggestions: song.json's derived `suggestions` (tempo map, swing, meter, pickup) are listed above the controls.
-// Try previews one on top of the pending edits (a tempo map clicks at its own `beats`; swing, meter and pickup apply
-// to the current grid as the controls' previews do) and toggles off; it never touches the pending sync. Keep writes
+// Try previews one on top of the pending edits (a tempo map clicks at its own `beats`; swing and meter apply to the
+// current grid as the controls' previews do) and toggles off; it never touches the pending sync. A pickup has no Try:
+// it only applies to a loop that starts with the song (--from-start), where Save adds its beats before the first
+// downbeat, and the clip cannot play the song before its own start; Keep just stores pickup_beats until Save. Keep writes
 // its fields into the pending sync, Dismiss adds { key, value } to sync.dismissed (value as song_suggest.py compares
 // it); both toggle back and both wait for Save. Fields the page does not edit (tempo_map, pickup_beats, dismissed,
 // anything newer) are carried through Save unchanged.
@@ -62,7 +64,8 @@ const S = window.syncState = {
   anim: null,           // the preview song the animation gets (nudge, swing, markers)
   grid: null,           // the preview song the waveform and clicks use (also approximate tempo and meter)
   playing: false, t: 0, lastSeek: null, startedAt: 0, loopSec: 0, latency: 0,
-  clicksOn: true, clickTimes: [], clicks: [],   // clickTimes: [{ beat, t, down }] (loop s); clicks: every start(when) made
+  clicksOn: true, clickTimes: [], clicks: [],   // clickTimes: [{ beat, t, down, off? }] (loop s); clicks: every start(when) made
+  clickTones: { down: { freq: 1500, gain: 1 }, beat: { freq: 1000, gain: 1 }, off: { freq: 700, gain: 0.35 } }, // off: a swung off-beat
   skipped: 0,           // clicks skipped since Play because their tick came too late to schedule them
   blips: [],            // every scrub blip: { when, t }
   taps: [], tapBpm: null,
@@ -114,6 +117,7 @@ function effective() {
 }
 
 function trySuggestion(key) {
+  if (key === 'pickup') return; // nothing to hear: see the header
   S.trying = S.trying === key ? null : key;
   refresh({ gridMoved: true });
 }
@@ -175,6 +179,13 @@ function renderSuggestions() {
     row.querySelector('.sconf').textContent = `confidence ${Number(s.confidence).toFixed(2)}`;
     row.querySelector('.sreason').textContent = kept ? 'kept: save to apply' : dismissed ? 'dismissed: save to hide it' : String(s.reason ?? '');
     row.title = String(s.reason ?? '');
+    if (key === 'pickup') {
+      const note = document.createElement('span');
+      note.className = 'snote';
+      note.textContent = 'applies to a loop that starts with the song (--from-start); Save re-fits it'
+        + (S.song.loop.from_start ? '' : '. This loop does not: start one with analyze_song.py SONG --out DIR --from-start or swap_song.mjs DIR SONG --from-start');
+      row.append(note);
+    }
     const btn = (text, on, title, act) => {
       const b = document.createElement('button');
       b.textContent = text; b.title = title;
@@ -184,7 +195,7 @@ function renderSuggestions() {
       return b;
     };
     row.querySelector('.sbuttons').append(
-      btn('Try', S.trying === key, 'Hear it on the grid (again to stop); nothing is saved', () => trySuggestion(key)),
+      ...(key === 'pickup' ? [] : [btn('Try', S.trying === key, 'Hear it on the grid (again to stop); nothing is saved', () => trySuggestion(key))]),
       btn('Keep', kept, 'Put it in the sync to save (again to undo)', () => keepSuggestion(key)),
       btn('Dismiss', dismissed, 'Hide it once saved (again to undo)', () => dismissSuggestion(key)));
     return row;
@@ -206,7 +217,8 @@ function previews() {
   const sync = { ...(song.sync ?? {}), nudge_ms: p.nudge_ms, swing: p.swing };
   const anim = { ...song, beats, markers, sync };
   const bpb = METERS[p.meter];
-  const lead = (p.pickup_beats ?? 0) !== (was.pickup_beats ?? 0) ? mod(p.pickup_beats ?? 0, bpb) : mod(leadOf(song), bpb);
+  // bar 1 as the saved grid has it (a pending pickup changes nothing here until Save fits it)
+  const lead = mod(leadOf(song), bpb);
   let grid;
   const tm = song.suggestions?.tempo_map;
   if (p.tempo_map && !same(p.tempo_map, was.tempo_map) && tm && same(p.tempo_map, tm.segments) && Array.isArray(tm.beats)) {
@@ -224,7 +236,7 @@ function previews() {
   } else grid = { ...anim, beats_per_bar: bpb, lead };
   return { anim, grid };
 }
-// The preview is not the grid Save will fit (a new tempo, meter, tempo map or pickup).
+// The preview is not the grid Save will fit (a new tempo, meter, tempo map, or a pickup only Save places).
 function approximate() {
   const p = effective(), was = savedSync(S.song);
   return p.bpm !== was.bpm || p.meter !== was.meter || !same(p.tempo_map ?? null, was.tempo_map ?? null)
@@ -238,7 +250,7 @@ function refresh({ gridMoved = false } = {}) {
   S.anim = anim; S.grid = grid;
   const bpb = grid.beats_per_bar, lead = grid.lead ?? 0;
   S.clickTimes = grid.beats.map((_, i) => ({ beat: i, t: beatTime(grid, i), down: mod(i - lead, bpb) === 0 }));
-  // a swung grid also clicks its off-beats (softer): swing is heard, not only drawn
+  // a swung grid also clicks its off-beats (lower and softer): swing is heard, not only drawn
   if ((grid.sync?.swing ?? 0.5) !== 0.5) S.clickTimes.push(...grid.beats.map((_, i) => ({ beat: i + 0.5, t: beatTime(grid, i + 0.5), down: false, off: true })));
   S.dirty = JSON.stringify(S.pending) !== JSON.stringify(savedSync(S.song));
   const key = JSON.stringify([anim.beats[0].t, anim.beats[0].cue_t, anim.sync.swing, anim.markers]);
@@ -407,7 +419,7 @@ function startClick(when, c) {
   node.connect(clickGain);
   node.start(when);
   queued.push({ node, when });
-  S.clicks.push({ when, beat: c.beat, down: c.down });
+  S.clicks.push({ when, beat: c.beat, down: c.down, ...(c.off ? { off: true } : {}) });
   if (S.clicks.length > 512) S.clicks.splice(0, S.clicks.length - 512);
 }
 
@@ -1029,7 +1041,8 @@ async function main() {
   ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
   songGain = ctx.createGain(); songGain.gain.value = 0.9; songGain.connect(ctx.destination);
   clickGain = ctx.createGain(); clickGain.gain.value = 0.5; clickGain.connect(ctx.destination);
-  hiClick = makeClick(1500); loClick = makeClick(1000); offClick = makeClick(1000, 0.45);
+  const T = S.clickTones;
+  hiClick = makeClick(T.down.freq, T.down.gain); loClick = makeClick(T.beat.freq, T.beat.gain); offClick = makeClick(T.off.freq, T.off.gain);
   await loadNeeded();
   await Promise.all([loadClip(), S.needed.length ? holdFrame() : loadFrame(false)]);
   S.pending = savedSync(S.song);

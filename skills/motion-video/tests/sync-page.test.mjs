@@ -556,20 +556,72 @@ test('sync page suggestions: a tempo map is tried at its own beats; Keep + Save 
   assert.deepEqual(errors, []);
 });
 
-test('sync page suggestions: pickup Try marks the bar after it; Keep sets pickup_beats', async () => {
+test('sync page suggestions: a pickup has no Try; Keep stores pickup_beats and leaves the bars until Save', async () => {
   const dir = suggested(100, 30, ['--pickup', '2']);
   const sug = songOf(dir).suggestions;
   assert.equal(sug.pickup?.beats, 2);
   const { page, errors, state } = await open(dir);
   const row = page.locator('#suggestions .srow[data-key="pickup"]');
   assert.match(await row.innerText(), /pickup: 2 beats/);
-  await row.locator('button', { hasText: 'Try' }).click();
-  assert.deepEqual((await state(() => window.syncState.clickTimes.filter((c) => c.down).map((c) => c.beat))).slice(0, 2), [2, 6]);
-  await row.locator('button', { hasText: 'Try' }).click();
+  // the loop's clip cannot play the song before its own start: nothing to try
+  assert.equal(await row.locator('button', { hasText: 'Try' }).count(), 0);
+  assert.match(await row.innerText(), /applies to a loop that starts with the song \(--from-start\); Save re-fits it/);
+  assert.match(await row.innerText(), /analyze_song\.py SONG --out DIR --from-start/);
+  assert.match(await row.innerText(), /swap_song\.mjs DIR SONG --from-start/);
+  const bars = () => state(() => ({ downs: window.syncState.clickTimes.filter((c) => c.down).map((c) => c.beat),
+    lead: window.syncState.grid.lead ?? 0 }));
+  const before = await bars();
+  assert.deepEqual(before.downs.slice(0, 2), [0, 4]);
   await row.locator('button', { hasText: 'Keep' }).click();
   assert.equal(await state(() => window.syncState.pending.pickup_beats), 2);
+  assert.deepEqual(await bars(), before, 'Keep leaves the page\'s bars as they are');
   await saveAndWait(page, 1);
   assert.equal(songOf(dir).sync.pickup_beats, 2);
+  assert.deepEqual(errors, []);
+});
+
+test('sync page suggestions: Keep on a swing with a tempo sets both; Save clears Sounds right (bpm is the grid)', async () => {
+  // a 96 BPM shuffle read at 128 (4/3 of it): the swing suggestion carries the slower tempo
+  const dir = makeProject({ bars: 4 });
+  temps.push(path.dirname(dir));
+  const wav = path.join(path.dirname(dir), 'beat.wav');
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'click_track.py'), wav, '96', '--seconds', '30', '--swing', '0.667'], { stdio: 'pipe' });
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify({ sync: { bpm: 128, checked_by_ear: '2026-10-04' } }));
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), wav, '--out', dir, '--bars', '4', '--start-bar', '2'], { stdio: 'pipe' });
+  const sw = songOf(dir).suggestions.swing;
+  assert.ok(sw && sw.bpm != null, JSON.stringify(songOf(dir).suggestions));
+  const { page, errors, state } = await open(dir);
+  const row = page.locator('#suggestions .srow[data-key="swing"]');
+  assert.match(await row.innerText(), new RegExp(`swing ${sw.value.toFixed(2)} and tempo ${sw.bpm.toFixed(1)}`));
+  assert.equal(await state(() => window.syncState.pending.checked_by_ear), '2026-10-04');
+  await row.locator('button', { hasText: 'Keep' }).click();
+  const p = await state(() => window.syncState.pending);
+  assert.equal(p.swing, sw.value);
+  assert.equal(p.bpm, sw.bpm);
+  assert.ok(!('checked_by_ear' in p), 'a kept tempo clears Sounds right');
+  await saveAndWait(page, 1);
+  const saved = songOf(dir).sync;
+  assert.equal(saved.swing, sw.value);
+  assert.equal(saved.bpm, sw.bpm);
+  assert.ok(!('checked_by_ear' in saved));
+  assert.deepEqual(errors, []);
+});
+
+test('sync page: a saved swing clicks its off-beats, softer and lower than the beats', async () => {
+  const dir = project();
+  const s = songOf(dir);
+  s.sync = { ...(s.sync ?? {}), swing: 0.6 };
+  writeFileSync(path.join(dir, 'song.json'), JSON.stringify(s, null, 2));
+  const { page, errors, state } = await open(dir);
+  const tones = await state(() => window.syncState.clickTones);
+  assert.ok(tones.off.freq < tones.beat.freq && tones.off.gain < tones.beat.gain, JSON.stringify(tones));
+  const ct = await state(() => window.syncState.clickTimes);
+  assert.equal(ct.filter((c) => c.off).length, ct.filter((c) => !c.off).length, 'one off-beat per beat');
+  await page.keyboard.press('Space');
+  await page.waitForFunction(() => window.syncState.clicks.some((c) => c.off), null, { timeout: 30000 });
+  await page.keyboard.press('Space');
+  const offs = await state(() => window.syncState.clicks.filter((c) => c.off));
+  assert.ok(offs.every((c) => !Number.isInteger(c.beat) && !c.down));
   assert.deepEqual(errors, []);
 });
 
