@@ -15,12 +15,25 @@ Uses a commercial track for local viewing only; re-time to a licensed track befo
 
 ## Re-render
 
-The song is not included, and `clip.wav` and `out/` are not committed. Bring your own copy of the
-song (or any song you have the rights to; a different song re-times the piece, though its accents differ):
+The song is not included, and `clip.wav` and `out/` are not committed. With your own copy of the same
+song, re-run the analyser (it keeps the `sync` section below):
 
 ```bash
 S=~/.claude/skills/motion-video/scripts
-python3 $S/analyze_song.py "<your song>" --out demos/04-library-reference --bars 7 --states 14 --start-bar 21
+python3 $S/analyze_song.py "<your copy of Tints>" --out demos/04-library-reference --bars 7 --states 14 --start-bar 21
+```
+
+With a different song (one you have the rights to; it re-times the piece, though its accents differ), swap it in
+instead: it backs up the old files, clears the sync section (set by ear against Tints), re-analyses and opens the
+sync page to place `snare` on the new song:
+
+```bash
+node $S/swap_song.mjs demos/04-library-reference "<your song>" --start-bar 21
+```
+
+Then:
+
+```bash
 node $S/beat_stills.mjs demos/04-library-reference     # one still per beat + loop-seam check
 node $S/render.mjs demos/04-library-reference --serve  # watch live with audio (?play, click)
 node $S/render.mjs demos/04-library-reference          # final: demos/04-library-reference/out/video.mp4
