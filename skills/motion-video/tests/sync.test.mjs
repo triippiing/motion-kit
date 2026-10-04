@@ -68,6 +68,16 @@ test('Save round trip: 200 with the new song, .bak holds the old song.json, clip
   assert.notEqual(statSync(path.join(dir, 'clip.wav')).mtimeMs, clipMtime);
 });
 
+test('Save keeps a loop that starts from the song\'s start (--from-start) there', async () => {
+  const dir = makeProject({ bars: 2 });
+  execFileSync('python3', [path.join(SKILL, 'scripts', 'analyze_song.py'), path.join(path.dirname(dir), 'beat.wav'),
+    '--out', dir, '--bars', '2', '--from-start'], { stdio: 'pipe' });
+  const was = song(dir).loop;
+  assert.equal(was.from_start, true);
+  await saveSync(dir, { swing: 0.6 });
+  assert.deepEqual(song(dir).loop, was);
+});
+
 test('an invalid sync is a 400 with the analyser\'s message, and nothing changes', async () => {
   const dir = project();
   const { url } = await serveProject(dir);

@@ -4,7 +4,7 @@
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 SKILL="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-if [ $# -lt 2 ]; then echo "usage: new_project.sh DIR SONG [--size square|vertical|landscape|WxH] [--theme CSS] [--map role=--var] [--bars N] [--states N] [--start-bar N]" >&2; exit 2; fi
+if [ $# -lt 2 ]; then echo "usage: new_project.sh DIR SONG [--size square|vertical|landscape|WxH] [--theme CSS] [--map role=--var] [--bars N] [--states N] [--start-bar N | --start-near SEC | --from-start]" >&2; exit 2; fi
 DIR="$1"; SONG="$2"; shift 2
 SIZE=square; THEME=""; MAPS=(); ARGS=()
 while [ $# -gt 0 ]; do

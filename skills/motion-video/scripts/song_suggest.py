@@ -170,6 +170,32 @@ def detect_meter(low_env, full_env, fps_env, beat_times):
     return None
 
 
+def _onsets(full_env, fps_env, b):
+    """Each beat's own onset peak, and their median."""
+    onset = np.array([_peak(full_env, fps_env, t) for t in b])
+    return onset, float(np.median(onset)) if len(onset) else 0.0
+
+
+def _first_loud_downbeat(onset, loud, downbeat_index, beats_per_bar):
+    d = int(downbeat_index)
+    while d < len(onset) and onset[d] < loud:
+        d += beats_per_bar
+    return d if d < len(onset) else None
+
+
+def first_downbeat(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
+    """The index of the first downbeat (downbeat_index + k x beats_per_bar) with an audible onset (at least
+    pickup_onset x the median beat onset): where the song's first bar starts, the downbeat detect_pickup counts back
+    from. None when there is none."""
+    b = np.asarray(beat_times, float)
+    if not len(b):
+        return None
+    onset, med = _onsets(full_env, fps_env, b)
+    if med <= 0:
+        return None
+    return _first_loud_downbeat(onset, THRESHOLDS["pickup_onset"] * med, downbeat_index, beats_per_bar)
+
+
 def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
     """A pickup: grid beats with audible onsets directly before the first downbeat, after silence. downbeat_index is
     the grid's downbeat phase (any downbeat); the first one with an audible onset is used, so leading silence is
@@ -177,15 +203,12 @@ def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
     b = np.asarray(beat_times, float)
     if len(b) < 2:
         return None
-    onset = np.array([_peak(full_env, fps_env, t) for t in b])
-    med = float(np.median(onset))
+    onset, med = _onsets(full_env, fps_env, b)
     if med <= 0:
         return None
     loud = THRESHOLDS["pickup_onset"] * med
-    d = int(downbeat_index)
-    while d < len(b) and onset[d] < loud:
-        d += beats_per_bar
-    if d >= len(b):
+    d = _first_loud_downbeat(onset, loud, downbeat_index, beats_per_bar)
+    if d is None:
         return None
     n = 0
     while d - n - 1 >= 0 and onset[d - n - 1] >= loud:
@@ -508,3 +531,95 @@ def detect_tempo_map(full_env, fps_env, global_bpm, beats_per_bar, tempo_candida
             moves.append(f"changes from {prev['bpm']:g} to {a['bpm']:g} BPM at {_clock(a['t'])}")
     return {"segments": segments, "beats": [round(float(x), 3) for x in beats], "confidence": confidence,
             "reason": "the tempo " + "; then ".join(moves)}
+
+
+MAP_EDGE = 0.15   # (map_grid) how far, in beats, a span's grid may run past its end anchor
+
+
+def map_grid(full_env, fps_env, segments, time_offset):
+    """The beat grid of a user's tempo map (sync.tempo_map: [{t song seconds, bpm, ramp}], first t 0): beats are tracked
+    with the map as the tracker's tempo prior (track_beats), then each span between anchors is laid exactly at the
+    map's tempo (constant, or linear into a ramp anchor) with its phase fitted to the tracked beats in it (a circular
+    mean weighted by the onset at each beat, so beats tracked through silence count for little). A span with no
+    tracked beat keeps the previous span's phase. At a junction a span's grid may run MAP_EDGE of a beat past its end
+    anchor, and a beat of the next span within half a beat of the previous beat is dropped, so an anchor set on (or a
+    few ms either side of) the last beat at the old tempo gives that beat, not an extra one. Returns beat times in the envelope's own time base (frame index /
+    fps_env), like track_beats; the analyser adds its ENV_TIME_OFFSET (and the user's nudge) for song seconds."""
+    env = np.asarray(full_env, float)
+    segs = [{"t": float(a["t"]), "bpm": float(a["bpm"]), "ramp": bool(a.get("ramp", False))} for a in segments]
+    dur = len(env) / fps_env
+    tracked = track_beats(env, fps_env, _map_curve(segs, time_offset))
+    # beats elapsed (the map's tempo integrated) on a 1 ms grid of envelope time; inverted by interpolation
+    tau = np.arange(0.0, dur + 1e-3, 1e-3)
+    starts = np.array([a["t"] - time_offset for a in segs])
+    k = np.clip(np.searchsorted(starts, tau, side="right") - 1, 0, len(segs) - 1)
+    bpm = np.array([a["bpm"] for a in segs])
+    nxt = np.minimum(k + 1, len(segs) - 1)
+    ramp = np.array([a["ramp"] for a in segs])[nxt] & (nxt > k)
+    frac = np.where(ramp, (tau - starts[k]) / np.maximum(starts[nxt] - starts[k], 1e-9), 0.0)
+    tempo = bpm[k] + np.where(ramp, (bpm[nxt] - bpm[k]) * frac, 0.0)
+    phi = np.concatenate([[0.0], np.cumsum((tempo[1:] + tempo[:-1]) / 2 * np.diff(tau) / 60.0)])
+    w = at(env, fps_env, tracked) + 1e-9
+    beats, phase = [], 0.0
+    bounds = list(np.clip(starts, 0.0, dur)) + [dur]
+    bounds[0] = 0.0
+    for i in range(len(segs)):
+        lo, hi = bounds[i], bounds[i + 1]
+        if hi <= lo:
+            continue
+        inside = (tracked >= lo) & (tracked < hi)
+        if inside.any():
+            ang = 2 * np.pi * np.interp(tracked[inside], tau, phi)
+            phase = float(np.angle(np.sum(w[inside] * np.exp(1j * ang))) / (2 * np.pi)) % 1.0
+        # a span's grid may run MAP_EDGE of a beat past its end (an anchor placed on its last beat, give or take the
+        # tracker's jitter); the next span's beats closer than half a beat to the one before are dropped
+        end = min(dur, hi + MAP_EDGE * 60.0 / float(np.interp(hi, tau, tempo)))
+        p_lo, p_end = np.interp(lo, tau, phi), np.interp(end, tau, phi)
+        ks = np.arange(np.ceil(p_lo - phase), np.ceil(p_end - phase))
+        for t in np.interp(ks + phase, phi, tau):
+            if t < end and (not beats or t - beats[-1] >= 0.5 * 60.0 / np.interp(t, tau, tempo)):
+                beats.append(float(t))
+    return np.array(beats)
+
+
+SWING_SAME = 0.02   # a kept swing within this of the suggestion counts as the same (no suggestion)
+SUGGESTION_KEYS = ("tempo_map", "swing", "meter", "pickup")
+
+
+def suggestion_value(key, suggestion):
+    """What a dismissal records for a suggestion (sync.dismissed [{key, value}]): it stays hidden while this is equal."""
+    return suggestion["segments"] if key == "tempo_map" else suggestion["beats"] if key == "pickup" \
+        else suggestion["value"]
+
+
+def suggest(full_env, low_env, fps_env, beat_times, bpm, alternatives, downbeat_index, beats_per_bar, sync=None, *,
+            tempo_candidates, refit, time_offset):
+    """The analyser's `suggestions`: the four detectors on the grid in use (beat_times in envelope time), keeping only
+    what differs from that grid (no tempo map when sync has one; no meter equal to sync's; no swing within SWING_SAME
+    of sync's; no pickup equal to sync's pickup_beats) and is not in sync.dismissed with the same value. Swing is not
+    suggested when the meter is (or is suggested as) 6/8: its thirds read as swing. Returns {key: suggestion}."""
+    s = sync or {}
+    out = {}
+    if s.get("tempo_map") is None:
+        tm = detect_tempo_map(full_env, fps_env, bpm, beats_per_bar, tempo_candidates, time_offset=time_offset)
+        if tm is not None:
+            out["tempo_map"] = tm
+    meter = detect_meter(low_env, full_env, fps_env, beat_times)
+    if meter is not None and meter["value"] != s.get("meter", "4/4"):
+        out["meter"] = meter
+    if "6/8" not in (s.get("meter"), meter and meter["value"]):
+        # on a tempo-mapped grid a single slower tempo could not be kept (the map replaces bpm): no triplet re-fit
+        sw = detect_swing(full_env, fps_env, beat_times, bpm, alternatives,
+                          refit=None if s.get("tempo_map") is not None else refit)
+        if sw is not None:
+            kept = abs(sw["value"] - s.get("swing", 0.5)) <= SWING_SAME + 1e-9 and (
+                "bpm" not in sw or (s.get("bpm") is not None and abs(s["bpm"] - sw["bpm"]) <= 0.5))
+            if not kept:
+                out["swing"] = sw
+    pk = detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar)
+    if pk is not None and pk["beats"] != s.get("pickup_beats", 0):
+        out["pickup"] = pk
+    for d in s.get("dismissed", []):
+        if d["key"] in out and suggestion_value(d["key"], out[d["key"]]) == d["value"]:
+            del out[d["key"]]
+    return out

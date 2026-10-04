@@ -67,6 +67,17 @@ test('new_project.sh scaffolds and refuses to overwrite', () => {
   assert.equal(again.status, 1); assert.match(again.stderr, /not overwriting/);
 });
 
+test('new_project.sh passes --from-start to the analyser', () => {
+  const root = tempDir('np-');
+  const song = path.join(root, 's.wav');
+  clickTrack(song, 120);
+  const proj = path.join(root, 'p');
+  execFileSync(path.join(SKILL, 'scripts', 'new_project.sh'), [proj, song, '--bars', '2', '--from-start'], { stdio: 'pipe' });
+  const s = JSON.parse(readFileSync(path.join(proj, 'song.json'), 'utf8'));
+  assert.equal(s.loop.from_start, true);
+  assert.equal(s.loop.start_bar, 0);
+});
+
 test('the template renders a preview without errors', async () => {
   const root = tempDir('tpl-');
   const song = path.join(root, 's.wav');

@@ -121,7 +121,8 @@ async function doSave(root, sync, python, timeoutMs) {
   try {
     await writeJsonAtomic(songFile, { ...current, sync });
     const r = await run(python, [ANALYSER, song, '--out', root, '--bars', String(loop.bars), '--fps', String(fps),
-      '--start-near', String(loop.start_sec)], { timeoutMs });
+      // a loop that starts from the song's start (--from-start) stays there; any other keeps its window by time
+      ...(loop.from_start ? ['--from-start'] : ['--start-near', String(loop.start_sec)])], { timeoutMs });
     // a timer that fires as the analyser exits 0 must not undo its work (a killed child has code null)
     if (r.timedOut && r.code !== 0) {
       await rename(bakTmp, songFile);

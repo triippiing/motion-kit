@@ -49,6 +49,22 @@ test('swap: --bars and --start-bar are passed to the analyser', async () => {
   assert.equal(s.loop.start_bar, 1);
 });
 
+test('swap: --from-start is passed to the analyser, and not with --start-bar or --start-near', async () => {
+  const dir = project();
+  await swapSong(dir, song100, { fromStart: true });
+  const s = JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8'));
+  assert.equal(s.loop.from_start, true);
+  assert.equal(s.loop.start_bar, 0);
+  await assert.rejects(swapSong(dir, song100, { fromStart: true, startBar: 1 }), /--from-start/);
+  for (const flags of [['--start-bar', '1'], ['--start-near', '3']]) {
+    const r = spawnSync(process.execPath, [SCRIPT, dir, song100, '--no-open', '--from-start', ...flags], { encoding: 'utf8' });
+    assert.equal(r.status, 2, r.stderr); assert.match(r.stderr, /^error: .*--from-start/m);
+  }
+  const r = spawnSync(process.execPath, [SCRIPT, dir, song100, '--no-open', '--from-start'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(readFileSync(path.join(dir, 'song.json'), 'utf8')).loop.from_start, true);
+});
+
 test('swap report: the window line says where the loop starts, and how to keep it when it moved', async () => {
   assert.equal(windowLine(0, 23), 'window: bar 0 -> 23 (pass --start-bar 0 to keep it)');
   assert.equal(windowLine(21, 21), 'window: bar 21 (unchanged)');
