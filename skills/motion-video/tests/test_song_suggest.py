@@ -175,6 +175,26 @@ class SwingMeterPickup(unittest.TestCase):
         full, low, beats, song = self.track(bpm=100, pickup=2, offset=0.5)
         self.assertEqual(S.detect_pickup(full, A.FPS_ENV, beats, self.downbeat(song), 4)["beats"], 2)
 
+    def test_a_silent_downbeat_after_a_pickup_is_still_the_first_downbeat(self):   # Task 7, problem C
+        from test_analyze_song import pickup_into_a_silent_downbeat
+        wav, first, down = pickup_into_a_silent_downbeat(self.tmp / "rest.wav")
+        full, low, _, _ = A.envelopes(A.decode(wav))
+        g = A.beat_grid(full, low)
+        beats = g["pos"] / A.FPS_ENV
+        d = S.first_downbeat(full, A.FPS_ENV, beats, g["j"], 4)
+        self.assertLess(abs(g["times"][d] - down), 0.03, (g["times"][d], down))
+        self.assertEqual(S.detect_pickup(full, A.FPS_ENV, beats, g["j"], 4)["beats"], 2)
+
+    def test_a_quiet_but_sounding_downbeat_starts_the_first_bar(self):
+        # the first bar's downbeat is quiet (below pickup_onset, above PICKUP_QUIET) and the rest of it is loud: that
+        # bar is the first audible bar, not a 3-beat pickup
+        beats = np.arange(0.5, 20.0, 0.5)
+        env = np.zeros(int(21 * A.FPS_ENV))
+        for k, t in enumerate(beats):
+            env[int(round(t * A.FPS_ENV))] = 1.0 if k >= 5 else 0.2 if k == 4 else 0.0
+        self.assertEqual(S.first_downbeat(env, A.FPS_ENV, beats, 0, 4), 4)
+        self.assertIsNone(S.detect_pickup(env, A.FPS_ENV, beats, 0, 4))
+
     def test_no_pickup_when_song_starts_on_the_downbeat(self):
         full, low, beats, song = self.track(bpm=100, offset=0.5)
         self.assertIsNone(S.detect_pickup(full, A.FPS_ENV, beats, self.downbeat(song), 4))

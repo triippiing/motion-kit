@@ -102,8 +102,9 @@ Details worth knowing:
   (rewrites only song.json, clip.wav and .source.json; song.json's `sync` section is kept, see Syncing).
   A window that still runs past the song's end (chosen with --start-bar or --start-near) gets a
   silence-padded clip.wav and a warning. `--from-start` (also on new_project.sh and swap_song.mjs) starts the loop
-  on the first downbeat the analyser finds with an audible onset (or on the first pickup beat before it when
-  `sync.pickup_beats` is set); check it by ear, it can skip a quiet or syncopated opening. See Syncing.
+  on the downbeat of the song's first audible bar (a silent 1 after a pickup still counts; or on the first pickup
+  beat before it when `sync.pickup_beats` is set); check it by ear, the downbeat it finds can be a beat or more off.
+  See Syncing.
 - Re-timing to a different song: `node $S/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC |
   --from-start] [--no-open] [--port N]`. It backs up song.json, clip.wav and .source.json to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/`
   (ignored in this repo; keep it out of your own commits), clears `sync` (its nudge, tempo and markers were set by

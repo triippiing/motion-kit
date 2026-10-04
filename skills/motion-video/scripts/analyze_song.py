@@ -311,7 +311,7 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
     if n_bars < bars:
         raise SongError(f"song is shorter than the requested loop: {n_bars} whole bars available, {bars} asked for")
     last_start = n_bars - bars
-    # --from-start: the loop starts on the first pickup beat (sync.pickup_beats before the first downbeat that sounds)
+    # --from-start: the loop starts on the first pickup beat (sync.pickup_beats before the first audible bar's downbeat)
     lead = s.get("pickup_beats", 0) if from_start else 0
     total = lead + bars * bpb
     if from_start:

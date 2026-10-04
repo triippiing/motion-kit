@@ -86,9 +86,10 @@ props; the cursor aims at its hotspots with `target:`.
   themselves. When there are any, open the sync page before writing tables (see Sync, Suggestions): a kept one can
   change the beats, bars and loop length.
 - The loop window: `analyze_song.py SONG --out DIR --bars N` picks the loudest window; `--start-bar B` starts on bar B,
-  `--start-near SEC` on the bar nearest SEC seconds into the song, and `--from-start` on the first downbeat the
-  analyser finds with an audible onset (or the first pickup beat before it when `sync.pickup_beats` is set), so an
-  intro can begin with the song; check it by ear, it can skip a quiet or syncopated opening. The three cannot be combined; new_project.sh and swap_song.mjs pass them on.
+  `--start-near SEC` on the bar nearest SEC seconds into the song, and `--from-start` on the downbeat of the song's
+  first audible bar (a silent 1 after a pickup still counts; or the first pickup beat before it when
+  `sync.pickup_beats` is set), so an intro can begin with the song; check it by ear, the downbeat it finds can be a
+  beat or more off. The three cannot be combined; new_project.sh and swap_song.mjs pass them on.
 
 ## Sync
 

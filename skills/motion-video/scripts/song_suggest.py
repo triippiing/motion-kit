@@ -197,30 +197,44 @@ def _onsets(full_env, fps_env, b):
     return onset, float(np.median(onset)) if len(onset) else 0.0
 
 
-def _first_loud_downbeat(onset, loud, downbeat_index, beats_per_bar):
-    d = int(downbeat_index)
-    while d < len(onset) and onset[d] < loud:
-        d += beats_per_bar
+def _first_bar(onset, med, downbeat_index, beats_per_bar):
+    """first_downbeat's work on the beats' onsets (Task 7). The first audible beat a (an onset of at least
+    pickup_onset x the median) fixes the first audible bar; the loop never starts later than it:
+    - the downbeat d0 at or before a starts it when d0 has an onset of its own (at least PICKUP_QUIET x the median:
+      a quiet 1 still starts a bar),
+    - otherwise the beats from a are a pickup into the next downbeat d (the first one after a, or a itself), which
+      starts the first bar even when d itself is silent (a rest on the 1, as in Tease Me's opening)."""
+    loud = THRESHOLDS["pickup_onset"] * med
+    audible = np.nonzero(onset >= loud)[0]
+    if not len(audible):
+        return None
+    a = int(audible[0])
+    j = int(downbeat_index) % beats_per_bar
+    d = j + -(-(a - j) // beats_per_bar) * beats_per_bar   # the first downbeat at or after a
+    d0 = d - beats_per_bar
+    if d > a and d0 >= 0 and onset[d0] >= PICKUP_QUIET * med:
+        return d0
     return d if d < len(onset) else None
 
 
 def first_downbeat(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
-    """The index of the first downbeat (downbeat_index + k x beats_per_bar) with an audible onset (at least
-    pickup_onset x the median beat onset): where the song's first bar starts, the downbeat detect_pickup counts back
-    from. None when there is none."""
+    """The index of the downbeat (downbeat_index + k x beats_per_bar) where the song's first audible bar starts (see
+    _first_bar), the downbeat detect_pickup counts back from and --from-start starts on. None when no beat has an
+    audible onset (at least pickup_onset x the median beat onset)."""
     b = np.asarray(beat_times, float)
     if not len(b):
         return None
     onset, med = _onsets(full_env, fps_env, b)
     if med <= 0:
         return None
-    return _first_loud_downbeat(onset, THRESHOLDS["pickup_onset"] * med, downbeat_index, beats_per_bar)
+    return _first_bar(onset, med, downbeat_index, beats_per_bar)
 
 
 def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
     """A pickup: grid beats with audible onsets directly before the first downbeat, after silence. downbeat_index is
-    the grid's downbeat phase (any downbeat); the first one with an audible onset is used, so leading silence is
-    skipped. Counts backwards from it and stops at the first quiet beat."""
+    the grid's downbeat phase (any downbeat); the first bar's downbeat is first_downbeat's (_first_bar), so leading
+    silence is skipped and a silent 1 after the pickup is not. Counts backwards from it and stops at the first quiet
+    beat."""
     b = np.asarray(beat_times, float)
     if len(b) < 2:
         return None
@@ -228,7 +242,7 @@ def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
     if med <= 0:
         return None
     loud = THRESHOLDS["pickup_onset"] * med
-    d = _first_loud_downbeat(onset, loud, downbeat_index, beats_per_bar)
+    d = _first_bar(onset, med, downbeat_index, beats_per_bar)
     if d is None:
         return None
     n = 0
@@ -241,8 +255,8 @@ def detect_pickup(full_env, fps_env, beat_times, downbeat_index, beats_per_bar):
         return None
     weakest = float(onset[d - n:d].min()) / med
     return {"beats": n, "confidence": round(min(1.0, weakest), 2),
-            "reason": f"{n} beat{'s' if n > 1 else ''} with audible onsets come before the first downbeat, "
-                      "after silence"}
+            "reason": (f"{n} beats with audible onsets come" if n > 1 else "1 beat with an audible onset comes")
+                      + " before the first downbeat, after silence"}
 
 
 # ---- Tempo maps (Task 3) ----------------------------------------------------------------------------------------------

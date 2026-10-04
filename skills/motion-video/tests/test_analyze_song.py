@@ -24,6 +24,20 @@ PRE_C2B = "f762389d5eb156aacafa2c02b5724d3ae9bbb5ae"
 KNOWN_120_10S = "9d2ba13dd3a29f5309b955ac6acb6b23bafbf845ccbd293857d04fc13ef7bc70"
 
 
+def pickup_into_a_silent_downbeat(path, bpm=100, offset=2.9, seconds=30):
+    """A silent first bar, two pickup beats, then a downbeat with no onset (a rest on the 1), then the groove: Tease
+    Me's opening. Returns (path, the pickup's first beat, the silent downbeat) in song seconds."""
+    click_track(path, bpm, seconds=seconds, offset=offset, pickup=2)
+    with wave.open(str(path)) as w:
+        params, x = w.getparams(), np.frombuffer(w.readframes(w.getnframes()), "<i2").copy()
+    down = offset + 2 * 60 / bpm
+    x[int((down - 0.01) * params.framerate):int((down + 0.3) * params.framerate)] = 0
+    with wave.open(str(path), "wb") as w:
+        w.setparams(params)
+        w.writeframes(x.tobytes())
+    return str(path), offset, down
+
+
 class AnalyzeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -617,6 +631,18 @@ class SuggestionTests(unittest.TestCase):
                 code, err = self.run_main(self.straight, "--bars", "2", "--from-start", *flags)
                 self.assertEqual(code, 2, err)
                 self.assertIn("error:", err)
+
+    def test_from_start_never_skips_the_first_audible_bar(self):   # Task 7, problem C
+        wav, first, down = pickup_into_a_silent_downbeat(self.tmp / "rest.wav")
+        code, err = self.run_main(wav, "--bars", "2", "--from-start")
+        self.assertEqual(code, 0, err)
+        song = self.song()
+        # the bar starts on the silent downbeat after the pickup, not a bar later
+        self.assertLess(abs(song["loop"]["start_sec"] - down), 1 / 60 + 0.015, song["loop"]["start_sec"])
+        self.assertEqual(song["suggestions"]["pickup"]["beats"], 2, song["suggestions"])
+        code, err = self.run_main(wav, "--bars", "2", "--from-start", sync={"pickup_beats": 2})
+        self.assertEqual(code, 0, err)
+        self.assertLess(abs(self.song()["loop"]["start_sec"] - first), 1 / 60 + 0.015, self.song()["loop"])
 
     def test_same_song_json_as_main_without_the_new_fields(self):
         """The analyser on main before C2b (PRE_C2B) and this one write the same song.json, but for `suggestions`."""
