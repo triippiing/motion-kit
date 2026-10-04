@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import shutil
@@ -14,7 +15,10 @@ import numpy as np
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import analyze_song as A  # noqa: E402
-from click_track import SR, click_track  # noqa: E402,F401  (also imported from here by older commands)
+from click_track import SR, beat_times, click_track  # noqa: E402,F401  (also imported from here by older commands)
+
+# sha256 of click_track(path, 120, seconds=10) from click_track.py on main before C2b (defaults must stay byte-identical)
+KNOWN_120_10S = "9d2ba13dd3a29f5309b955ac6acb6b23bafbf845ccbd293857d04fc13ef7bc70"
 
 
 class AnalyzeTests(unittest.TestCase):
@@ -447,6 +451,74 @@ class ClickTrackCliTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("error:", r.stderr)
                 self.assertNotIn("Traceback", r.stderr)
+
+
+class ClickTrackShapeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def test_defaults_are_unchanged(self):
+        a = (self.tmp / "a.wav"); b = (self.tmp / "b.wav")
+        click_track(a, 120, seconds=10); click_track(b, 120, seconds=10, tempo_map=None, swing=0.5, meter="4/4", pickup=0)
+        self.assertEqual(a.read_bytes(), b.read_bytes())
+        self.assertEqual(hashlib.sha256(a.read_bytes()).hexdigest(), KNOWN_120_10S)  # computed once on main, pasted here
+
+    def test_beat_times_follow_the_tempo_map(self):
+        t = beat_times(90, 40, tempo_map=[(0, 90, False), (20, 120, False)])
+        gaps = np.diff(t)
+        self.assertAlmostEqual(gaps[0], 60 / 90, places=6)
+        self.assertAlmostEqual(gaps[-1], 60 / 120, places=6)
+        r = beat_times(100, 40, tempo_map=[(0, 100, False), (20, 100, False), (30, 120, True)])
+        g = np.diff(r)
+        self.assertTrue(all(g[i] >= g[i + 1] - 1e-9 for i in range(len(g) - 1)), "a ramp up only shortens the gaps")
+
+    def test_cli_options(self):
+        out = self.tmp / "s.wav"
+        r = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "100", "--seconds", "12",
+                            "--swing", "0.62", "--meter", "3/4", "--pickup", "2", "--tempo-map", "0:100,6:110r"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        bad = subprocess.run([sys.executable, str(SCRIPTS / "click_track.py"), str(out), "100", "--meter", "5/4"], capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2); self.assertNotIn("Traceback", bad.stderr)
+
+    # -- beyond the brief: the shapes later detector tests rely on --
+
+    def _read(self, path):
+        with wave.open(str(path)) as w:
+            return np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float) / 32767
+
+    def _kick(self, x, t):
+        """55 Hz content in the 0.1 s after t (the hat is broadband noise, so this is ~0 without a kick)."""
+        s = int(t * SR); n = int(0.1 * SR)
+        return abs(np.dot(x[s:s + n], np.sin(2 * np.pi * 55 * np.arange(n) / SR))) / n
+
+    def _energy(self, x, t):
+        s = int(t * SR); return float(np.sum(x[s:s + int(0.02 * SR)] ** 2))
+
+    def test_kicks_follow_meter_and_pickup(self):
+        for meter, every, pickup in (("4/4", 4, 0), ("3/4", 3, 2), ("6/8", 2, 1)):
+            with self.subTest(meter=meter, pickup=pickup):
+                x = self._read(click_track(self.tmp / "m.wav", 100, seconds=12, meter=meter, pickup=pickup))
+                beats = beat_times(100, 12)
+                kicked = [i for i, b in enumerate(beats) if self._kick(x, b) > 0.1]
+                self.assertEqual(kicked, [i for i in range(len(beats)) if i >= pickup and (i - pickup) % every == 0])
+
+    def test_swing_and_compound_hats_land_inside_the_beat(self):
+        beats = beat_times(100, 12); iv = 60 / 100
+        plain = self._read(click_track(self.tmp / "p.wav", 100, seconds=12))
+        swung = self._read(click_track(self.tmp / "s.wav", 100, seconds=12, swing=0.62))
+        six = self._read(click_track(self.tmp / "e.wav", 100, seconds=12, meter="6/8"))
+        for b in beats[1:-1]:
+            self.assertLess(self._energy(plain, b + 0.62 * iv), 1e-3)
+            self.assertGreater(self._energy(swung, b + 0.62 * iv), 0.05)
+            for frac in (1 / 3, 2 / 3):
+                self.assertGreater(self._energy(six, b + frac * iv), 0.05)
+
+    def test_bad_shapes_are_rejected(self):
+        for kw in ({"meter": "5/4"}, {"pickup": 4}, {"pickup": 2, "meter": "6/8"}, {"swing": 0.4},
+                   {"tempo_map": [(1, 100, False)]}, {"tempo_map": [(0, 100, False), (0, 120, False)]}):
+            with self.subTest(**{k: str(v) for k, v in kw.items()}):
+                with self.assertRaises(ValueError):
+                    click_track(self.tmp / "x.wav", 100, seconds=5, **kw)
 
 
 if __name__ == "__main__":
