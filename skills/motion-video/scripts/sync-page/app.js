@@ -132,7 +132,7 @@ function keepSuggestion(key) {
 
 function undismiss(key) {
   const s = S.song.suggestions[key], rest = (S.pending.dismissed ?? []).filter((d) => !(d.key === key && same(d.value, sugValue(key, s))));
-  if (rest.length) S.pending.dismissed = rest; else delete S.pending.dismissed;
+  if (rest.length || 'dismissed' in savedSync(S.song)) S.pending.dismissed = rest; else delete S.pending.dismissed;
 }
 
 // Dismiss (again: undo). Pending until Save; a kept suggestion is un-kept first.
