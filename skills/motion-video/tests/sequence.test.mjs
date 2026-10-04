@@ -570,3 +570,82 @@ test('render --stage WxH: every chapter at that size, joined under out/shapes/Wx
   assert.deepEqual(readJson(`${out}.render.json`).stage, [128, 64]);
   assert.equal(videoFrames(out), songOf(d, 'intro').loop.frames);
 });
+
+// ---- export ----
+
+const EXPORT = path.join(import.meta.dirname, '..', 'scripts', 'export.mjs');
+const testPreset = (o) => ({ label: o.name ?? 'test', group: 'test', fps: 30, maxSeconds: null, maxMB: null, video: { codec: 'h264', crf: 26, profile: 'high' },
+  audio: { codec: 'aac', kbps: 96, lufs: -14, truePeak: -1 }, safe: { top: 0, bottom: 0, left: 0, right: 0 }, public: true, source: null, checked: null,
+  estimated: [], notes: 'test preset', ...o });
+// Three presets on the design shape (one render): web (mp4, webm, poster), gif, and zoned, whose safe zones leave only a
+// 12 px band across the middle of the 192x192 stage, so every chapter's shape is in them.
+const EXPORT_PRESETS = path.join(tempDir('mk-seq-presets-'), 'presets.json');
+writeFileSync(EXPORT_PRESETS, JSON.stringify({ shapes: { square: [192, 192] }, presets: {
+  web: testPreset({ name: 'web', shape: 'design', fps: 24, outputs: ['mp4', 'webm', 'poster'] }),
+  gif: testPreset({ name: 'gif', shape: 'design', public: false, audio: { codec: null, kbps: 0, lufs: -14, truePeak: -1 }, gif: { width: 192, fps: 12, maxMB: 20 } }),
+  zoned: testPreset({ name: 'zoned', label: 'Zoned', shape: 'design', public: false, safe: { top: 90, bottom: 90, left: 0, right: 0 } }),
+} }));
+const exportCli = (...args) => spawnSync(process.execPath, [EXPORT, ...args], { encoding: 'utf8', env: { ...process.env, MOTION_PRESETS: EXPORT_PRESETS } });
+async function withExportPresets(fn) {
+  const old = process.env.MOTION_PRESETS;
+  process.env.MOTION_PRESETS = EXPORT_PRESETS;
+  try { return await fn(); } finally { if (old === undefined) delete process.env.MOTION_PRESETS; else process.env.MOTION_PRESETS = old; }
+}
+const mediaDuration = (f) => Number(execFileSync(FFPROBE_BIN, ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { encoding: 'utf8' }).trim());
+
+test('export SEQ --for web,gif,zoned: the joined full render through the presets; manifest lists the chapters; zones per chapter', async () => {
+  const { exportProject } = await import('../scripts/export.mjs');
+  const d = copyOfSmall();
+  const pj = path.join(d, 'kit', 'project.json');
+  writeJson(pj, { ...readJson(pj), music: 'commercial' });   // one chapter's commercial music warns for the whole piece
+  const log = [];
+  const m = await withExportPresets(() => exportProject(d, { for: ['web', 'gif', 'zoned'], log: (l) => log.push(l) }));
+  const joined = path.join(d, 'out', 'sequence.mp4');
+  assert.ok(existsSync(joined), 'a full render of the sequence, never the preview');
+  assert.equal(existsSync(path.join(d, 'out', 'sequence-preview.mp4')), false);
+  assert.equal(readJson(`${joined}.render.json`).preview, false);
+  assert.deepEqual(m.sequence, { chapters: ['intro', 'kit', 'end'] });
+  assert.equal(m.project, 'seq');
+  assert.deepEqual(m.renders.map((r) => [r.size, r.path]), [['192x192', 'out/sequence.mp4']]);
+  assert.deepEqual(m.renders[0].chapters.map((c) => c.name), ['intro', 'kit', 'end']);
+  assert.deepEqual(readJson(path.join(d, 'out', 'exports', 'manifest.json')), JSON.parse(JSON.stringify(m)));
+  assert.deepEqual(m.files.map((f) => `${f.preset}.${f.format}`), ['web.mp4', 'web.webm', 'web.jpg', 'gif.gif', 'zoned.mp4']);
+  for (const f of m.files) assert.ok(existsSync(path.join(d, f.path)) && f.path.startsWith('out/exports/'), f.path);
+  const total = mediaDuration(joined);
+  for (const f of m.files.filter((x) => x.duration != null)) assert.ok(Math.abs(f.duration - total) <= 0.1, `${f.preset}.${f.format}: ${f.duration} s vs ${total} s`);
+  const webMp4 = m.files[0];
+  assert.deepEqual([webMp4.width, webMp4.height, webMp4.fps, webMp4.acodec], [192, 192, 24, 'aac']);
+  assert.ok(webMp4.warnings.some((w) => /commercial music.*--silent/.test(w)), JSON.stringify(webMp4.warnings));
+  // safe zones: each chapter's own check at that shape, prefixed with its name, on the zoned preset only
+  const zoned = m.files.find((f) => f.preset === 'zoned');
+  for (const c of ['intro', 'kit', 'end']) {
+    assert.ok(zoned.warnings.some((w) => w.startsWith(`${c}: `) && / px into the Zoned (top|bottom) zone$/.test(w)), `${c}: ${JSON.stringify(zoned.warnings)}`);
+  }
+  for (const f of m.files.filter((x) => x.preset !== 'zoned')) assert.ok(!f.warnings.some((w) => /zone/.test(w)), f.preset);
+  assert.equal(log.length, 5);
+});
+
+test('export SEQ (CLI): an unknown preset is still error: ... exit 2, before anything is rendered; --silent; --guides per chapter', () => {
+  const d = copyOfSmall();
+  let r = exportCli(d, '--for', 'web,webb');
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: unknown preset "webb" \(did you mean "web"\?\)/);
+  assert.equal(existsSync(path.join(d, 'out')), false);
+  for (const c of ['intro', 'kit', 'end']) assert.equal(existsSync(path.join(d, c, 'out')), false, c);
+  // a chapter that is not analysed: the sequence's own error, exit 2
+  const bare = exportCli(seqWithoutSong(), '--for', 'gif');
+  assert.equal(bare.status, 2);
+  assert.match(bare.stderr, /^error: b: no song\.json \(run sequence\.mjs SEQ analyse\)/m);
+
+  r = exportCli(d, '--for', 'gif,zoned', '--guides');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^intro: gif\s+no safe zones.*\nintro: zoned\s+intro\/out\/shapes\/192x192\/preview-guides-zoned\.mp4\nkit: gif/);
+  for (const c of ['intro', 'kit', 'end']) assert.ok(existsSync(path.join(d, c, 'out', 'shapes', '192x192', 'preview-guides-zoned.mp4')), c);
+  assert.equal(existsSync(path.join(d, 'out', 'exports')), false, 'guides export nothing');
+
+  r = exportCli(d, '--for', 'gif,web', '--silent');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^manifest: .*seq\/out\/exports\/manifest\.json$/m);
+  const m = readJson(path.join(d, 'out', 'exports', 'manifest.json'));
+  assert.deepEqual(m.files.map((f) => [f.preset, f.format, f.acodec]), [['gif', 'gif', null], ['web', 'mp4', null], ['web', 'webm', null], ['web', 'jpg', null]]);
+});
