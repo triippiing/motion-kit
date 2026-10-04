@@ -3,10 +3,9 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { START_MARK as START, END_MARK } from './tables.mjs';
 
 const HERE = import.meta.dirname;
-const START = '// ---------------- the three tables you edit ----------------';
-const END_MARK = '// ------------------------------------------------------------';
 
 // A click track at BPM in FILE (click_track.py); returns FILE.
 export function clickTrack(file, bpm = 120, seconds = 40) {

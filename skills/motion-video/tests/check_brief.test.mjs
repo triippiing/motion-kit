@@ -308,7 +308,9 @@ test('a brief may place rows on the song\'s markers; a marker song.json lacks is
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'drop', offset: -2, use: 'check' }")));
   assert.deepEqual((await check(dir)).errors, []);
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'chorus', use: 'check' }")));
-  assert.deepEqual((await check(dir)).errors, ["states() row 2: unknown marker 'chorus' (markers: drop)"]);
+  // the validator's message, plus where to place a marker a song swap dropped
+  assert.deepEqual((await check(dir)).errors,
+    ["states() row 2: unknown marker 'chorus' (markers: drop) (after a song swap, place it on the sync page: node sync.mjs DIR)"]);
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
 });
 
