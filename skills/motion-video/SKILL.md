@@ -150,7 +150,7 @@ checked by ear, any markers outside the loop, and:
 | Says | Means |
 |---|---|
 | grid follows detected hits | each beat sounds on the detected hit near it (`cue_t`), as the analyser measured |
-| even grid: detected hits off | a nudge (other than 0) or a tapped tempo is set, so the ear wins: every beat sits exactly on the even grid, with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it |
+| even grid: detected hits off | a nudge (other than 0) or a tapped tempo is set, so the ear wins: every beat sits exactly on the even grid, with no snapping to detected hits. It switches on the first nudge or tempo change, so that first press can move some clicks by more than 5 ms. A meter change alone does not switch it. A kept tempo map also sits its beats on the grid once saved (no snapping), though this line does not show it |
 | preview is approximate until you save | a tempo or meter change is pending. The clicks follow an even grid at the new tempo over the **old** loop length, so expect a flam at the loop seam; the animation keeps the saved tempo. Save fits the real grid. Save keeps `--bars N`, so a tempo change alters the loop's length in seconds and a meter change alters its length in beats (bars times beats a bar): afterwards re-read song.json's `beats` and `loop.duration_sec` and redo the bars and the tables |
 | unsaved changes / saving: re-cutting the clip / saved HH:MM:SS | the Save state |
 

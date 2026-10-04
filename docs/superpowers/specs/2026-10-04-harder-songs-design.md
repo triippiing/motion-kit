@@ -41,7 +41,8 @@ The current grid stays the default output. A new derived top-level `suggestions`
 at or above its threshold and it differs from what the current grid already uses (so a kept suggestion stops being
 suggested). Each has `confidence` (0..1) and `reason` (one line, plain words). *As built:* a tempo-map suggestion is
 offered alone (swing, meter and pickup would be measured on the single grid it says is wrong; they appear once it is
-kept or dismissed), none is suggested once `sync.tempo_map` is set, and swing is never suggested when the meter is (or
+kept or dismissed), no new tempo map is suggested once `sync.tempo_map` is set (meter, swing and pickup are then measured on the map's
+grid, with no triplet re-fit), and swing is never suggested when the meter is (or
 is suggested as) 6/8, whose thirds read as swing.
 
 - **Tempo map.** Local tempo is estimated in overlapping windows (about 8 s, hop about 2 s) with the existing tempo
