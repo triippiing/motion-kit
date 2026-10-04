@@ -6,7 +6,7 @@ import path from 'node:path';
 import { makeProject } from './harness.mjs';
 import { tempDir } from './tmp.mjs';
 import { clickTrack } from '../scripts/scaffold.mjs';
-import { swapSong } from '../scripts/swap_song.mjs';
+import { swapSong, windowLine } from '../scripts/swap_song.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const SCRIPT = path.join(SKILL, 'scripts', 'swap_song.mjs');
@@ -49,6 +49,16 @@ test('swap: --bars and --start-bar are passed to the analyser', async () => {
   assert.equal(s.loop.start_bar, 1);
 });
 
+test('swap report: the window line says where the loop starts, and how to keep it when it moved', async () => {
+  assert.equal(windowLine(0, 23), 'window: bar 0 -> 23 (pass --start-bar 0 to keep it)');
+  assert.equal(windowLine(21, 21), 'window: bar 21 (unchanged)');
+  assert.equal(windowLine(undefined, 4), 'window: bar 4');
+  // the project starts at bar 1
+  const r = await swapSong(project(), song100, { startBar: 1 });
+  assert.equal(r.before.startBar, 1);
+  assert.equal(r.after.startBar, 1);
+});
+
 test('swap: a song shorter than the loop leaves the project as it was', async () => {
   const dir = project();
   const before = ['song.json', 'clip.wav', '.source.json'].map((f) => readFileSync(path.join(dir, f)));
@@ -61,8 +71,14 @@ test('swap CLI: report lines, --no-open, bad usage exit 2', () => {
   const dir = project();
   const r = spawnSync(process.execPath, [SCRIPT, dir, song100, '--no-open'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /^tempo: 120\.\d+ -> 100\.\d+ BPM \(confidence [\d.]+\)$/m);
+  const tempo = /^tempo: ([\d.]+) -> ([\d.]+) BPM \(confidence [\d.]+\)$/m.exec(r.stdout);
+  assert.ok(tempo, r.stdout);
+  assert.ok(Math.abs(Number(tempo[1]) - 120) < 1 && Math.abs(Number(tempo[2]) - 100) < 1, tempo[0]);
   assert.match(r.stdout, /^loop: 4 bars = [\d.]+ s \(was [\d.]+ s\)$/m);
+  assert.match(r.stdout, /^window: bar (1 \(unchanged\)|1 -> \d+ \(pass --start-bar 1 to keep it\))$/m);
+  const moved = spawnSync(process.execPath, [SCRIPT, project(), song100, '--no-open', '--start-bar', '2'], { encoding: 'utf8' });
+  assert.equal(moved.status, 0, moved.stderr);
+  assert.match(moved.stdout, /^window: bar 1 -> 2 \(pass --start-bar 1 to keep it\)$/m);
   assert.match(r.stdout, /^to place: drop$/m);
   const bad = spawnSync(process.execPath, [SCRIPT, dir], { encoding: 'utf8' });
   assert.equal(bad.status, 2); assert.match(bad.stderr, /^error: /m);

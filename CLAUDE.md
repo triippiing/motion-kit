@@ -103,10 +103,11 @@ Details worth knowing:
   silence-padded clip.wav and a warning.
 - Re-timing to a different song: `node $S/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC]
   [--no-open] [--port N]`. It backs up song.json, clip.wav and .source.json to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/`
-  (git-ignored), clears `sync` (its nudge, tempo and markers were set by ear against the old song; the analyser
-  would otherwise keep and apply it), re-analyses with the project's bars (or `--bars`) and fps (the loop window is picked afresh unless
+  (ignored in this repo; keep it out of your own commits), clears `sync` (its nudge, tempo and markers were set by
+  ear against the old song; the analyser would otherwise keep and apply it), re-analyses with the project's bars (or `--bars`) and fps (the loop window is picked afresh unless
   `--start-bar` or `--start-near` is given), and prints
-  `tempo: A -> B BPM (confidence C)`, `loop: N bars = S s (was S s)`, `to place: drop, chorus` (the marker names
+  `tempo: A -> B BPM (confidence C)`, `loop: N bars = S s (was S s)`, `window: bar A -> B (pass --start-bar A to
+  keep it)` (or `window: bar B (unchanged)`), `to place: drop, chorus` (the marker names
   the tables use; or `no markers to place`), a `warning:` when the tables have more states than the new song
   allows, a reminder to update the brief's Song/Music line when a brief exists, and `backup: PATH`. Then it runs
   `sync.mjs DIR` (unless `--no-open`) to place those names. A failed analyser or Ctrl+C during it puts the backup

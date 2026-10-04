@@ -8,8 +8,9 @@
 // tempo, meter, swing and markers were set by ear against the old song) and runs analyze_song.py on NEWSONG with the
 // project's bars (or --bars) and fps, which rewrites song.json, clip.wav and .source.json. If the analyser fails the
 // backup is put back and the project is as it was. The tables are never edited.
-// Then it prints the report and, unless --no-open, runs `node sync.mjs DIR [--port N]` in the foreground (its own
-// output, browser opening and Ctrl+C handling) so the names can be placed.
+// Then it prints the report (tempo, loop, the loop window's start bar and how to keep the old one, names to place)
+// and, unless --no-open, runs `node sync.mjs DIR [--port N]` in the foreground (its own output, browser opening and
+// Ctrl+C handling) so the names can be placed.
 import { spawn } from 'node:child_process';
 import { copyFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { access, constants, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -98,7 +99,8 @@ function budget(root, song) {
   return null;
 }
 
-// Puts SONG on the project in DIR. Resolves { before: { bpm, duration }, after: { bpm, confidence, duration, bars },
+// Puts SONG on the project in DIR. Resolves { before: { bpm, duration, startBar }, after: { bpm, confidence, duration,
+// bars, startBar },
 // toPlace, budget, backup }. Bad input (no project, no song, both start options, the analyser's exit 2) throws
 // UsageError; any other analyser failure throws Error. On either the project is as it was.
 export async function swapSong(dir, song, { bars, startBar, startNear, python = 'python3' } = {}) {
@@ -116,7 +118,7 @@ export async function swapSong(dir, song, { bars, startBar, startNear, python = 
   }
   const n = bars ?? current.loop?.bars;
   if (!(n > 0)) throw new UsageError(`${songFile} has no loop.bars; pass --bars`);
-  const before = { bpm: current.bpm, duration: current.loop?.duration_sec };
+  const before = { bpm: current.bpm, duration: current.loop?.duration_sec, startBar: current.loop?.start_bar };
   // from the tables, which the swap does not change; read before song.json loses its beats
   const toPlace = projectMarkerNames(root);
 
@@ -146,7 +148,7 @@ export async function swapSong(dir, song, { bars, startBar, startNear, python = 
   const next = JSON.parse(await readFile(songFile, 'utf8'));
   return {
     before,
-    after: { bpm: next.bpm, confidence: next.bpm_confidence, duration: next.loop.duration_sec, bars: next.loop.bars },
+    after: { bpm: next.bpm, confidence: next.bpm_confidence, duration: next.loop.duration_sec, bars: next.loop.bars, startBar: next.loop.start_bar },
     toPlace, budget: budget(root, next), backup,
   };
 }
@@ -175,11 +177,18 @@ function parseArgs(argv) {
 
 const fixed = (x) => (Number.isFinite(x) ? x.toFixed(2) : '?');
 
+// The report's line for the loop window: where it starts now, and the flag that keeps the old start when it moved.
+export function windowLine(was, now) {
+  if (!Number.isInteger(was)) return `window: bar ${now}`;
+  return was === now ? `window: bar ${now} (unchanged)` : `window: bar ${was} -> ${now} (pass --start-bar ${was} to keep it)`;
+}
+
 async function main() {
   const { dir, song, bars, startBar, startNear, port, noOpen } = parseArgs(process.argv.slice(2));
   const r = await swapSong(dir, song, { bars, startBar, startNear, python: process.env.MK_ANALYSER_PYTHON || undefined });
   console.log(`tempo: ${fixed(r.before.bpm)} -> ${fixed(r.after.bpm)} BPM (confidence ${fixed(r.after.confidence)})`);
   console.log(`loop: ${r.after.bars} bars = ${fixed(r.after.duration)} s (was ${fixed(r.before.duration)} s)`);
+  console.log(windowLine(r.before.startBar, r.after.startBar));
   console.log(r.toPlace.length ? `to place: ${r.toPlace.join(', ')}` : 'no markers to place');
   if (r.budget) console.log(`warning: ${r.budget}`);
   if (existsSync(path.join(dir, 'MOTION-BRIEF.md'))) console.log("reminder: update the brief's Song/Music line if the licence changed");

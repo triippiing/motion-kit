@@ -183,8 +183,8 @@ node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near 
 ```
 
 In order: checks DIR has a song.json and NEWSONG is a readable file (else `error: ...`, exit 2); copies song.json,
-clip.wav and .source.json (those present) to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/` (git-ignored: audio and a local
-path); lists the marker names the tables use (index.html's table block and the brief's `## Beat table` block, every
+clip.wav and .source.json (those present) to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/` (ignored in this repo; keep it out of
+your own commits: audio and a local path); lists the marker names the tables use (index.html's table block and the brief's `## Beat table` block, every
 `at:` that is a string); removes `sync` (and the derived `markers`) from song.json; runs
 `analyze_song.py NEWSONG --out DIR --bars N` with the project's `loop.bars` (or `--bars`), its `fps`, and
 `--start-bar` / `--start-near` when given (without them the analyser picks the loop window afresh for the new song,
@@ -194,6 +194,7 @@ was; Ctrl+C while it runs stops it, puts the backup back and keeps the backup di
 ```
 tempo: 109.00 -> 124.02 BPM (confidence 0.71)
 loop: 7 bars = 13.55 s (was 15.41 s)
+window: bar 0 -> 23 (pass --start-bar 0 to keep it)   (or: window: bar 21 (unchanged))
 to place: drop, chorus                       (or: no markers to place)
 warning: the tables have 14 states; the new song allows 12 (shorten the table or pass --bars)   (only when over)
 reminder: update the brief's Song/Music line if the licence changed                           (only with a brief)
