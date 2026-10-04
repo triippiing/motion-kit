@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { beatTime } from '../components/core/timing.js';
 import { isMain } from './is_main.mjs';
-import { START_MARK, END_MARK, pageCode } from './tables.mjs';
+import { START_MARK, pageCode } from './tables.mjs';
 
 // A bad command line, not a bug: main() prints it as `error: ...` and exits 2.
 export class UsageError extends Error {}

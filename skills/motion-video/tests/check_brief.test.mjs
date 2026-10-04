@@ -314,6 +314,12 @@ test('a brief may place rows on the song\'s markers; a marker song.json lacks is
   assert.equal(spawnSync('node', [SCRIPT, dir]).status, 1);
 });
 
+test('an unknown marker on a song with no markers already names sync.mjs, so gets no second hint', async () => {
+  const dir = makeProject({ bars: 4 });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief(good.replace("{ at: 4, use: 'check' }", "{ at: 'chorus', use: 'check' }")));
+  assert.deepEqual((await check(dir)).errors, ["states() row 2: unknown marker 'chorus' (song.json has no markers; mark them with sync.mjs DIR)"]);
+});
+
 test('marker rows need a project components/ copy that knows markers (core/timing.js)', async () => {
   const dir = makeProject({ bars: 4 });
   const f = path.join(dir, 'song.json'), song = JSON.parse(readFileSync(f, 'utf8'));

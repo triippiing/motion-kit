@@ -29,3 +29,13 @@ test('projectMarkerNames unions index.html and the brief', () => {
   assert.deepEqual(projectMarkerNames(dir), ['chorus', 'drop']);
   assert.ok(pageCode(readFileSync(path.join(dir, 'index.html'), 'utf8')).includes("at: 'drop'"));
 });
+
+test('a table that throws null or undefined is a TablesError; projectMarkerNames still answers', () => {
+  for (const v of ['null', 'undefined'])
+    assert.throws(() => runTables(`const states = () => { throw ${v}; }; const cursor = () => [];`, 8),
+      (e) => e instanceof TablesError && /^beat table code does not run: /.test(e.message));
+  const dir = makeProject({ bars: 2, states: "[{ at: 0, use: 'button' }, { at: 'drop', use: 'button' }, { at: END - 2, use: 'button' }]",
+    cursor: '[{ at: 0, x: 140, y: 100 }, { at: END - 2, x: 140, y: 100 }]' });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), '## Beat table\n```js\nconst states = () => { throw null; };\nconst cursor = () => [];\n```\n');
+  assert.deepEqual(projectMarkerNames(dir), ['drop']);
+});

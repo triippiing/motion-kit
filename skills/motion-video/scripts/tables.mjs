@@ -33,7 +33,8 @@ export function runTables(code, beats) {
     const ctx = vm.createContext({ END: beats });
     return vm.runInContext(`${code}\n;({ states: states(), cursor: cursor() })`, ctx, { timeout: 1000 });
   } catch (e) {
-    const why = e.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e.message}`;
+    // A table may throw anything, null included.
+    const why = e?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT' ? 'took longer than 1 s to run (an endless loop?)' : `does not run: ${e?.message ?? String(e)}`;
     throw new TablesError(`beat table code ${why}`);
   }
 }

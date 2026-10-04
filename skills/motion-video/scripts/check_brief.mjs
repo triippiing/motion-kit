@@ -149,8 +149,9 @@ export async function checkBrief(dir, opts = {}) {
     errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
   const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
   // A marker the song lacks is usually one a song swap dropped: the sync page places it (validate.js stays as it is,
-  // pinned to demo 04's copy, so the hint is added here).
-  errors.push(...r.errors.map((e) => (/^\S+ row \d+: unknown marker /.test(e) ? `${e}${SWAP_HINT}` : e))); warnings.push(...r.warnings);
+  // pinned to demo 04's copy, so the hint is added here, unless the message already names sync.mjs).
+  const hint = (e) => (/^\S+ row \d+: unknown marker /.test(e) && !e.includes('sync.mjs') ? `${e}${SWAP_HINT}` : e);
+  errors.push(...r.errors.map(hint)); warnings.push(...r.warnings);
   // With errors the page (running the same tables) would only fail on what they already say.
   if (errors.length) return { errors, warnings };
   // The frame check always runs (cursor past the stage, text past its shape); presets with safe zones ride the
