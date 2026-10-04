@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<!-- The watch page (watch.mjs): the project's animation in an iframe, driven by the song playing here; a save
+     reloads only the iframe, so playback carries on. Plain HTML, CSS and JS; the logic is in app.js. -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watch</title>
+<link rel="stylesheet" href="/__watch/style.css">
+</head>
+<body>
+<div id="frame-box"><iframe id="frame" title="The project's animation" tabindex="-1" scrolling="no"></iframe></div>
+<audio id="audio" src="/clip.wav" loop preload="auto"></audio>
+<button id="overlay" title="Play (Space)">Click to play</button>
+<div id="panel" role="status" aria-live="polite" title="Click to collapse or expand">
+  <span class="dot" aria-hidden="true"></span>
+  <ul id="lines"></ul>
+</div>
+<script type="module" src="/__watch/app.js"></script>
+</body>
+</html>
