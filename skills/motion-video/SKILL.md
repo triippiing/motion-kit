@@ -10,10 +10,10 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Job | Command |
 |---|---|
 | Check tooling | `scripts/doctor.sh` |
-| New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css]` |
+| New project | `scripts/new_project.sh DIR SONG --bars 7 --states 12 [--size vertical] [--theme app.css] [--start-bar N \| --start-near SEC \| --from-start]` |
 | Re-theme from a project | `python3 scripts/extract_theme.py app.css --out DIR [--map accent=--brand]` |
-| Re-time to a new song | `node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B \| --start-near SEC] [--no-open] [--port N]` (backs up, clears `sync`, re-analyses, lists the marker names to place, opens the sync page; see Sync) |
-| Hear and fix the beat grid, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
+| Re-time to a new song | `node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B \| --start-near SEC \| --from-start] [--no-open] [--port N]` (backs up, clears `sync`, re-analyses, lists the marker names to place, opens the sync page; see Sync) |
+| Hear and fix the beat grid, try the analyser's suggestions, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
 | Watch live while editing (reloads on save, re-runs check_brief) | `node scripts/watch.mjs DIR [--brief] [--port N] [--no-open]` (see Watch below) |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
@@ -82,12 +82,20 @@ props; the cursor aims at its hotspots with `target:`.
 - `song.json` `sync` (set on the sync page) belongs to the user: every `analyze_song.py` run keeps it and applies it.
   Re-timing to a **different** song? Use `node scripts/swap_song.mjs DIR NEWSONG` (see Sync, Swapping the song): it
   clears the `sync` section first, since its nudge, tempo and markers were set by ear against the old song.
+- `song.json` `suggestions` (tempo map, swing, meter, pickup) are the analyser's guesses, never applied by
+  themselves. When there are any, open the sync page before writing tables (see Sync, Suggestions): a kept one can
+  change the beats, bars and loop length.
+- The loop window: `analyze_song.py SONG --out DIR --bars N` picks the loudest window; `--start-bar B` starts on bar B,
+  `--start-near SEC` on the bar nearest SEC seconds into the song, and `--from-start` on the first downbeat the
+  analyser finds with an audible onset (or the first pickup beat before it when `sync.pickup_beats` is set), so an
+  intro can begin with the song; check it by ear, it can skip a quiet or syncopated opening. The three cannot be combined; new_project.sh and swap_song.mjs pass them on.
 
 ## Sync
 
 Only a person can hear whether the beat grid sits on the music. Claude cannot: never say the sync is
 right. The sync page lets the user hear clicks over the song next to the live animation, fix the grid,
-and mark named moments that table rows can then hit.
+and mark named moments that table rows can then hit. It also lists the analyser's suggestions (a tempo map,
+swing, a meter, a pickup) so the user can hear each one and keep or dismiss it.
 
 ```bash
 node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]
@@ -99,7 +107,7 @@ running until stopped, so start it in the background (or let the user run it) an
 `--song PATH` first records where the original song is now (see Save). Bad usage exits 2 with `error: ...`.
 
 **Layout.** Left: the project's own `index.html` in a frame, driven by `seek(t)` from the audio clock, so
-what plays is what renders. Right: a zoomed waveform (about 2 bars) that follows the playhead, with bars
+what plays is what renders. Right: the Suggestions list when song.json has any (see Suggestions below), then a zoomed waveform (about 2 bars) that follows the playhead, with bars
 as strong lines and numbers, beats faint, swung half-beats fainter, and markers as orange flags. Under
 it, the whole loop as a strip with the view's window on it, then the markers list (one line each: name,
 song time m:ss.mmm, note; click a line to select the marker and move the playhead there; markers outside the
@@ -121,7 +129,7 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | click a flag, then type in "add a note" | select a marker (its line in the markers list then shows a note field, pre-filled) and write a note on it. Enter or clicking away keeps a changed note, Esc drops the edit, an empty note removes it; Save or Ctrl/Cmd+S writes it (Ctrl/Cmd+S inside the field keeps it and saves in one step). Hover a flag to read its note. A note (at most 200 characters) is for people only: it never moves the grid and does not clear "Sounds right" |
 | N | focus the selected marker's note field |
 | Delete or Backspace | remove the selected marker (right-click a flag does the same) |
-| C | clicks on / off (the downbeat click is higher) |
+| C | clicks on / off (the downbeat click is higher; on a swung grid the off-beat click is lower and quieter) |
 | Esc | clear the selection and any taps |
 | Ctrl+S or Cmd+S | Save. It also works while typing a marker name: the marker is kept first, and an empty or invalid name stops the Save |
 | drag a flag | move a marker (it stays inside the loop) |
@@ -148,11 +156,37 @@ Nudge and swing preview exactly (clicks, lines and animation). Swing does not cl
 beats themselves do not move); a nudge, tempo or meter change does, and the server applies the same rule
 as a backstop.
 
+**Suggestions.** Every `analyze_song.py` run writes a derived top-level `suggestions` object to song.json (rebuilt
+each run, never user data). Each entry has a `confidence` (0..1) and a one-line `reason`:
+
+| Key | Proposes | Keep sets |
+|---|---|---|
+| `tempo_map` | `segments` `[{t, bpm, ramp}]` (song seconds) for a song whose tempo steps or ramps, plus the suggested `beats` | `sync.tempo_map` |
+| `swing` | `value`, the off-beat's place in the beat; with `bpm` when a shuffle's triplets pulled the measured tempo to about 4/3 of the real one | `sync.swing` (and `sync.bpm`) |
+| `meter` | `3/4` or `6/8` | `sync.meter` |
+| `pickup` | `beats` with audible onsets before the first downbeat | `sync.pickup_beats` |
+
+The page lists them above the controls ("tempo map: 72 → 144 at 1:52", "swing 0.62 and tempo 96.6", "meter 3/4",
+"pickup: 2 beats"), with the confidence and reason and three toggles:
+- **Try**: the clicks and grid lines switch to the suggested grid (a tempo map plays its own `beats`; swing and meter
+  apply to the current grid like the controls' previews). Press again to stop. Nothing is saved. A pickup has no
+  Try: it only applies to a loop made with `--from-start` (the row says so, and how to make one).
+- **Keep**: puts its fields into the pending sync; Save re-runs the analyser, which fits it. Keeping a tempo map,
+  a tempo, a meter or a pickup clears "Sounds right", as those controls do; a swing alone does not.
+- **Dismiss**: adds `{ "key", "value" }` to `sync.dismissed` (pending until Save); it stays hidden until the
+  analyser's value for that key changes. Dismiss on a kept one un-keeps it first.
+
+A tempo-map suggestion is offered alone: swing, meter and pickup would be measured on the single steady grid the map
+says is wrong, so they appear after the map is kept or dismissed and saved. A suggestion equal to what the sync
+already uses is not offered. A straight, steady 4/4 song gets none, and with none the page is as before. They are
+guesses: Claude cannot hear, so never keep one for the user, and say which ones there are when handing over the page.
+
 **What Save does.** Save sends the `sync` section to the server, which:
 1. writes it into `DIR/song.json` and keeps the previous file as `DIR/song.json.bak`;
 2. re-runs `analyze_song.py` on the **original song** (its absolute path is in `DIR/.source.json`, written
    by the analyser; local and git-ignored, never commit it) with the project's `--bars` and `--fps` and
-   `--start-near` the current loop start, so the loop window stays put while the bars renumber;
+   `--start-near` the current loop start, so the loop window stays put while the bars renumber (a loop made with
+   `--from-start` gets `--from-start` again, so it still starts with the song);
 3. which rebuilds `song.json` and re-cuts `clip.wav` (a nudge or tempo change moves the cut). The page
    then reloads the grid, the audio and the animation.
 
@@ -169,6 +203,9 @@ The `sync` section it writes:
 | `bpm` | tapped tempo: the grid is fitted at it instead of the detected one | `null` |
 | `meter` | `4/4`, `3/4` or `6/8` (beats per bar 4, 3, 2) | `4/4` |
 | `swing` | where the off-beat sits inside a beat, 0.5 to 0.75 | 0.5 |
+| `tempo_map` | `[{ "t", "bpm", "ramp" }]`: `t` song seconds, sorted, the first 0; `bpm` 40 to 240; `ramp: true` means the tempo moves linearly from the previous anchor to this one (else it steps at `t`). Replaces `bpm`: the grid is laid at the map's tempo, each span's phase fitted to the song, so `cue_t` equals `t` and tables in beats work unchanged. Set by keeping a tempo-map suggestion | absent |
+| `pickup_beats` | beats before the first downbeat, 0 to beats a bar − 1. They are bar −1 (`beats[i].bar`); only a loop made with `--from-start` starts on them, and it then holds the pickup plus `--bars` bars | 0 |
+| `dismissed` | `[{ "key", "value" }]`: suggestions the user dismissed (`key` one of `tempo_map`, `swing`, `meter`, `pickup`; `value` the suggestion's value then) | `[]` |
 | `markers` | `[{ "name", "t", "note" }]`, `t` in seconds from the start of the song file; `note` is optional free text (at most 200 characters) and never affects timing | `[]` |
 | `checked_by_ear` | the date "Sounds right" was pressed | absent |
 
@@ -179,7 +216,7 @@ loop as top-level `markers: [{ name, song_t, t, in_loop, note }]` in `song.json`
 **Swapping the song.**
 
 ```bash
-node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC] [--no-open] [--port N]
+node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC | --from-start] [--no-open] [--port N]
 ```
 
 In order: checks DIR has a song.json and NEWSONG is a readable file (else `error: ...`, exit 2); copies song.json,
@@ -187,7 +224,7 @@ clip.wav and .source.json (those present) to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>
 your own commits: audio and a local path); lists the marker names the tables use (index.html's table block and the brief's `## Beat table` block, every
 `at:` that is a string); removes `sync` (and the derived `markers`) from song.json; runs
 `analyze_song.py NEWSONG --out DIR --bars N` with the project's `loop.bars` (or `--bars`), its `fps`, and
-`--start-bar` / `--start-near` when given (without them the analyser picks the loop window afresh for the new song,
+`--start-bar` / `--start-near` / `--from-start` when given (without them the analyser picks the loop window afresh for the new song,
 so pass `--start-bar` to keep a window chosen by hand). If the analyser fails, the backup is put back and the project is as it
 was; Ctrl+C while it runs stops it, puts the backup back and keeps the backup directory. Then it prints:
 

@@ -41,15 +41,16 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
 ```
    -- motion-design (the planner, skills/motion-design/references/planner.md) --
 1  route the request, ask the open questions one at a time (including where it will be posted), run doctor.sh
-2  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N]
-     -> analyze_song.py: song.json (BPM, downbeat, beats[] with t/cue_t/accent, loop window, rules) + clip.wav
+2  new_project.sh DIR SONG --bars 7 --states 12 [--size square|vertical|landscape|WxH] [--theme app.css] [--start-bar N | --start-near SEC | --from-start]
+     -> analyze_song.py: song.json (BPM, downbeat, beats[] with t/cue_t/accent, loop window, rules, suggestions) + clip.wav
         + .source.json (the song's absolute path, for the sync page's Save; local and git-ignored)
      -> extract_theme.py: theme.css/theme.json from the project's :root CSS vars (roles below)
      -> copies template/index.html, springs.js and components/, synthesises sfx/click.wav and sfx/key.wav, writes project.json
 3  node $S/sync.mjs DIR  -> the sync page (run it in the background; it prints the URL and opens the browser).
      The USER listens: clicks over the song beside the live animation, nudges or taps the tempo, presses
      Sounds right, marks moments (M: drop, vocal...), saves. Claude cannot hear: never claim the sync is right.
-     Needed when song.json bpm_confidence < 0.5 and sync.checked_by_ear is absent; always ask about moments to hit
+     Needed when song.json bpm_confidence < 0.5 and sync.checked_by_ear is absent, or when song.json has suggestions
+     (tempo map, swing, meter, pickup: the user tries, keeps or dismisses them); always ask about moments to hit
 4  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
      (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
      (its Decisions list the destinations as **Exports:** reels, x, discord, web, and the ear check as
@@ -100,12 +101,14 @@ Details worth knowing:
   ends inside the song. To move it later, re-run `analyze_song.py SONG --out DIR --bars N --start-bar B`
   (rewrites only song.json, clip.wav and .source.json; song.json's `sync` section is kept, see Syncing).
   A window that still runs past the song's end (chosen with --start-bar or --start-near) gets a
-  silence-padded clip.wav and a warning.
-- Re-timing to a different song: `node $S/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC]
-  [--no-open] [--port N]`. It backs up song.json, clip.wav and .source.json to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/`
+  silence-padded clip.wav and a warning. `--from-start` (also on new_project.sh and swap_song.mjs) starts the loop
+  on the first downbeat the analyser finds with an audible onset (or on the first pickup beat before it when
+  `sync.pickup_beats` is set); check it by ear, it can skip a quiet or syncopated opening. See Syncing.
+- Re-timing to a different song: `node $S/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B | --start-near SEC |
+  --from-start] [--no-open] [--port N]`. It backs up song.json, clip.wav and .source.json to `DIR/.swap-backup/<YYYYMMDD-HHMMSS>/`
   (ignored in this repo; keep it out of your own commits), clears `sync` (its nudge, tempo and markers were set by
   ear against the old song; the analyser would otherwise keep and apply it), re-analyses with the project's bars (or `--bars`) and fps (the loop window is picked afresh unless
-  `--start-bar` or `--start-near` is given), and prints
+  `--start-bar`, `--start-near` or `--from-start` is given), and prints
   `tempo: A -> B BPM (confidence C)`, `loop: N bars = S s (was S s)`, `window: bar A -> B (pass --start-bar A to
   keep it)` (or `window: bar B (unchanged)`), `to place: drop, chorus` (the marker names
   the tables use; or `no markers to place`), a `warning:` when the tables have more states than the new song
@@ -125,6 +128,8 @@ No music to hand (testing, or a fresh machine)? Make a click track at any tempo:
 ```bash
 python3 <clone>/skills/motion-video/scripts/click_track.py beat.wav 120 --seconds 30
 ```
+It also makes the hard cases the suggestions are tested on: `--tempo-map 0:90,20:120r` (T:BPM anchors, `r` = ramp
+into it), `--swing 0.62`, `--meter 3/4|6/8`, `--pickup N`.
 
 ## Syncing
 
@@ -139,13 +144,31 @@ field; at most 200 characters, never used for timing), clicks the loop strip to 
 is the Sync section of `skills/motion-video/SKILL.md`.
 
 - **Save** writes song.json's `sync` section (`nudge_ms`, `bpm`, `meter`, `swing`, `markers` in song
-  seconds with an optional `note`, `checked_by_ear`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
+  seconds with an optional `note`, `checked_by_ear`, and the fields suggestions set: `tempo_map`, `pickup_beats`,
+  `dismissed`), keeps the old file as `song.json.bak`, and re-runs `analyze_song.py` on the
   original song (path from `DIR/.source.json`) with the project's bars and fps and `--start-near` the loop
-  start, re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
+  start (`--from-start` for a loop made with it), re-cutting clip.wav. A failure puts the previous files back. A song that has moved gets an error
   naming `sync.mjs DIR --song PATH`. If the analyser runs longer than 120 s (MK_ANALYSER_TIMEOUT, in ms,
   changes it), Save stops it, puts the previous song.json back and reports the error.
 - **The ear wins:** once a nudge or tempo is set, beats sit on the even grid (`cue_t` equals `t`, no
   snapping to detected hits). A nudge, tempo or meter change clears `checked_by_ear`; swing does not.
+- **Suggestions:** every analyser run writes a derived top-level `suggestions` object (song_suggest.py; never user
+  data, rebuilt each run): `tempo_map` (`segments` [{t, bpm, ramp}] and the suggested `beats`), `swing` (`value`, and
+  `bpm` when a shuffle's triplets pulled the tempo to about 4/3 of the real one), `meter` (`3/4` or `6/8`) and
+  `pickup` (`beats` before the first downbeat), each with a `confidence` (0..1) and a one-line `reason`. Nothing in
+  it is applied: the sync page lists them above the controls with **Try** (hear it on the grid; toggles; never saved;
+  a pickup has none), **Keep** (puts its fields in the pending sync; Save applies it) and **Dismiss** (adds
+  `{key, value}` to `sync.dismissed`; hidden until the analyser's value for it changes). A tempo-map suggestion is
+  offered alone (the others would be measured on the single grid it says is wrong): they appear once it is kept or
+  dismissed and saved. Keeping a tempo map, a swing with a tempo, a meter or a pickup clears `checked_by_ear`
+  (a swing alone does not). A straight steady 4/4 song gets none, and with none the page is as before. They are
+  guesses: Claude cannot hear, so never keep one for the user or say one is right.
+- **New sync fields:** `tempo_map` `[{t, bpm, ramp}]` (sorted, first `t` 0, bpm 40 to 240; replaces `bpm`; `ramp:
+  true` = linear from the previous anchor; the grid is laid at the map's tempo, so `cue_t` equals `t` and tables in
+  beats work unchanged), `pickup_beats` (0 to beats-a-bar − 1; those beats are bar −1) and `dismissed`
+  (`[{key, value}]`). A pickup only changes a loop made with `--from-start`: it then starts on the first pickup beat
+  and holds the pickup plus `--bars` bars (`beats[i].bar` / `beat_in_bar` say where bar 0 starts). Swung grids click
+  their off-beats at a lower, quieter tone.
 - **Markers in tables:** `{ at: 'drop', ... }` or `{ at: 'drop', offset: -0.5, ... }` (offset in beats) lands
   on the marker's exact time. Put the action (the press) on the marker and its result after it; a lead is for the
   approach row. The analyser lists the loop's markers as top-level song.json `markers`
@@ -332,8 +355,9 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   preset + manifest), media.mjs (ffmpeg helpers: probe, loudness, size caps, encodes),
                                   safezones.mjs (safe-zone check, guides overlay, shared preset helpers),
                                   sync.mjs (the sync page's server: GET /__sync, POST /__sync/save, GET /__sync/needed; reuses render.mjs serve(),
-                                  which refuses files symlinked from outside the project), click_track.py (synthetic
-                                  beat), scaffold.mjs (a project from tables on a click track; gallery + tests),
+                                  which refuses files symlinked from outside the project), song_suggest.py (the
+                                  analyser's suggestions: tempo map, swing, meter, pickup; numpy only), click_track.py
+                                  (synthetic beat; --tempo-map, --swing, --meter, --pickup for tests), scaffold.mjs (a project from tables on a click track; gallery + tests),
                                   is_main.mjs (the entry guard every script uses), tables.mjs (one place to
                                   read, run and list a project's tables: briefCode, pageCode, runTables,
                                   markerNames, projectMarkerNames; used by check_brief, render, swap_song, sync,
@@ -341,7 +365,7 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   names to place; then the sync page), watch.mjs (the live preview's server:
                                   GET /__watch, /__watch/events (SSE), /__watch/status; reuses serve())
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
-                                  nudge, tap tempo, meter, swing, markers, to place, Save); tested by
+                                  suggestions, nudge, tap tempo, meter, swing, markers, to place, Save); tested by
                                   tests/sync-page.test.mjs
 skills/motion-video/scripts/watch-page/ index.html, app.js, style.css: the watch page (the audio and playhead live
                                   here; only its iframe of the project reloads; the check_brief corner panel); tested by
