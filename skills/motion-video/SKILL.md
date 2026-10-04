@@ -206,7 +206,7 @@ The `sync` section it writes:
 | `bpm` | tapped tempo: the grid is fitted at it instead of the detected one | `null` |
 | `meter` | `4/4`, `3/4` or `6/8` (beats per bar 4, 3, 2) | `4/4` |
 | `swing` | where the off-beat sits inside a beat, 0.5 to 0.75 | 0.5 |
-| `tempo_map` | `[{ "t", "bpm", "ramp" }]`: `t` song seconds, sorted, the first 0; `bpm` 40 to 240; `ramp: true` means the tempo moves linearly from the previous anchor to this one (else it steps at `t`). Replaces `bpm`: the grid is laid at the map's tempo, each span's phase fitted to the song, so `cue_t` equals `t` and tables in beats work unchanged. Set by keeping a tempo-map suggestion | absent |
+| `tempo_map` | `[{ "t", "bpm", "ramp" }]`: `t` song seconds, sorted, the first 0; `bpm` 40 to 240; `ramp: true` means the tempo moves linearly from the previous anchor to this one (else it steps at `t`). Replaces `bpm`: the grid is laid at the map's tempo, each span's phase fitted to the song, so `cue_t` equals `t` and tables in beats work unchanged; song.json's `bpm`, `beat_sec` and `rules` then come from the loop's mean beat. Set by keeping a tempo-map suggestion | absent |
 | `pickup_beats` | beats before the first downbeat, 0 to beats a bar − 1. They are bar −1 (`beats[i].bar`); only a loop made with `--from-start` starts on them, and it then holds the pickup plus `--bars` bars | 0 |
 | `dismissed` | `[{ "key", "value" }]`: suggestions the user dismissed (`key` one of `tempo_map`, `swing`, `meter`, `pickup`; `value` the suggestion's value then) | `[]` |
 | `markers` | `[{ "name", "t", "note" }]`, `t` in seconds from the start of the song file; `note` is optional free text (at most 200 characters) and never affects timing | `[]` |

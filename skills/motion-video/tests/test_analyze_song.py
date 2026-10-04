@@ -571,7 +571,8 @@ class SuggestionTests(unittest.TestCase):
                                   sync={"tempo_map": segs, "markers": markers})
         self.assertEqual(code, 0, err)
         song = self.song()
-        self.assertEqual(song["bpm"], segs[0]["bpm"])
+        # (final review) a mapped loop's bpm is its own mean beat, not the first segment's
+        self.assertAlmostEqual(song["beat_sec"], song["loop"]["duration_sec"] / len(song["beats"]), places=9)
         beats = song["beats"]
         start = song["loop"]["start_sec"]
         self.assertLess(start, 20.0)
@@ -717,6 +718,19 @@ class KeptTempoMapTests(unittest.TestCase):
                 inside = grid[(grid > clicks[0] - 0.1) & (grid < clicks[-1] + 0.1)]
                 extra = [round(t, 3) for t in inside if np.min(np.abs(clicks - t)) > 0.03]
                 self.assertEqual((missed, extra), ([], []))
+
+    def test_tempo_and_rules_come_from_the_loop_not_the_first_segment(self):
+        wav, tm, segs = self.cases["80-140"]
+        song = self.run_main(wav, "--bars", "4", "--start-near", "45", sync={"tempo_map": segs})
+        self.assertGreater(song["loop"]["start_sec"], segs[1]["t"])   # the loop is in the 140 BPM segment
+        ts = [b["t"] for b in song["beats"]]
+        gap = float(np.median(np.diff(ts)))
+        self.assertLessEqual(abs(song["beat_sec"] / gap - 1), 0.02, (song["beat_sec"], gap))
+        self.assertAlmostEqual(song["beat_sec"], song["loop"]["duration_sec"] / len(song["beats"]), places=9)
+        self.assertAlmostEqual(song["bpm"], 60 / song["beat_sec"], places=3)
+        self.assertAlmostEqual(song["rules"]["spring"]["settle_sec"], round(0.6 * song["beat_sec"], 4))
+        self.assertEqual(song["rules"]["min_hold_beats"], 3)   # 1 s at 140 BPM, not 2 beats at 80
+        self.assertFalse(any("below the 100" in w for w in song["rules"]["warnings"]), song["rules"]["warnings"])
 
     def test_downbeats_land_on_the_kicks(self):
         wav, tm, segs = self.cases["80-140"]

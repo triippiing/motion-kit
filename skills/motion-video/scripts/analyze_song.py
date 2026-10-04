@@ -225,7 +225,8 @@ def beat_grid(full, low, sync=None):
     if not cands:
         raise SongError("could not find a beat in this song")
     if s.get("tempo_map") is not None:
-        # the user's tempo map (replaces bpm): its tempo, each span's phase fitted to the tracked beats
+        # the user's tempo map (replaces bpm): its tempo, each span's phase fitted to the tracked beats; bpm is the
+        # first segment's here, and analyze() replaces it with the loop's mean beat
         bpm = round(float(s["tempo_map"][0]["bpm"]), 3)
         pos = song_suggest.map_grid(full, FPS_ENV, s["tempo_map"], ENV_TIME_OFFSET) * FPS_ENV
         if len(pos) < 2:
@@ -340,6 +341,11 @@ def analyze(path, bars=7, fps=60, start_bar=None, states=None, sync=None, start_
 
     first = j + start * bpb - lead
     duration = span(first, total)
+    if not g["steady"]:
+        # a tempo map: the loop's own mean beat (not the first segment's) sets bpm, beat_sec and the rules below, and
+        # timing.js extends the grid past its last beat at this spacing
+        beat_sec = duration / total
+        bpm = round(60.0 / beat_sec, 3)
     frames = int(round(duration * fps))
     frame_dt = duration / frames
     start_sec = float(times[first])

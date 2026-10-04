@@ -168,7 +168,7 @@ is the Sync section of `skills/motion-video/SKILL.md`.
   guesses: Claude cannot hear, so never keep one for the user or say one is right.
 - **New sync fields:** `tempo_map` `[{t, bpm, ramp}]` (sorted, first `t` 0, bpm 40 to 240; replaces `bpm`; `ramp:
   true` = linear from the previous anchor; the grid is laid at the map's tempo, so `cue_t` equals `t` and tables in
-  beats work unchanged), `pickup_beats` (0 to beats-a-bar − 1; those beats are bar −1) and `dismissed`
+  beats work unchanged; song.json's `bpm`, `beat_sec` and `rules` then come from the loop's mean beat), `pickup_beats` (0 to beats-a-bar − 1; those beats are bar −1) and `dismissed`
   (`[{key, value}]`). A pickup only changes a loop made with `--from-start`: it then starts on the first pickup beat
   and holds the pickup plus `--bars` bars (`beats[i].bar` / `beat_in_bar` say where bar 0 starts). Swung grids click
   their off-beats at a lower, quieter tone.
