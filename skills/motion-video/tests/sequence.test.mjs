@@ -415,7 +415,7 @@ function setTables(dir, { states, cursor, extraSfx } = TABLES, note = '') {
 }
 
 // intro (2 bars, from_start), kit (3), end (2) on the click track at 12 fps on a 192x192 stage, fade_out_sec 1, each with
-// one key sound at beat 2.5; analysed, not rendered.
+// one key sound at beat 2.5 (end another inside the fade); analysed, not rendered.
 function smallSequence() {
   const d = path.join(tempDir('mk-seq-r-'), 'seq');
   initSequence(d, { song, names: ['intro', 'kit', 'end'], bars: 2 });
@@ -426,7 +426,8 @@ function smallSequence() {
     editSong(d, c, (s) => ({ ...s, fps: 12 }));
     const pj = path.join(d, c, 'project.json');
     writeJson(pj, { ...readJson(pj), stage: { width: 192, height: 192 } });
-    setTables(path.join(d, c));
+    // end also has a key sound inside the fade (beat 7.25 of 8: 0.375 s before the end)
+    setTables(path.join(d, c), c === 'end' ? { ...TABLES, extraSfx: "[{ beat: 2.5, file: 'sfx/key.wav', gain: 1 }, { beat: 7.25, file: 'sfx/key.wav', gain: 1 }]" } : TABLES);
   }
   const r = cli(d, 'analyse');
   assert.equal(r.status, 0, r.stderr);
@@ -452,7 +453,7 @@ async function renderedSequence() {
 
 test('render: one video of every chapter\'s frames over one continuous cut of the song, chapter sounds at their offsets', async () => {
   const { dir, out, log } = await renderedSequence();
-  assert.equal(out, path.join(dir, 'out', 'sequence.mp4'));
+  assert.equal(out, path.join(dir, 'out', 'sequence-preview.mp4'), 'a preview never replaces the full sequence.mp4');
   assert.deepEqual(log.map((l) => l.replace(/:.*/, '')), ['intro', 'kit', 'end']);
   for (const l of log) assert.match(l, /: rendered$/);
   const loops = ['intro', 'kit', 'end'].map((c) => songOf(dir, c).loop);
@@ -491,6 +492,13 @@ test('render: one video of every chapter\'s frames over one continuous cut of th
   const g = (t) => gain(got, ref, Math.round(t * SR) - 48, Math.round((t + 0.03) * SR));
   assert.ok(Math.abs(g(total - 1.5) - 1) < 0.05, `before the fade: ${g(total - 1.5)}`);
   assert.ok(Math.abs(g(total - 0.5) - 0.5) < 0.1, `half-way through the fade: ${g(total - 0.5)}`);
+  // the fade is on the whole mix: end's key sound 0.375 s before the end is at about 0.375 of the gain of its first one
+  const ramp = (i) => Math.min(1, Math.max(0, (total - i / SR) / 1));
+  const unfaded = got.map((x, i) => x - ramp(i) * (ref[i] ?? 0));
+  const cue = (t) => energy(unfaded, Math.round(t * SR), Math.round((t + 0.03) * SR));
+  const endStart = total - songOf(dir, 'end').loop.duration_sec, endSong = songOf(dir, 'end');
+  const ratio = Math.sqrt(cue(endStart + beatTime(endSong, 7.25)) / cue(endStart + beatTime(endSong, 2.5)));
+  assert.ok(ratio > 0.2 && ratio < 0.55, `a sound inside the fade is faded too: gain ${ratio.toFixed(3)}`);
   const tail = got.subarray(got.length - Math.round(0.005 * SR));
   assert.ok(Math.max(...tail.map(Math.abs)) < 0.01, 'silent at the very end');
 
@@ -519,7 +527,7 @@ test('render: editing one chapter re-renders only that chapter', async () => {
     assert.equal(readFileSync(stampOf(c), 'utf8'), before[c].body, c);
   }
   assert.ok(readJson(stampOf('kit')).sources > JSON.parse(before.kit.body).sources);
-  assert.match(r.stdout, /out\/sequence\.mp4$/m);
+  assert.match(r.stdout, /out\/sequence-preview\.mp4$/m);
 });
 
 test('render: chapters of different stage sizes or fps fail before anything is rendered', async () => {
@@ -557,7 +565,7 @@ test('render --stage WxH: every chapter at that size, joined under out/shapes/Wx
   const seq = loadSequence(d);
   seq.chapters = seq.chapters.slice(0, 1);   // one short chapter keeps it quick
   const out = await renderSequence(seq, { preview: true, stage: [128, 64], log: () => {} });
-  assert.equal(out, path.join(d, 'out', 'shapes', '128x64', 'sequence.mp4'));
+  assert.equal(out, path.join(d, 'out', 'shapes', '128x64', 'sequence-preview.mp4'));
   assert.ok(existsSync(path.join(d, 'intro', 'out', 'shapes', '128x64', 'preview.mp4')));
   assert.deepEqual(readJson(`${out}.render.json`).stage, [128, 64]);
   assert.equal(videoFrames(out), songOf(d, 'intro').loop.frames);

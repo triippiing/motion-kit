@@ -41,9 +41,10 @@
 //            fps and stage size (project.json's; --stage overrides them all), exit 2 otherwise; then renders each
 //            chapter whose render is stale (render.mjs; its .render.json stamp decides, as export does) and joins:
 //            the chapter videos concatenated (stream copy), over ONE cut of the song from chapter 1's start for the
-//            whole length (analyze_song's clip writer: 10 ms fades at the very ends only, plus fade_out_sec at the
-//            end), mixed with each chapter's sounds (window.SFX) at its offset. Writes SEQ/out/sequence.mp4 (or
-//            SEQ/out/shapes/WxH/sequence.mp4) and a stamp beside it listing each chapter's stamp. Prints
+//            whole length (analyze_song's clip writer: 10 ms fades at the very ends only), mixed with each chapter's
+//            sounds (window.SFX) at its offset, the mix then faded out over fade_out_sec. Writes SEQ/out/sequence.mp4
+//            (sequence-preview.mp4 with --preview; under SEQ/out/shapes/WxH/ with --stage) and a stamp beside it
+//            listing each chapter's stamp. Prints
 //            `name: rendered|reused` per chapter, then the output path.
 //   watch: see the sequences spec (docs/superpowers/specs/2026-10-04-sequences-design.md).
 import { execFile, spawnSync } from 'node:child_process';
@@ -404,8 +405,11 @@ export async function renderSequence(seq, { preview = false, stage, workers, log
   const start = chapters[0].song.loop.start_sec, last = chapters.at(-1).song.loop;
   const T = last.start_sec + last.duration_sec - start;
   const fade = Math.min(seq.fade_out_sec, T);
-  const af = [`apad=whole_dur=${T.toFixed(6)}`, 'afade=t=in:d=0.01', `afade=t=out:st=${(T - 0.01).toFixed(6)}:d=0.01`,
-    ...(fade > 0 ? [`afade=t=out:st=${(T - fade).toFixed(6)}:d=${fade.toFixed(6)}`] : []), 'aresample=48000', 'aformat=channel_layouts=stereo'];
+  // The song is padded to T and faded in over 10 ms; the end fades (fade_out_sec, then 10 ms) apply to the whole mix,
+  // so a chapter sound inside them fades too and none is cut off at T.
+  const af = [`apad=whole_dur=${T.toFixed(6)}`, 'afade=t=in:d=0.01', 'aresample=48000', 'aformat=channel_layouts=stereo'];
+  const tail = [...(fade > 0 ? [`afade=t=out:st=${(T - fade).toFixed(6)}:d=${fade.toFixed(6)}`] : []),
+    `afade=t=out:st=${(T - 0.01).toFixed(6)}:d=0.01`].join(',');
   const inputs = [], filters = [], labels = [];
   for (const [k, c] of chapters.entries()) {
     const sfx = await chapterSfx(c, stage);
@@ -415,7 +419,9 @@ export async function renderSequence(seq, { preview = false, stage, workers, log
 
   const outDir = stage ? path.join(seq.root, 'out', 'shapes', stage.join('x')) : path.join(seq.root, 'out');
   await mkdir(outDir, { recursive: true });
-  const out = path.join(outDir, 'sequence.mp4'), part = path.join(outDir, 'sequence.part.mp4');
+  // A preview never replaces the full join (as render.mjs's preview.mp4 / video.mp4).
+  const name = preview ? 'sequence-preview' : 'sequence';
+  const out = path.join(outDir, `${name}.mp4`), part = path.join(outDir, `${name}.part.mp4`);
   const tmp = await mkdtemp(path.join(outDir, '.join-'));
   try {
     // Each chapter's video stream alone (stream copy: the concat demuxer would otherwise start the video late by
@@ -428,7 +434,7 @@ export async function renderSequence(seq, { preview = false, stage, workers, log
     }
     const list = path.join(tmp, 'chapters.txt');
     await writeFile(list, parts.join(''));
-    const graph = `[1:a]${af.join(',')}[song];${filters.length ? `${filters.join(';')};[song]${labels.join('')}amix=inputs=${labels.length + 1}:normalize=0:duration=first[a]` : '[song]anull[a]'}`;
+    const graph = `[1:a]${af.join(',')}[song];${filters.length ? `${filters.join(';')};[song]${labels.join('')}amix=inputs=${labels.length + 1}:normalize=0:duration=first[m]` : '[song]anull[m]'};[m]${tail}[a]`;
     const args = ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list,
       '-ss', start.toFixed(6), '-t', T.toFixed(6), '-i', seq.song, ...inputs,
       '-filter_complex', graph, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-ac', '2',
