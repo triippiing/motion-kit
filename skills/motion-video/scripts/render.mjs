@@ -199,14 +199,19 @@ export async function shoot(page, t) {
 // for export.mjs and safezones.mjs.
 export { beatTime };
 
-function sfxInputs(dir, song, sfx, offset, duration) {
+// ffmpeg inputs and filters for the sound cues `sfx` (window.SFX) that fall in [offset, offset + duration] of the loop,
+// each delayed to its time from `offset`. `at` (seconds) delays them all further, `first` is the input index of the
+// first cue and `tag` prefixes the output labels, so cues of several projects can share one ffmpeg command
+// (sequence.mjs).
+export function sfxInputs(dir, song, sfx, offset, duration, { at = 0, first = 2, tag = 's' } = {}) {
   const inputs = [], filters = [];
   sfx.forEach((c, n) => {
     const t = beatTime(song, c.beat);
     const ms = Math.round((t - offset) * 1000);
     if (ms < 0 || ms > duration * 1000) return;
+    const delay = at ? Math.round((t - offset + at) * 1000) : ms;
     inputs.push('-i', path.join(dir, c.file));
-    filters.push(`[${inputs.length / 2 + 1}:a]aresample=48000,volume=${c.gain ?? 1},adelay=${ms}:all=1[s${n}]`);
+    filters.push(`[${inputs.length / 2 + first - 1}:a]aresample=48000,volume=${c.gain ?? 1},adelay=${delay}:all=1[${tag}${n}]`);
   });
   return { inputs, filters, labels: filters.map((f) => f.slice(f.lastIndexOf('['))) };
 }

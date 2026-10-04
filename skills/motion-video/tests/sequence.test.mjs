@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from './tmp.mjs';
 import { execFileSync } from 'node:child_process';
 import { clickTrack } from '../scripts/scaffold.mjs';
 import { UsageError } from '../scripts/render.mjs';
-import { analyseSequence, checkSequence, clock, initSequence, loadSequence, mergeSync } from '../scripts/sequence.mjs';
+import { analyseSequence, checkSequence, clock, initSequence, loadSequence, mergeSync, renderSequence } from '../scripts/sequence.mjs';
+import { START_MARK, END_MARK } from '../scripts/tables.mjs';
 
 const SCRIPT = path.join(import.meta.dirname, '..', 'scripts', 'sequence.mjs');
 const song = clickTrack(path.join(tempDir('mk-seq-song-'), 'song.wav'), 120, 40);
@@ -368,4 +369,196 @@ test('analyse: chapter 1 from_start with a pickup beat still abuts', () => {
   assert.ok(Math.abs(b.start_sec - (a.start_sec + a.duration_sec)) < 0.001, `${b.start_sec} vs ${a.start_sec + a.duration_sec}`);
   assert.equal(b.start_bar, a.start_bar + 2);
   assert.equal(cli(d, 'check').status, 0);
+});
+
+// ---- render ----
+
+const FFMPEG_BIN = ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg'].find((p) => existsSync(p)) || 'ffmpeg';
+const FFPROBE_BIN = FFMPEG_BIN.replace(/ffmpeg$/, 'ffprobe');
+const SR = 48000;
+// Mono float samples at 48 kHz of `file` (from `ss` seconds for `t`, when given).
+function pcm(file, { ss, t } = {}) {
+  const args = ['-v', 'error', ...(ss != null ? ['-ss', ss.toFixed(6)] : []), '-i', file, ...(t != null ? ['-t', t.toFixed(6)] : []),
+    '-map', '0:a', '-ac', '1', '-ar', String(SR), '-f', 'f32le', '-'];
+  const b = execFileSync(FFMPEG_BIN, args, { maxBuffer: 1 << 30 });
+  return new Float32Array(b.buffer, b.byteOffset, b.length / 4);
+}
+const videoFrames = (f) => Number(JSON.parse(execFileSync(FFPROBE_BIN, ['-v', 'error', '-count_frames', '-select_streams', 'v:0',
+  '-show_entries', 'stream=nb_read_frames,width,height', '-of', 'json', f], { encoding: 'utf8' })).streams[0].nb_read_frames);
+const audioDuration = (f) => Number(execFileSync(FFPROBE_BIN, ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=duration',
+  '-of', 'csv=p=0', f], { encoding: 'utf8' }).trim());
+// Best normalised correlation of a[i0..i1) against b over lags of up to `lag` samples (absorbs AAC's alignment).
+function correlation(a, b, i0, i1, lag = 96) {
+  let best = -1;
+  for (let k = -lag; k <= lag; k++) {
+    let ab = 0, aa = 0, bb = 0;
+    for (let i = i0; i < i1; i++) { const x = a[i], y = b[i + k] ?? 0; ab += x * y; aa += x * x; bb += y * y; }
+    if (aa > 0 && bb > 0) best = Math.max(best, ab / Math.sqrt(aa * bb));
+  }
+  return best;
+}
+// Gain of `a` relative to `b` over [i0, i1): least squares.
+function gain(a, b, i0, i1) {
+  let ab = 0, bb = 0;
+  for (let i = i0; i < i1; i++) { ab += a[i] * b[i]; bb += b[i] * b[i]; }
+  return ab / bb;
+}
+const energy = (a, i0, i1) => { let e = 0; for (let i = i0; i < i1; i++) e += a[i] * a[i]; return e; };
+
+const TABLES = { states: "[{ at: 0, use: 'button', label: 'Go' }]", cursor: '[{ at: 0, x: 240, y: 280 }, { at: 2, x: 0, y: 300 }]',
+  extraSfx: "[{ beat: 2.5, file: 'sfx/key.wav', gain: 1 }]" };
+function setTables(dir, { states, cursor, extraSfx } = TABLES, note = '') {
+  const f = path.join(dir, 'index.html'), html = readFileSync(f, 'utf8');
+  const a = html.indexOf(START_MARK), b = html.indexOf(END_MARK, a);
+  writeFileSync(f, `${html.slice(0, a)}${START_MARK}\n${note}const states = () => ${states};\nconst cursor = () => ${cursor};\n`
+    + `const extraSfx = () => ${extraSfx};\nconst content = {};\n${html.slice(b)}`);
+}
+
+// intro (2 bars, from_start), kit (3), end (2) on the click track at 12 fps on a 192x192 stage, fade_out_sec 1, each with
+// one key sound at beat 2.5; analysed, not rendered.
+function smallSequence() {
+  const d = path.join(tempDir('mk-seq-r-'), 'seq');
+  initSequence(d, { song, names: ['intro', 'kit', 'end'], bars: 2 });
+  const f = path.join(d, 'sequence.json'), j = readJson(f);
+  j.chapters[1].bars = 3; j.fade_out_sec = 1;
+  writeJson(f, j);
+  for (const c of ['intro', 'kit', 'end']) {
+    editSong(d, c, (s) => ({ ...s, fps: 12 }));
+    const pj = path.join(d, c, 'project.json');
+    writeJson(pj, { ...readJson(pj), stage: { width: 192, height: 192 } });
+    setTables(path.join(d, c));
+  }
+  const r = cli(d, 'analyse');
+  assert.equal(r.status, 0, r.stderr);
+  return d;
+}
+
+let small = null; // one analysed smallSequence(), copied by the tests that change it (never rendered)
+function copyOfSmall() {
+  small ??= smallSequence();
+  const d = path.join(tempDir('mk-seq-rc-'), 'seq');
+  cpSync(small, d, { recursive: true });
+  return d;
+}
+
+let rendered = null; // { dir, out, log } of one preview render of smallSequence(), shared by the render tests in order
+async function renderedSequence() {
+  if (rendered) return rendered;
+  const dir = copyOfSmall(), log = [];
+  const out = await renderSequence(loadSequence(dir), { preview: true, log: (m) => log.push(m) });
+  rendered = { dir, out, log };
+  return rendered;
+}
+
+test('render: one video of every chapter\'s frames over one continuous cut of the song, chapter sounds at their offsets', async () => {
+  const { dir, out, log } = await renderedSequence();
+  assert.equal(out, path.join(dir, 'out', 'sequence.mp4'));
+  assert.deepEqual(log.map((l) => l.replace(/:.*/, '')), ['intro', 'kit', 'end']);
+  for (const l of log) assert.match(l, /: rendered$/);
+  const loops = ['intro', 'kit', 'end'].map((c) => songOf(dir, c).loop);
+  const chapterFrames = ['intro', 'kit', 'end'].map((c) => videoFrames(path.join(dir, c, 'out', 'preview.mp4')));
+  assert.deepEqual(chapterFrames, loops.map((L) => L.frames));
+  assert.equal(videoFrames(out), chapterFrames.reduce((a, b) => a + b));
+  // the video starts with the audio (a chapter render's AAC priming must not delay it) and its frames are evenly spaced
+  const pts = execFileSync(FFPROBE_BIN, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', out],
+    { encoding: 'utf8' }).trim().split('\n').map((l) => Number(l.replace(/,.*/, ''))).sort((a, b) => a - b);
+  pts.forEach((t, i) => assert.ok(Math.abs(t - i / 12) < 0.002, `frame ${i} at ${t} s, not ${(i / 12).toFixed(4)} s`));
+  const total = loops.reduce((a, L) => a + L.duration_sec, 0);
+  assert.ok(Math.abs(audioDuration(out) - total) <= 1 / 12, `audio ${audioDuration(out)} s vs ${total} s`);
+
+  const got = pcm(out), ref = pcm(song, { ss: loops[0].start_sec, t: total });
+  // at each join the audio is the song itself: no fade, no dip, no click
+  let at = 0;
+  for (const L of loops.slice(0, -1)) {
+    at += L.duration_sec;
+    const i = Math.round(at * SR), w = Math.round(0.05 * SR);
+    assert.ok(energy(ref, i - w, i + w) > 0, 'the click track has a click at the join');
+    const c = correlation(got, ref, i - w, i + w);
+    assert.ok(c >= 0.99, `correlation ${c.toFixed(4)} at the join at ${at.toFixed(3)} s`);
+    assert.ok(Math.abs(gain(got, ref, i - Math.round(0.01 * SR), i + Math.round(0.01 * SR)) - 1) < 0.05, `no dip at ${at.toFixed(3)} s`);
+  }
+  // each chapter's key sound (beat 2.5) is in the mix at its chapter's offset, and nothing else is added
+  const { beatTime } = await import('../components/core/timing.js');
+  const residual = got.map((x, i) => x - (ref[i] ?? 0));
+  at = 0;
+  for (const c of ['intro', 'kit', 'end']) {
+    const t = at + beatTime(songOf(dir, c), 2.5), i = Math.round(t * SR);
+    assert.ok(energy(residual, i, i + Math.round(0.03 * SR)) > 50 * energy(residual, i - Math.round(0.06 * SR), i - Math.round(0.03 * SR)),
+      `${c}'s key sound at ${t.toFixed(3)} s`);
+    at += songOf(dir, c).loop.duration_sec;
+  }
+  // the last fade_out_sec (1 s) ramps to silence: the click half-way through is at about half gain, the one before at full
+  const g = (t) => gain(got, ref, Math.round(t * SR) - 48, Math.round((t + 0.03) * SR));
+  assert.ok(Math.abs(g(total - 1.5) - 1) < 0.05, `before the fade: ${g(total - 1.5)}`);
+  assert.ok(Math.abs(g(total - 0.5) - 0.5) < 0.1, `half-way through the fade: ${g(total - 0.5)}`);
+  const tail = got.subarray(got.length - Math.round(0.005 * SR));
+  assert.ok(Math.max(...tail.map(Math.abs)) < 0.01, 'silent at the very end');
+
+  const stamp = readJson(`${out}.render.json`);
+  assert.equal(stamp.preview, true);
+  assert.deepEqual(stamp.stage, [192, 192]);
+  assert.deepEqual(stamp.chapters.map((c) => c.name), ['intro', 'kit', 'end']);
+  for (const c of stamp.chapters) assert.deepEqual(c.stamp, readJson(path.join(dir, c.name, 'out', 'preview.mp4.render.json')));
+});
+
+test('render: editing one chapter re-renders only that chapter', async () => {
+  const { dir } = await renderedSequence();
+  const stampOf = (c) => path.join(dir, c, 'out', 'preview.mp4.render.json');
+  const before = Object.fromEntries(['intro', 'kit', 'end'].map((c) => [c, { mtime: statSync(stampOf(c)).mtimeMs, body: readFileSync(stampOf(c), 'utf8') }]));
+  const f = path.join(dir, 'kit', 'index.html');
+  writeFileSync(f, readFileSync(f, 'utf8').replace('</body>', '<!-- edited -->\n</body>'));
+  const later = new Date(Date.now() + 2000);
+  utimesSync(f, later, later);
+  const log = [];
+  const r = cli(dir, 'render', '--preview');
+  assert.equal(r.status, 0, r.stderr);
+  log.push(...r.stdout.split('\n').filter((l) => /^(intro|kit|end): /.test(l)));
+  assert.deepEqual(log, ['intro: reused', 'kit: rendered', 'end: reused']);
+  for (const c of ['intro', 'end']) {
+    assert.equal(statSync(stampOf(c)).mtimeMs, before[c].mtime, c);
+    assert.equal(readFileSync(stampOf(c), 'utf8'), before[c].body, c);
+  }
+  assert.ok(readJson(stampOf('kit')).sources > JSON.parse(before.kit.body).sources);
+  assert.match(r.stdout, /out\/sequence\.mp4$/m);
+});
+
+test('render: chapters of different stage sizes or fps fail before anything is rendered', async () => {
+  const sized = copyOfSmall();
+  const pj = path.join(sized, 'kit', 'project.json');
+  writeJson(pj, { ...readJson(pj), stage: { width: 256, height: 192 } });
+  await assert.rejects(renderSequence(loadSequence(sized), { preview: true }),
+    (e) => e instanceof UsageError && /kit: stage 256x192 differs from intro's 192x192/.test(e.message));
+  const r = cli(sized, 'render', '--preview');
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: kit: stage 256x192 differs from intro's 192x192/m);
+  for (const c of ['intro', 'kit', 'end']) assert.equal(existsSync(path.join(sized, c, 'out')), false, c);
+  assert.equal(existsSync(path.join(sized, 'out')), false);
+
+  const fps = copyOfSmall();
+  editSong(fps, 'end', (s) => ({ ...s, fps: 24 }));
+  await assert.rejects(renderSequence(loadSequence(fps), { preview: true }),
+    (e) => e instanceof UsageError && /end: fps 24 differs from intro's 12/.test(e.message));
+  for (const c of ['intro', 'kit', 'end']) assert.equal(existsSync(path.join(fps, c, 'out')), false, c);
+
+  // never analysed, or windows that no longer abut: also before any render
+  const gap = copyOfSmall();
+  editSong(gap, 'end', (s) => ({ ...s, loop: { ...s.loop, start_sec: s.loop.start_sec + 0.5 } }));
+  await assert.rejects(renderSequence(loadSequence(gap), { preview: true }),
+    (e) => e instanceof UsageError && /end starts 0\.500 s after kit ends \(run sequence\.mjs SEQ analyse\)/.test(e.message));
+  const bare = cli(seqWithoutSong(), 'render');
+  assert.equal(bare.status, 2);
+  assert.match(bare.stderr, /^error: b: no song\.json \(run sequence\.mjs SEQ analyse\)/m);
+});
+
+test('render --stage WxH: every chapter at that size, joined under out/shapes/WxH/', async () => {
+  const d = copyOfSmall();
+  const pj = path.join(d, 'kit', 'project.json');
+  writeJson(pj, { ...readJson(pj), stage: { width: 256, height: 192 } });   // the override wins over the chapters' own sizes
+  const seq = loadSequence(d);
+  seq.chapters = seq.chapters.slice(0, 1);   // one short chapter keeps it quick
+  const out = await renderSequence(seq, { preview: true, stage: [128, 64], log: () => {} });
+  assert.equal(out, path.join(d, 'out', 'shapes', '128x64', 'sequence.mp4'));
+  assert.ok(existsSync(path.join(d, 'intro', 'out', 'shapes', '128x64', 'preview.mp4')));
+  assert.deepEqual(readJson(`${out}.render.json`).stage, [128, 64]);
+  assert.equal(videoFrames(out), songOf(d, 'intro').loop.frames);
 });

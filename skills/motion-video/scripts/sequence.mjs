@@ -36,11 +36,22 @@
 //            chapter is analysed with sequence.json's bars, starts where the previous one ends (within 1 ms), and has
 //            chapter 1's bpm (unless a tempo map is in sync: each loop's bpm is then its own mean beat) and fps, and
 //            the sequence's sync (chapter 1's grid, every chapter's markers, as analyse writes it). Errors exit 1.
-//   render, watch: see the sequences spec (docs/superpowers/specs/2026-10-04-sequences-design.md).
-import { spawnSync } from 'node:child_process';
+//   render [--preview] [--stage WxH]
+//            first checks that every chapter is analysed, starts where the previous one ends and shares chapter 1's
+//            fps and stage size (project.json's; --stage overrides them all), exit 2 otherwise; then renders each
+//            chapter whose render is stale (render.mjs; its .render.json stamp decides, as export does) and joins:
+//            the chapter videos concatenated (stream copy), over ONE cut of the song from chapter 1's start for the
+//            whole length (analyze_song's clip writer: 10 ms fades at the very ends only, plus fade_out_sec at the
+//            end), mixed with each chapter's sounds (window.SFX) at its offset. Writes SEQ/out/sequence.mp4 (or
+//            SEQ/out/shapes/WxH/sequence.mp4) and a stamp beside it listing each chapter's stamp. Prints
+//            `name: rendered|reused` per chapter, then the output path.
+//   watch: see the sequences spec (docs/superpowers/specs/2026-10-04-sequences-design.md).
+import { execFile, spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import path from 'node:path';
-import { UsageError } from './render.mjs';
+import { FFMPEG, UsageError, newestSource, openProject, parseStage, render, renderStamp, rendererId, sfxInputs, stampPath } from './render.mjs';
 import { isMain } from './is_main.mjs';
 
 const HERE = import.meta.dirname;
@@ -302,6 +313,141 @@ export async function checkSequence(seq, { frameCheck } = {}) {
   return { errors, warnings };
 }
 
+// ---- render ----
+
+const run = promisify(execFile);
+async function ffmpeg(args, what) {
+  try { await run(FFMPEG, args, { maxBuffer: 64 << 20 }); } catch (e) {
+    throw new Error(`${what}: ffmpeg ${String(e.stderr || e.message).trim().slice(-800)}`);
+  }
+}
+const sameStamp = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// A chapter's stage: `stage` when given, else its project.json's (the template's 1440x1440 when it has none).
+function chapterStage(dir, stage) {
+  if (stage) return stage;
+  let proj = {};
+  try { proj = JSON.parse(readFileSync(path.join(dir, 'project.json'), 'utf8')); } catch (e) {
+    if (e.code !== 'ENOENT') throw new UsageError(`${path.basename(dir)}: project.json is not valid JSON (${e.message})`);
+  }
+  const s = proj.stage ?? { width: 1440, height: 1440 };
+  return [s.width, s.height];
+}
+
+// The chapter render's file (render.mjs's default output) and whether its stamp says it is current: made by this
+// renderer with these settings, from sources no older than the chapter's files now (export.mjs's reusableRender rule,
+// for previews too).
+async function chapterRender(dir, song, { stage, preview, override }) {
+  const base = override ? path.join(dir, 'out', 'shapes', override.join('x')) : path.join(dir, 'out');
+  const file = path.join(base, preview ? 'preview.mp4' : 'video.mp4');
+  if (!existsSync(file) || !existsSync(stampPath(file))) return { file, fresh: false };
+  let stamp;
+  try { stamp = JSON.parse(await readFile(stampPath(file), 'utf8')); } catch { return { file, fresh: false }; }
+  const { sources, ...made } = stamp ?? {};
+  const { sources: _s, ...want } = await renderStamp(dir, { stage, sub: preview ? 1 : 4, preview, song });
+  return { file, fresh: sameStamp(made, want) && Number(sources) >= await newestSource(dir) };
+}
+
+// Everything render needs to know before it renders anything: each chapter's song.json, stage and fps agree, and the
+// windows abut. Throws UsageError naming the chapter.
+function preflight(seq, override) {
+  const [first] = seq.chapters;
+  const out = seq.chapters.map((c) => {
+    const { song, bad } = readSong(c.dir);
+    if (bad || !song) throw new UsageError(`${c.name}: ${bad ?? 'no song.json'} (run sequence.mjs SEQ analyse)`);
+    const L = song.loop;
+    if (!L || !Number.isFinite(L.start_sec) || !Number.isFinite(L.duration_sec) || !(L.frames > 0)) {
+      throw new UsageError(`${c.name}: song.json has no loop window (run sequence.mjs SEQ analyse)`);
+    }
+    return { ...c, song, stage: chapterStage(c.dir, override) };
+  });
+  out.forEach((c, k) => {
+    if (k === 0) return;
+    const h = out[0], p = out[k - 1];
+    if (c.stage.join('x') !== h.stage.join('x')) throw new UsageError(`${c.name}: stage ${c.stage.join('x')} differs from ${first.name}'s ${h.stage.join('x')}`);
+    if (c.song.fps !== h.song.fps) throw new UsageError(`${c.name}: fps ${c.song.fps} differs from ${first.name}'s ${h.song.fps}`);
+    const gap = c.song.loop.start_sec - (p.song.loop.start_sec + p.song.loop.duration_sec);
+    if (Math.abs(gap) >= 0.001) {
+      throw new UsageError(`${c.name} starts ${Math.abs(gap).toFixed(3)} s ${gap > 0 ? 'after' : 'before'} ${p.name} ends (run sequence.mjs SEQ analyse)`);
+    }
+  });
+  return out;
+}
+
+// A chapter's sound cues (window.SFX), read from its page.
+async function chapterSfx(c, override) {
+  const proj = await openProject(c.dir, { workers: 1, stage: override });
+  try {
+    const sfx = await proj.pages[0].evaluate(() => window.SFX || []);
+    if (proj.errors.length) throw proj.errors[0];
+    for (const x of sfx) if (!existsSync(path.join(c.dir, x.file))) throw new Error(`${c.name}: SFX file not found: ${x.file} (listed in window.SFX)`);
+    return sfx;
+  } finally { await proj.close(); }
+}
+
+const concatLine = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
+
+// Renders the sequence (see the header) and returns the joined file. `stage` [w, h] renders every chapter at that size
+// (render.mjs --stage) into SEQ/out/shapes/WxH/. `log` gets `name: rendered|reused` per chapter.
+export async function renderSequence(seq, { preview = false, stage, workers, log = console.log } = {}) {
+  const chapters = preflight(seq, stage);
+  const fps = chapters[0].song.fps, size = chapters[0].stage;
+  for (const c of chapters) {
+    const r = await chapterRender(c.dir, c.song, { stage: c.stage, preview, override: stage });
+    if (r.fresh) c.file = r.file;
+    else c.file = await render(c.dir, { preview, stage, ...(workers ? { workers } : {}) });
+    c.stamp = JSON.parse(await readFile(stampPath(c.file), 'utf8'));
+    log(`${c.name}: ${r.fresh ? 'reused' : 'rendered'}`);
+  }
+
+  // The song cut: from chapter 1's start to the last chapter's end (song time); each chapter's sounds at its start.
+  const start = chapters[0].song.loop.start_sec, last = chapters.at(-1).song.loop;
+  const T = last.start_sec + last.duration_sec - start;
+  const fade = Math.min(seq.fade_out_sec, T);
+  const af = [`apad=whole_dur=${T.toFixed(6)}`, 'afade=t=in:d=0.01', `afade=t=out:st=${(T - 0.01).toFixed(6)}:d=0.01`,
+    ...(fade > 0 ? [`afade=t=out:st=${(T - fade).toFixed(6)}:d=${fade.toFixed(6)}`] : []), 'aresample=48000', 'aformat=channel_layouts=stereo'];
+  const inputs = [], filters = [], labels = [];
+  for (const [k, c] of chapters.entries()) {
+    const sfx = await chapterSfx(c, stage);
+    const s = sfxInputs(c.dir, c.song, sfx, 0, c.song.loop.duration_sec, { at: c.song.loop.start_sec - start, first: 2 + inputs.length / 2, tag: `c${k}s` });
+    inputs.push(...s.inputs); filters.push(...s.filters); labels.push(...s.labels);
+  }
+
+  const outDir = stage ? path.join(seq.root, 'out', 'shapes', stage.join('x')) : path.join(seq.root, 'out');
+  await mkdir(outDir, { recursive: true });
+  const out = path.join(outDir, 'sequence.mp4'), part = path.join(outDir, 'sequence.part.mp4');
+  const tmp = await mkdtemp(path.join(outDir, '.join-'));
+  try {
+    // Each chapter's video stream alone (stream copy: the concat demuxer would otherwise start the video late by
+    // the AAC priming of the chapter's audio), back to back; `duration` is its frames at fps.
+    const parts = [];
+    for (const [k, c] of chapters.entries()) {
+      const v = path.join(tmp, `${k}.mp4`);
+      await ffmpeg(['-y', '-v', 'error', '-i', c.file, '-map', '0:v', '-c', 'copy', v], `could not read ${c.name}'s render`);
+      parts.push(`${concatLine(v)}\nduration ${(c.song.loop.frames / fps).toFixed(6)}\n`);
+    }
+    const list = path.join(tmp, 'chapters.txt');
+    await writeFile(list, parts.join(''));
+    const graph = `[1:a]${af.join(',')}[song];${filters.length ? `${filters.join(';')};[song]${labels.join('')}amix=inputs=${labels.length + 1}:normalize=0:duration=first[a]` : '[song]anull[a]'}`;
+    const args = ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list,
+      '-ss', start.toFixed(6), '-t', T.toFixed(6), '-i', seq.song, ...inputs,
+      '-filter_complex', graph, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k', '-ac', '2',
+      '-movflags', '+faststart', part];
+    await ffmpeg(args, 'could not join the chapters');
+    await rm(stampPath(out), { force: true });
+    await rename(part, out);
+    const stamp = { preview, stage: size, fps, fade_out_sec: seq.fade_out_sec, song: seq.song,
+      cut: { start_sec: start, duration_sec: T }, frames: chapters.reduce((a, c) => a + c.song.loop.frames, 0),
+      renderer: await rendererId(seq.root),
+      chapters: chapters.map((c) => ({ name: c.name, file: path.relative(seq.root, c.file), stamp: c.stamp })) };
+    await writeFile(stampPath(out), `${JSON.stringify(stamp, null, 2)}\n`);
+    return out;
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+    await rm(part, { force: true });
+  }
+}
+
 // Splits argv into positionals and flags; `bool` flags take no value, `valued` take one.
 function parseFlags(argv, { bool = [], valued = [] } = {}) {
   const o = {}, pos = [];
@@ -369,7 +515,15 @@ const COMMANDS = {
       console.log(`sequence OK: ${songs.length} chapters, ${clock(songs[0].start_sec)}-${clock(last.start_sec + last.duration_sec)}`);
     },
   },
-  render: { usage: 'render [--preview]', loads: true, run: notYet('render') },
+  render: {
+    usage: 'render [--preview] [--stage WxH]',
+    loads: true,
+    async run(seqDir, argv, seq) {
+      const { o, pos } = parseFlags(argv, { bool: ['preview'], valued: ['stage'] });
+      if (pos.length) throw new UsageError(`render takes no arguments, got "${pos[0]}"`);
+      console.log(await renderSequence(seq, { preview: !!o.preview, stage: o.stage == null ? undefined : parseStage(o.stage) }));
+    },
+  },
   watch: { usage: 'watch CHAPTER', loads: true, run: notYet('watch') },
 };
 
