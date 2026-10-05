@@ -47,8 +47,8 @@ clip.json
 
 `mode` is `stepped`, `realtime` or `video` (from footage.mjs). `steps` lists only named steps (`t` in clip seconds,
 `box` in clip pixels at that time). `source` is a URL or the file's basename (never a private absolute path in a
-committed file; clips are git-ignored like renders). Frames are large; `footage/` is git-ignored in projects made by
-new_project.sh and in this repo.
+committed file). Frames are large; `footage/` is git-ignored in this repo. Projects made by new_project.sh have no
+`.gitignore` of their own, so the docs tell users to keep `footage/` out of their repos.
 
 ## 2. `scripts/capture.mjs`
 

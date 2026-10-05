@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song (swap the song), watch a piece live while editing it, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, swap_song, sync, watch, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song (swap the song), watch a piece live while editing it, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, capture a real app (or turn a screen recording) into footage that plays in the piece, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, swap_song, sync, watch, extract_theme, capture, footage, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
 ---
 
 # Motion video
@@ -15,6 +15,8 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Re-time to a new song | `node scripts/swap_song.mjs DIR NEWSONG [--bars N] [--start-bar B \| --start-near SEC \| --from-start] [--no-open] [--port N]` (backs up, clears `sync`, re-analyses, lists the marker names to place, opens the sync page; see Sync) |
 | Hear and fix the beat grid, try the analyser's suggestions, mark moments | `node scripts/sync.mjs DIR [--port N] [--no-open] [--song PATH]` (see Sync below) |
 | Watch live while editing (reloads on save, re-runs check_brief) | `node scripts/watch.mjs DIR [--brief] [--port N] [--no-open]` (see Watch below) |
+| Capture an HTML app as footage | `node scripts/capture.mjs URL\|FILE --steps FILE --out CLIPDIR [--browser webkit\|chromium] [--size WxH] [--fps N] [--scale N] [--realtime]` (see Footage below) |
+| A screen recording as footage | `node scripts/footage.mjs VIDEO --out CLIPDIR [--fps N] [--max-width PX]` |
 | Watch live with audio | `node scripts/render.mjs DIR --serve` → open URL, click |
 | Beat stills + seam check | `node scripts/beat_stills.mjs DIR` |
 | Preview render | `node scripts/render.mjs DIR --preview` |
@@ -30,9 +32,9 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 
 ## Components
 
-The library is in `components/`: 28 ready-made UI pieces (button, toggle, tabs, loader, toast,
-line-chart, dock...) that each fill the one shape. A table row names one with `use:` and passes its
-props; the cursor aims at its hotspots with `target:`.
+The library is in `components/`: 29 ready-made UI pieces (button, toggle, tabs, loader, toast,
+line-chart, dock... and `footage`, real app footage: see Footage) that each fill the one shape. A table row names
+one with `use:` and passes its props; the cursor aims at its hotspots with `target:`.
 
 - `components/CATALOG.md`: every component with its picture, when to use it, how it moves, props and hotspots. Pick from here first.
 - `components/RECIPES.md`: five complete 7-bar sequences (onboarding, checkout, dashboard, AI reply, settings) to start from.
@@ -316,11 +318,123 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   keyed entries). Copying a fresh `components/` in can make the page refuse a table that rendered before (typing that
   overruns its row, or a cursor aimed at a duplicate entry); the error says what to change. An `index.html` without
   table markers now gets the "index.html has no table markers" note on every `check_brief.mjs` run.
+- Older projects and footage. A `components/` copy from before footage has no `media/footage.js`, so its registry
+  does not know `use: 'footage'`: `check_brief.mjs` refuses such a row with "the project's components/ copy predates
+  footage; copy a fresh components/ in (see SKILL.md, Older projects)". An `index.html` from before footage does not
+  fetch the clips (the page then fails with `footage: no clip at footage/SRC/clip.json` though the clip is there) and
+  its `seek` does not return the frame's promise (renders would not wait for frames): copy the template's
+  `loadClips()`, `CLIPS = {}` in its `let` line, its `CLIPS = await loadClips();` line, `clips: CLIPS` in `build()` and `function seek(t) { return
+  scene.seek(t); }` into it.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
 - The kit's page server (`serve()` in render.mjs, used by render, beat_stills, gallery, export, safezones, check_brief's
   safe-zone check and sync)
   refuses any file in the project that is a symlink to somewhere outside it. `new_project.sh` copies files
   rather than linking them, so its projects are unaffected.
+
+## Footage
+
+Real footage of a real app plays inside the shape with the `footage` component. It plays a **clip**: a directory
+`DIR/footage/NAME/` of JPEG frames (`frame-00001.jpg` ..., frame 1 is clip time 0) and `clip.json` (`fps`, `width`,
+`height`, `frames`, `duration`, `mode` `stepped` | `realtime` | `video`, `source`, `browser`, and `steps`: each named
+step's `name`, `action`, `t` in clip seconds and `box` `{x, y, w, h}` in clip pixels). Make the clip before the
+brief (the brief's checks read it). Never capture a private app, or open its URL, without the user's say-so. Clips
+are big (2.4 s at 1280x800 is 144 JPEGs) and `new_project.sh` writes no `.gitignore`: tell the user to keep
+`footage/` out of their repo (this repo ignores it).
+
+**Capture an HTML app.**
+
+```bash
+node scripts/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromium] [--size WxH] [--fps N] [--scale N] [--realtime]
+```
+
+e.g. `node scripts/capture.mjs ~/app/index.html --steps steps.json --out DIR/footage/checkout`. A file is served from
+its own directory on 127.0.0.1 (relative assets load); `http(s)://` and `file://` URLs open as given. Defaults:
+`--size 1280x800`, `--fps 60`, `--scale 1` (device pixels per CSS pixel, up to 4; `--scale 2` for retina-sharp
+stepped frames; the frame size must come out even), WebKit for stepped capture and Chromium with `--realtime`.
+CLIPDIR must be new, empty or an existing clip (its frames are replaced); a failed run leaves it as it was. It prints
+`capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> DIR/footage/checkout`.
+
+The steps file is a JSON list, run in order:
+
+| Step | Does |
+|---|---|
+| `{ "wait": SEC }` | nothing for SEC seconds |
+| `{ "click": SEL }` | moves the pointer to the element's centre, presses and releases |
+| `{ "hover": SEL }` | moves the pointer there |
+| `{ "type": SEL, "text": STR }` | clicks to focus, then types `"cps"` characters a second (default 12) |
+| `{ "scroll": PX }` / `{ "scroll": PX, "in": SEL }` | turns the wheel PX (down is positive) over 0.3 s where the pointer is / over the element |
+
+Any step takes `"name"` (unique; a named step lands in clip.json with its `t` and `box`, for the cursor's `step:NAME`)
+and a pointer step `"move"` (seconds to reach the target, default 0.4, ease-in-out; the pointer starts at the
+viewport's centre). Selectors are Playwright selectors (CSS); several matches use the first. A 0.5 s hold comes
+before the first step and after the last, e.g. `[{ "click": "#pay", "name": "pay" }, { "wait": 1 }]` is 2.4 s.
+
+Errors: `error: ...`, exit 2, for bad input: an unknown key, an unreadable or invalid steps file, a selector
+Playwright cannot parse (checked before the first frame). Exit 1 when the page lets a step down: a selector that
+matches nothing within 5 s (`error: step 2 (click "#pay"): no element matches (waited 5 s)`), an element that is not
+visible, or one whose centre is outside the viewport (scroll to it first). `warning: the page threw N error(s) during
+the capture; the first: ...` when the app throws.
+
+**Stepped (the default) is frame-exact:** the page runs on Playwright's fake clock (timers, `Date`,
+`performance.now`, `requestAnimationFrame`) and every CSS transition, keyframe animation and Web Animation is paused
+and set from that clock each frame, so the same page and steps give the same frames every run. Its limits:
+- an animation a timer starts between frames begins on the next frame;
+- a page's own animation that it pauses and plays again later is not re-synced;
+- `<video>`, `<audio>`, iframes and WebGL run on their own clock and are not stepped: use `--realtime`;
+- scrolling lands at once (no smooth scrolling);
+- a selector's 5 s wait is real time while the fake clock is paused, so an element that a page timer shows later is
+  never found: put a `{ "wait": SEC }` step (as long as the timer) before the step that needs it;
+- a click with `"move": 0` right after another click on the same spot may read as a double click.
+
+**`--realtime` records any app, with approximate timing:** no fake clock and no animation sync; Playwright records
+the page while the steps run on the real clock and ffmpeg cuts the frames. It always warns
+`warning: realtime capture: timing is approximate (about ±1 frame per step)`. The recording is 25 fps (at `--fps`
+30 or 60 some frames repeat) and in CSS pixels (`--scale` does not apply). Each run measures its own recording offset
+(a calibration flash before the app loads) and fails with exit 1 rather than give misaligned footage. Chromium is
+its default (sharp, true colour); `--realtime --browser webkit` warns
+`warning: webkit realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default`.
+Realtime frames differ from run to run.
+
+**A screen recording** (any .mov or .mp4) needs no capture:
+
+```bash
+node scripts/footage.mjs VIDEO --out CLIPDIR [--fps N] [--max-width PX]
+```
+
+Default 60 fps, the size capped at `--max-width` (default 1600; never scaled up; even dimensions, aspect kept). It
+writes `mode: "video"` with no steps (aim with `point:X,Y`) and prints `footage: N frames, S s, WxH -> CLIPDIR`. A
+missing or unreadable video is `error: ...`, exit 2.
+
+**The component.**
+
+```js
+{ at: 4, use: 'footage', src: 'checkout' }                       // states(): plays DIR/footage/checkout/
+{ at: 4.5, target: 'step:pay' }                                  // cursor(): glides to where the capture clicked
+{ at: 5.8, target: 'step:pay', press: true }                     // the press, timed to the step (see below)
+```
+
+- Props: `src` (the clip under `DIR/footage/`), `from` (seconds into the clip, default 0), `speed` (default 1),
+  `fit` (`cover`, the default, crops; `contain` letterboxes), `width` (the shape's width in design px; default 0:
+  the clip's aspect fitted inside the stage less a 10% margin; the height follows the aspect).
+- Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
+  window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
+  same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
+- Hotspots: `step:NAME`, the centre of the box the capture's named step acted on, mapped through `fit` and the
+  shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up with the captured click when it is at the row's
+  time plus `(step t - from) / speed`: with the clip at beat 4 on a 0.5 s beat and `pay` at 0.9 s, beat 5.8.
+- The page fetches each used clip's clip.json before `ready`; `seek(t)` returns a promise that settles once the
+  frame has decoded. render, beat_stills and the frame check await it; watch and the sync page show each frame as
+  soon as it decodes.
+- Checks: `footage: no clip at footage/SRC/clip.json`, an invalid clip, and a `step:` the clip lacks
+  (`cursor target "step:X" at beat B: the clip footage/SRC has no step "X" (steps: a, b)`) are errors in check_brief, watch and the page. check_brief
+  warns when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
+  a shorter row, `speed` or `from`. In a loop the last row repeats the first, so a footage first row usually holds a
+  spent clip at the seam: that warning then ends `(at the loop seam: set from, or end on a non-footage row)`.
+- A frame that fails to load (a deleted JPEG) is a page error: `render.mjs` exits 1 with
+  `error: ... footage: cannot load footage/SRC/frame-00031.jpg (...); the last good frame stays`. Re-capture the clip.
+- Watch does not watch `footage/`: after re-capturing a clip, save index.html (or restart watch) to see it.
+- Capture uses Playwright's private `window.__pwClock.builtins`, tested with the pinned playwright 1.63.0: after a
+  Playwright upgrade, run `tests/capture.test.mjs` before trusting a capture.
 
 ## Watch
 

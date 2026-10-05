@@ -38,8 +38,8 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 
 ## Components
 
-Videos are built from a library of 28 ready-made UI components (buttons, toggles, tabs, loaders,
-toasts, charts, a dock, a command palette...) that each fill the one morphing shape. A row in the
+Videos are built from a library of 29 ready-made UI components (buttons, toggles, tabs, loaders,
+toasts, charts, a dock, a command palette, and real app footage...) that each fill the one morphing shape. A row in the
 video's state table names one and the cursor presses it:
 
 ```js
