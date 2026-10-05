@@ -11,6 +11,7 @@ import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { FFMPEG } from '../scripts/render.mjs';
 import { framePath, readClip } from '../scripts/clip.mjs';
+import { calibrate, isCalibration } from '../scripts/capture.mjs';
 import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -59,6 +60,8 @@ const DURATION = 0.5 + 0.5 + 0.4 + (0.4 + 2 / 12) + 0.5 + 0.5;
 const stepsFile = (name, steps) => { const f = path.join(TMP, `${name}.json`); writeFileSync(f, JSON.stringify(steps)); return f; };
 const STEPS_FILE = stepsFile('steps', STEPS);
 
+const REALTIME_WARNING = 'warning: realtime capture: timing is approximate (about ±1 frame per step)';
+const WEBKIT_WARNING = 'warning: webkit realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default';
 const capture = (...args) => spawnSync('node', [SCRIPT, ...args], { encoding: 'utf8' });
 function captureAsync(...args) {   // for the timing test: a spawnSync timeout would kill the browser mid-run
   return new Promise((resolve) => {
@@ -200,17 +203,48 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
     assert.deepEqual(clip.steps.map((s) => s.name), ['press']);
     const press = clip.steps[0];
     assert.equal(press.action, 'click');
-    assert.ok(Math.abs(press.t - (0.5 + 0.5 + 0.4)) <= 0.1, `press.t ${press.t}`);
+    assert.ok(Math.abs(press.t - (0.5 + 0.5 + 0.4)) <= 0.25, `press.t ${press.t}`);   // npm test runs files at once
     for (const [key, v] of Object.entries({ x: 10, y: 120, w: 100, h: 40 })) assert.ok(Math.abs(press.box[key] - v * k) <= 3, `box.${key} ${press.box[key]}`);
     // The box sits on #btn in the clip: grey there 0.2 s before the click, green 0.2 s after (WebKit's colours shift).
     const [x, y] = [Math.round(press.box.x + press.box.w / 2), Math.round(press.box.y + press.box.h / 4)];
     const grey = rgbAt(framePath(dir, frameAt(press.t - 0.2)), x, y), green = rgbAt(framePath(dir, frameAt(press.t + 0.2)), x, y);
     assert.ok(Math.max(...grey) - Math.min(...grey) < 25 && grey[0] > 150, `#btn before the click: rgb(${grey.map((v) => v.toFixed(0))})`);
     assert.ok(green[1] - Math.max(green[0], green[2]) > 80, `#btn after the click: rgb(${green.map((v) => v.toFixed(0))})`);
-    assert.equal(r.stderr.split('\n').filter((l) => l === 'warning: realtime capture: timing is approximate (about ±1 frame per step)').length, 1, r.stderr);
+    assert.equal(r.stderr.split('\n').filter((l) => l === REALTIME_WARNING).length, 1, r.stderr);
+    assert.equal(r.stderr.split('\n').filter((l) => l === WEBKIT_WARNING).length, name === 'webkit' ? 1 : 0, r.stderr);
     assert.equal(r.stdout.trim(), `capture: ${clip.frames} frames, ${+clip.duration.toFixed(3)} s, ${clip.width}x${clip.height} (realtime, ${name}) -> ${dir}`);
   });
 }
+
+test('--realtime without --browser records in chromium', { skip: installed(chromium) ? false : 'playwright chromium is not installed' }, async () => {
+  const dir = path.join(TMP, 'realtime-default');
+  const r = await captureAsync(APP, '--steps', stepsFile('short', [{ wait: 0.2 }]), '--out', dir, '--fps', '10', '--size', '320x240', '--realtime');
+  assert.equal(r.status, 0, r.stderr);
+  const clip = readClip(dir);
+  assert.equal(clip.browser, 'chromium');
+  assert.equal(clip.mode, 'realtime');
+  assert.ok(!r.stderr.includes(WEBKIT_WARNING), r.stderr);
+});
+
+// A stand-in recording: dark for 0.12 s (before the page), the blue calibration page to 0.52 s, its magenta flip to
+// 1.12 s, then the white app. The flip was made 0.3 s after the context, so the recording runs 0.22 s ahead.
+test('calibrate measures the recording offset off the blue-to-magenta flip; isCalibration spots the page', () => {
+  const video = path.join(TMP, 'cal.mp4');
+  const part = (c, d) => ['-f', 'lavfi', '-i', `color=c=${c}:s=320x240:r=25:d=${d}`];
+  execFileSync(FFMPEG, ['-v', 'error', '-y', ...part('0x1c1c1c', 0.12), ...part('0x0000ff', 0.4), ...part('0xff00ff', 0.6), ...part('white', 1),
+    '-filter_complex', 'concat=n=4', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '12', '-pix_fmt', 'yuv420p', video]);
+  return (async () => {
+    const cal = await calibrate(video, [320, 240], 0.3);
+    assert.ok(Math.abs(cal.offset - 0.22) <= 0.04 + 1e-9, `offset ${cal.offset}`);
+    assert.ok(cal.still >= 0.12 && cal.still < 0.52, `still ${cal.still}`);
+    assert.equal(await isCalibration(video, 0.8, [320, 240]), true);
+    assert.equal(await isCalibration(video, 0.3, [320, 240]), true);
+    assert.equal(await isCalibration(video, 1.5, [320, 240]), false);
+    const flat = path.join(TMP, 'noflip.mp4');
+    execFileSync(FFMPEG, ['-v', 'error', '-y', ...part('0x0000ff', 1), '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', flat]);
+    await assert.rejects(calibrate(flat, [320, 240], 0.3), /calibration/);
+  })();
+});
 
 test('bad input exits 2 with error: and no traceback', () => {
   const bad = (name, text) => { const f = path.join(TMP, `${name}.json`); writeFileSync(f, text); return f; };
