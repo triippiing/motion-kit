@@ -351,7 +351,8 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   while the steps run on the real clock, and ffmpeg cuts the frames. It warns
   `warning: realtime capture: timing is approximate (about ±1 frame per step)`. The recording is 25 fps (at 30 or 60
   some frames repeat) and in CSS pixels (`--scale` does not apply). Each run measures its own recording offset (a
-  calibration flash before the app loads) and fails (exit 1) rather than give misaligned footage. Chromium is the
+  calibration flash before the app loads); a recording that missed the flash (a busy machine) warns and records once
+  more with a longer flash, and a second miss is exit 1 rather than misaligned footage. Chromium is the
   default: sharp and true-colour. `--realtime --browser webkit` warns
   `warning: webkit realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default`
   (WebKit draws it at about 90%; the page area is cropped out and the step boxes mapped). Frames differ from run to run.

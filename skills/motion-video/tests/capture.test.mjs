@@ -12,7 +12,7 @@ import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { FFMPEG, UsageError } from '../scripts/render.mjs';
 import { framePath, readClip } from '../scripts/clip.mjs';
-import { calibrate, isCalibration } from '../scripts/capture.mjs';
+import { calibrate, capture as captureClip, CalibrationError, isCalibration } from '../scripts/capture.mjs';
 import { checkKeys } from '../scripts/capture_steps.mjs';
 import { tempDir } from './tmp.mjs';
 
@@ -229,6 +229,35 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
     assert.equal(r.stderr.split('\n').filter((l) => l === REALTIME_WARNING).length, 1, r.stderr);
     assert.equal(r.stderr.split('\n').filter((l) => l === WEBKIT_WARNING).length, name === 'webkit' ? 1 : 0, r.stderr);
     assert.equal(r.stdout.trim(), `capture: ${clip.frames} frames, ${+clip.duration.toFixed(3)} s, ${clip.width}x${clip.height} (realtime, ${name}) -> ${dir}`);
+  });
+}
+
+// ---- realtime calibration retry: a recording that started after the blue page (a busy machine) is recorded once more
+// with the blue held longer; blue -1 skips the blue page, which forces the failure.
+{
+  const skip = installed(chromium) ? false : 'playwright chromium is not installed';
+  const quiet = async (fn) => {
+    const lines = [], orig = console.error;
+    console.error = (m) => lines.push(String(m));
+    try { return { value: await fn(), lines }; } catch (e) { return { error: e, lines }; } finally { console.error = orig; }
+  };
+
+  test('chromium --realtime: a failed calibration is recorded once more with a longer blue page', { skip }, async () => {
+    const dir = path.join(TMP, 'retry', 'ok');
+    const r = await quiet(() => captureClip(APP, STEPS, { out: dir, fps: FPS, size: [320, 240], realtime: true, calibrationMs: [-1, 1500] }));
+    assert.ifError(r.error);
+    assert.equal(r.lines.filter((l) => /^warning: could not find the calibration flip .*; recording again with a longer calibration$/.test(l)).length, 1, r.lines.join('\n'));
+    const clip = readClip(dir);
+    assert.equal(clip.mode, 'realtime');
+    assert.deepEqual(clip.steps.map((s) => s.name), ['press']);
+  });
+
+  test('chromium --realtime: a calibration that fails twice is a runtime error and leaves no clip', { skip }, async () => {
+    const dir = path.join(TMP, 'retry', 'fail');
+    const r = await quiet(() => captureClip(APP, STEPS, { out: dir, fps: FPS, size: [320, 240], realtime: true, calibrationMs: [-1, -1] }));
+    assert.ok(r.error instanceof CalibrationError, String(r.error));
+    assert.ok(!(r.error instanceof UsageError));
+    assert.ok(!readdirSync(path.join(TMP, 'retry')).includes('fail'), 'no clip directory is left behind');
   });
 }
 
