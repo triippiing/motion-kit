@@ -1,7 +1,7 @@
 # Real-app footage (sub-project E): design
 
 Date: 2026-10-05
-Status: approved by Jack in chat (2026-10-05: capture mode C, design as presented)
+Status: approved by Jack in chat (2026-10-05: capture mode C, design as presented); built (parts that changed in the build are marked *as built*)
 Part of: the motion-kit roadmap (A, B, C1, C2a, C2b, F1, F2 done; D built on branch `sequence`, unmerged).
 
 ## Purpose
@@ -54,16 +54,21 @@ committed file). Frames are large; `footage/` is git-ignored in this repo. Proje
 
 ```
 node capture.mjs URL|FILE --steps steps.json --out CLIPDIR [--browser webkit|chromium] [--size WxH] [--fps N]
-                 [--realtime] [--scale N]
+                 [--scale N] [--realtime]
 ```
 
-- Defaults: webkit, 1280x800, 60 fps, device scale 1 (`--scale 2` for retina-sharp frames).
+(*as built:* the flag order is the usage line's: `--scale` before `--realtime`.)
+
+- Defaults: webkit, 1280x800, 60 fps, device scale 1 (`--scale 2` for retina-sharp frames). *As built:* with
+  `--realtime` the browser defaults to chromium; `--realtime --browser webkit` works but warns (`warning: webkit
+  realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default`).
 - `steps.json`: a list of `{ "wait": SEC }`, `{ "click": SEL }`, `{ "type": SEL, "text": STR }`,
   `{ "scroll": PX }` (or `{ "scroll": PX, "in": SEL }`), `{ "hover": SEL }`, each optionally with `"name"`. Selectors
   are Playwright selectors (CSS). Pointer moves to a target take a fixed eased time (0.4 s, overridable per step
   `"move"`); typing is 12 characters a second (`"cps"`). A short hold (0.5 s) is captured before the first step and
-  after the last. Unknown keys, a bad selector that matches nothing at its step, or an unreadable steps file:
-  `error: ...` exit 2 (a selector that times out is exit 1 with the step's index and selector).
+  after the last. Unknown keys, a selector Playwright cannot parse, or an unreadable steps file: `error: ...` exit 2
+  (*as built:* every selector is parsed before the first frame). A selector that matches nothing at its step is
+  exit 1 naming the step (*as built:* `error: step 2 (click "#missing"): no element matches (waited 5 s)`).
 - **Stepped (default).** Before the page's scripts run: Playwright's `page.clock.install()` (fake `Date`, timers and
   `requestAnimationFrame`), and an init script that pauses every CSS animation and transition as it starts
   (`document.getAnimations()`, re-scanned each frame) and sets each one's `currentTime` from the fake clock. Each
@@ -75,7 +80,8 @@ node capture.mjs URL|FILE --steps steps.json --out CLIPDIR [--browser webkit|chr
 - Opens only what it is given: a file path, `file://`, `http(s)://` URLs on the command line. No network
   interception, no uploads. A file is served from its own directory on 127.0.0.1 (as render.mjs `serve()` does) so
   relative assets load.
-- Prints `capture: 240 frames, 4.00 s, 1280x800 (stepped, webkit) -> CLIPDIR`.
+- Prints `capture: 240 frames, 4 s, 1280x800 (stepped, webkit) -> CLIPDIR` (*as built:* the duration to at most
+  three decimals with trailing zeros dropped, e.g. `4 s`, `2.567 s`).
 
 ## 3. `scripts/footage.mjs`
 

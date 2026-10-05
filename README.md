@@ -32,7 +32,7 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 ~/motion-kit/install.sh   # links the skills, installs missing deps + the transitions.dev companion, runs the doctor
 ```
 
-`install.sh` installs ffmpeg, numpy, Playwright and its Chromium when they are missing, then runs
+`install.sh` installs ffmpeg, numpy, Playwright with Chromium and WebKit when they are missing, then runs
 `skills/motion-video/scripts/doctor.sh`, which prints the exact fix for anything still missing
 (only Homebrew itself needs a manual, password-prompted install).
 

@@ -278,7 +278,8 @@ plays every component and edge case.
 New projects get their own copy of `components/` (so a project keeps working if the library changes);
 `check_brief.mjs` validates with the kit's own rules and the project's component registry (the library's when
 the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`), `hide`
-cursor rows when it predates hide, and `footage` rows when it predates footage (no `media/footage.js`).
+cursor rows when it predates hide, and `footage` rows when it predates footage (no `media/footage.js`) or the
+project's `index.html` does (no `loadClips()`).
 
 ## Footage
 
@@ -333,7 +334,8 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   (WebKit draws it at about 90%; the page area is cropped out and the step boxes mapped). Frames differ from run to run.
 - Capture relies on Playwright's private `window.__pwClock.builtins` (the real `requestAnimationFrame`) and on how
   its clock install replays; it is tested with the pinned `playwright` 1.63.0. A Playwright upgrade must re-run
-  `skills/motion-video/tests/capture.test.mjs` and re-check both.
+  `skills/motion-video/tests/capture.test.mjs` and re-check both. A paint wait that never returns is exit 1 after 2 s
+  (`paint wait timed out (Playwright internals changed? ...)`), never a hang.
 
 **A screen recording** (any .mov/.mp4) skips capture:
 
@@ -349,20 +351,26 @@ unreadable video is `error: ...`, exit 2.
 
 - `src` names `DIR/footage/<src>/`; `from` is seconds into the clip (default 0), `speed` (default 1), `fit` `cover`
   (default; crops) or `contain` (letterboxes), `width` the shape's width in design px (default 0: the clip's aspect
-  fitted inside the stage less a 10% margin; height follows the aspect). Radius 32, `fill: 'ink'`.
+  fitted inside the stage less a 10% margin on every side; height follows the aspect). Radius 32, `fill: 'ink'`.
+  `src` is required (a row without it is `footage needs src`) and must be a folder inside `footage/`: one with a `..`
+  segment or an absolute path is `footage: src "SRC" must be a folder inside footage/ (no ".." segments, not an
+  absolute path)`, and no script reads it.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the same
   `src`) carries on from where the clip had got to unless it sets `from`, while the shape morphs.
 - Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit` and
   the shape (time the press to the step: the row's beat time plus `(t - from) / speed` of the step's `t`), and
   `point:X,Y` at fractions (0..1) of the frame.
-- Checks: `footage: no clip at footage/SRC/clip.json` and an invalid clip are errors, and so is a `step:` the clip
-  does not have (the error lists its steps), in check_brief, watch and the page. check_brief also warns when a row's
+- Checks: `footage: no clip at footage/SRC/clip.json` and a `step:` the clip does not have (the error lists its
+  steps) are errors in check_brief, watch and the page, as are `footage needs src` and an unsafe `src`; an invalid
+  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"). check_brief also warns when a row's
   window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
   repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
   `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it
   (`footage: cannot load footage/SRC/frame-00031.jpg ...`). A project whose `components/` copy predates footage gets
-  `the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)`.
+  `the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)`, and
+  one whose `index.html` predates footage (no `loadClips()`) gets `the project's index.html predates footage; copy
+  loadClips() and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)`.
 - Watch does not watch `footage/` (and a save that changes nothing does not reload): after re-capturing a clip,
   reload the watch page in the browser to see it, or restart watch to re-check the tables against it.
 
@@ -419,8 +427,9 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and
   `.source.json` (a local path to the song) are git-ignored and must never be committed. Nor must clips
-  (`footage/`, ignored in this repo; projects have no `.gitignore` of their own).
-- **Footage:** never capture a private app (or open its URL) without the user's say-so; tests use local pages only. Commercial tracks: local viewing only (or `export.mjs --silent`).
+  (`footage/`, ignored in this repo; projects have no `.gitignore` of their own). Commercial tracks: local viewing
+  only (or `export.mjs --silent`).
+- **Footage:** never capture a private app (or open its URL) without the user's say-so; tests use local pages only.
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;
   put maths in a pure function of `(from, changes, t)` and unit-test it; reduced motion jumps.
 

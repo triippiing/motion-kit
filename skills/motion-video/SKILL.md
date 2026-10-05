@@ -322,7 +322,9 @@ Put the action on the marker and its result after it; a lead (`offset: -0.5`) is
   does not know `use: 'footage'`: `check_brief.mjs` refuses such a row with "the project's components/ copy predates
   footage; copy a fresh components/ in (see SKILL.md, Older projects)". An `index.html` from before footage does not
   fetch the clips (the page then fails with `footage: no clip at footage/SRC/clip.json` though the clip is there) and
-  its `seek` does not return the frame's promise (renders would not wait for frames): copy the template's
+  its `seek` does not return the frame's promise (renders would not wait for frames). `check_brief.mjs` refuses a
+  footage row when `index.html` has no `loadClips` with "the project's index.html predates footage; copy loadClips()
+  and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)". Copy the template's
   `loadClips()`, `CLIPS = {}` in its `let` line, its `CLIPS = await loadClips();` line, `clips: CLIPS` in `build()` and `function seek(t) { return
   scene.seek(t); }` into it.
 - A project with no `.source.json` (analysed before it existed) needs `--song PATH` once.
@@ -415,7 +417,8 @@ missing or unreadable video is `error: ...`, exit 2.
 
 - Props: `src` (the clip under `DIR/footage/`), `from` (seconds into the clip, default 0), `speed` (default 1),
   `fit` (`cover`, the default, crops; `contain` letterboxes), `width` (the shape's width in design px; default 0:
-  the clip's aspect fitted inside the stage less a 10% margin; the height follows the aspect).
+  the clip's aspect fitted inside the stage less a 10% margin on every side; the height follows the aspect). `src` is
+  required (meta's `'demo'` default is for the catalog only) and must be a folder inside `footage/`.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
@@ -425,17 +428,23 @@ missing or unreadable video is `error: ...`, exit 2.
 - The page fetches each used clip's clip.json before `ready`; `seek(t)` returns a promise that settles once the
   frame has decoded. render, beat_stills and the frame check await it; watch and the sync page show each frame as
   soon as it decodes.
-- Checks: `footage: no clip at footage/SRC/clip.json`, an invalid clip, and a `step:` the clip lacks
-  (`cursor target "step:X" at beat B: the clip footage/SRC has no step "X" (steps: a, b)`) are errors in check_brief, watch and the page. check_brief
+- Checks: `footage: no clip at footage/SRC/clip.json`, a `step:` the clip lacks
+  (`cursor target "step:X" at beat B: the clip footage/SRC has no step "X" (steps: a, b)`), a row without `src`
+  (`footage needs src`) and a `src` with a `..` segment or an absolute path (`footage: src "SRC" must be a folder
+  inside footage/ (no ".." segments, not an absolute path)`; no script reads it) are errors in check_brief, watch
+  and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
+  "no clip at"). check_brief
   warns when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
   a shorter row, `speed` or `from`. In a loop the last row repeats the first, so a footage first row usually holds a
   spent clip at the seam: that warning then ends `(at the loop seam: set from, or end on a non-footage row)`.
 - A frame that fails to load (a deleted JPEG) is a page error: `render.mjs` exits 1 with
-  `error: ... footage: cannot load footage/SRC/frame-00031.jpg (...); the last good frame stays`. Re-capture the clip.
+  `error: footage: cannot load footage/SRC/frame-00031.jpg (...); the last good frame stays`. Re-capture the clip.
 - Watch does not watch `footage/` (and a save that changes nothing does not reload): after re-capturing a clip,
   reload the watch page in the browser to see it, or restart watch to re-check the tables against it.
 - Capture uses Playwright's private `window.__pwClock.builtins`, tested with the pinned playwright 1.63.0: after a
-  Playwright upgrade, run `tests/capture.test.mjs` before trusting a capture.
+  Playwright upgrade, run `tests/capture.test.mjs` before trusting a capture. If its paint wait stops returning, a
+  capture exits 1 after 2 s with `error: paint wait timed out (Playwright internals changed? capture.mjs is tested
+  with playwright 1.63.0)` rather than hang.
 
 ## Watch
 
