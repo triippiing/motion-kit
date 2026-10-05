@@ -36,6 +36,9 @@
 //   treat a carried aim as already settled so the hover holds across the row change.
 //   loop_sec: the loop's length in seconds when the piece loops, else null. Periodic motion (spinners,
 //   pulses) takes its period from helpers' loopPeriod(ctx, sec) so a whole number of cycles fits the loop.
+//   wait(promise): for media that must load before the frame is exact (a video frame decoding). render may call
+//   it; seek(t) returns Promise.all of what was registered during that seek (a resolved promise when nothing was),
+//   and callers that need the exact frame await it. Never for timing: render must still be a pure function of t.
 // Continuations: a component row directly after a row with the same `use` continues it.
 // Its layer does not crossfade: at t0 the previous row's layer steps out and this one
 // steps in, and ctx.prev holds the previous row's END state (its endState, else its resolved
@@ -82,7 +85,10 @@ export function createScene(o) {
     return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   };
   const CX = stage.width / 2, CY = stage.height / 2;
-  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null };
+  // Pending work registered by renders (ctx.wait) during the current seek; a fresh list each seek.
+  let pending = [];
+  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null,
+    wait: (p) => { pending.push(p); } };
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {
@@ -243,6 +249,7 @@ export function createScene(o) {
   }
 
   function seek(t) {
+    pending = [];
     const w = v(tracks.w, t), h = v(tracks.h, t), rr = v(tracks.r, t), z = v(tracks.zoom, t);
     const dx = shakeOffset(rows, t, base);
     const rgb = (arr) => `rgb(${arr.map((tr) => Math.round(v(tr, t))).join(',')})`;
@@ -260,6 +267,7 @@ export function createScene(o) {
     const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
     dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${(p * K) / z})`;
     dom.cursor.style.opacity = shown(t);
+    return Promise.all(pending);
   }
 
   const shown = (t) => Math.max(0, Math.min(1, v(tracks.show, t)));

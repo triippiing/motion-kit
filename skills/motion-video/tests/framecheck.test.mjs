@@ -122,3 +122,27 @@ test('a label sliding in inside a full-height slot is not text past its shape', 
   const r = await run(`[${REST}, { at: 2, use: 'status', level: 'warn', text: 'Syncing' }, ${BACK}]`, REST_CURSOR);
   assert.deepEqual(kinds(r, 'text'), []);
 });
+
+// Pending media: a page whose seek(t) returns a promise (a footage frame still decoding) is measured only once that
+// promise settles. Here the page's seek adds a long label past the shape 50 ms after seeking; measured without the
+// await, the label would not exist yet.
+test('measure awaits the promise seek returns before measuring', async () => {
+  await scene({ bars: 2, states: `[${REST}, ${BACK}]`, cursor: REST_CURSOR }, async (s) => {
+    await s.page.evaluate(() => {
+      const seek = window.seek;
+      window.seek = (t) => {
+        seek(t);
+        document.querySelector('#late')?.remove();
+        return new Promise((r) => setTimeout(() => {
+          const d = document.createElement('div');
+          d.id = 'late'; d.textContent = 'Late text '.repeat(40);
+          d.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap';
+          document.querySelector('#shape').append(d);
+          r();
+        }, 50));
+      };
+    });
+    const got = await s.page.evaluate(measure, 0);
+    assert.ok(got.texts.some((x) => x.text.startsWith('Late text')), JSON.stringify(got.texts));
+  });
+});

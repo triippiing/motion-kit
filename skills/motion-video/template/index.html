@@ -80,7 +80,9 @@ const extraSfx = () => [];
 const content = {};
 // ------------------------------------------------------------
 
-function seek(t) { scene.seek(t); }
+// Returns a promise that settles once any media the frame needs has loaded (resolved at once without footage):
+// renders and checks await it; live playback does not.
+function seek(t) { return scene.seek(t); }
 
 window.ready = (async () => {
   const [songR, projR, themeR] = await Promise.all(['song.json', 'project.json', 'theme.json'].map((f) => fetch(f)));

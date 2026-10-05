@@ -32,9 +32,9 @@ function intrusions(box, m, W, H) {
 // cursor's own scale). The cursor box runs from its tip (window.inspect) to the far corner of the arrow the engine
 // draws (#cursor path: 23 x 33 px right of and below the tip at scale 1); a page without that path counts the tip.
 // A cursor hidden by a `hide` row (inspect's opacity under 0.05) is not on screen, so it is null; a page
-// whose inspect has no opacity (older projects) is always visible.
-export function measure(t) {
-  window.seek(t);
+// whose inspect has no opacity (older projects) is always visible. seek's promise (media still loading) is awaited.
+export async function measure(t) {
+  await window.seek(t);
   const shape = document.querySelector('#shape');
   if (!shape) return null;
   const st = document.querySelector('#stage')?.getBoundingClientRect() ?? { left: 0, top: 0, width: innerWidth, height: innerHeight };
