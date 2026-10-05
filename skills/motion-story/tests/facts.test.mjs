@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from '../../motion-video/tests/tmp.mjs';
 import { MAX_ITEMS, normalizeFacts, TAGS, UsageError, validateFacts, writeFacts } from '../scripts/facts.mjs';
-import { commandLine } from '../scripts/story_facts.mjs';
+import { commandLine, parseCommand } from '../scripts/story_facts.mjs';
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', 'scripts', 'story_facts.mjs');
 const cli = (...args) => spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8' });
@@ -153,7 +153,27 @@ test('commandLine: the canonical command, flags in a fixed order, no --out, quot
   assert.equal(commandLine('repo', 'SOURCE', { release: 'v2.0.0' }), 'story_facts.mjs repo SOURCE --release v2.0.0');
   assert.equal(commandLine('repo', 'https://github.com/o/r', {}), 'story_facts.mjs repo https://github.com/o/r');
   assert.equal(commandLine('repo', '/a b/c', { pr: '7', intro: false }), "story_facts.mjs repo '/a b/c' --pr 7");
-  assert.equal(commandLine('repo', '/x', { intro: true }), 'story_facts.mjs repo /x --intro');
+  // --intro is the default, so it is never written: with or without it, the same command
+  assert.equal(commandLine('repo', '/x', { intro: true }), 'story_facts.mjs repo /x');
+});
+
+test('parseCommand: splits source.command back into argv, the inverse of commandLine\'s quoting', () => {
+  for (const source of ['/a b/c', "/it's here", '/x/$HOME `y` "z"', '/ünï/cødé', 'https://github.com/o/r', "/'", '/a\\b', '/tab\there']) {
+    for (const flags of [{}, { release: "v1 'x'" }, { pr: 'feat/thing' }]) {
+      const line = commandLine('repo', source, flags);
+      const want = ['story_facts.mjs', 'repo', source, ...Object.entries(flags).flatMap(([k, v]) => [`--${k}`, v])];
+      assert.deepEqual(parseCommand(line), want, line);
+    }
+  }
+  assert.deepEqual(parseCommand("a  'b c'd ''"), ['a', 'b cd', '']);
+  assert.throws(() => parseCommand("a 'b"), /unterminated/);
+});
+
+test('writeFacts: --out into a missing directory creates it', () => {
+  const dir = tempDir('mk-facts-');
+  const file = path.join(dir, 'new', 'deeper', 'facts.json');
+  writeFacts(file, full());
+  assert.ok(readFileSync(file, 'utf8').startsWith('{\n'));
 });
 
 test('CLI: bad input exits 2 with an error line, never a traceback', () => {
@@ -163,6 +183,8 @@ test('CLI: bad input exits 2 with an error line, never a traceback', () => {
     [['repo', '.'], /--out/],
     [['repo'], /usage/],
     [['repo', '.', '--out'], /--out/],
+    [['repo', '', '--out', 'f.json'], /SOURCE is empty/],
+    [['repo', '  ', '--out', 'f.json'], /SOURCE is empty/],
     [['repo', '.', '--bogus', '--out', 'f.json'], /--bogus/],
     [['repo', '.', '--intro', '--release', 'v1', '--out', 'f.json'], /pass one of --intro, --release/],
     [['repo', 'git@github.com:o/r', '--out', 'f.json'], /error: "git@github\.com:o\/r" is not a local path/],

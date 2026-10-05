@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { tempDir } from '../../motion-video/tests/tmp.mjs';
 import { UsageError } from '../scripts/facts.mjs';
@@ -39,7 +40,7 @@ const AUTO = `## What's Changed
 * Bump deps by @dependabot in https://github.com/o/demo/pull/4
 `;
 
-function repoRoutes(name, { releases = {}, description = 'Motion videos from code.', readme = README } = {}) {
+function repoRoutes(name, { releases = {}, description = 'Motion videos from code.', readme = README, readmePath = 'README.md' } = {}) {
   const r = `/repos/o/${name}`;
   const routes = {
     [r]: { name, full_name: `o/${name}`, html_url: `https://github.com/o/${name}`, description, stargazers_count: 41, forks_count: 3 },
@@ -55,7 +56,7 @@ function repoRoutes(name, { releases = {}, description = 'Motion videos from cod
     [`${r}/compare/v2.0.0...v2.1.0-rc.1`]: compareJson(repo.dir, 'v2.0.0', 'v2.1.0-rc.1'),
     [`${r}/commits?sha=v1.9.0&per_page=100`]: apiCommits(repo.dir, 'v1.9.0').reverse(), // newest first, like the API
   };
-  if (readme != null) routes[`${r}/readme`] = { name: 'README.md', encoding: 'base64', content: Buffer.from(readme).toString('base64').replace(/.{60}/g, '$&\n') };
+  if (readme != null) routes[`${r}/readme`] = { name: readmePath.split('/').at(-1), path: readmePath, encoding: 'base64', content: Buffer.from(readme).toString('base64').replace(/.{60}/g, '$&\n') };
   for (const [tag, body] of Object.entries(releases)) routes[`${r}/releases/tags/${tag}`] = { tag_name: tag, name: tag, body };
   return routes;
 }
@@ -66,6 +67,11 @@ const ROUTES = {
   ...repoRoutes('bare'),
   ...repoRoutes('terse', { readme: '# terse\n\n- one\n- two\n', description: 'A terse tool.' }),
   ...repoRoutes('noreadme', { readme: null }),
+  ...repoRoutes('docsreadme', { readmePath: 'docs/README.md' }),
+  ...repoRoutes('rstreadme', { readmePath: 'README.rst' }),
+  ...repoRoutes('emptyreadme', { readme: '  \n' }),
+  ...repoRoutes('lowerreadme', { readmePath: 'Readme.md' }),
+  ...repoRoutes('fancydesc', { readme: '# fancy\n', description: ':rocket: A **fast** <b>tool</b> &amp; more 🚀' }),
   '/repos/o/demo/pulls/7': {
     number: 7, title: 'feat: captions', body: '<!-- template -->\nBurned-in captions.\nFor every chapter.\n\n## Changes\n- add the caption track\n- fix: timing drift\n  - a nested note\n',
     labels: [{ name: 'enhancement' }], changed_files: 2, additions: 4, deletions: 1,
@@ -147,6 +153,19 @@ test('intro: README via the API, stars and forks, links.url; GETs only to the fa
     assert.equal(l.accept, 'application/vnd.github+json');
     assert.equal(l.agent, 'motion-kit');
   }
+});
+
+test('intro over a URL: the same items, subtitle and media as a local clone of the same repo', async () => {
+  const { f } = await facts('https://github.com/o/demo');
+  const l = await local({ story: 'intro' });
+  assert.deepEqual([f.title, f.subtitle, f.items, f.media, f.links.install], [l.title, l.subtitle, l.items, l.media, l.links.install]);
+  // a root README the local reader takes under another case is read too
+  assert.equal((await facts('https://github.com/o/lowerreadme')).f.subtitle, l.subtitle);
+});
+
+test('intro: the description stand-in is cleaned like README text (emoji, Markdown, HTML, entities)', async () => {
+  const { f } = await facts('https://github.com/o/fancydesc');
+  assert.equal(f.subtitle, 'A fast tool & more');
 });
 
 test('intro: the repo description stands in for a missing README subtitle', async () => {
@@ -250,8 +269,12 @@ test('errors: bad URLs and inputs exit 2, rate limits and failures exit 1, one e
     [['https://github.com/o'], 2, 'error: "https://github.com/o" is not a local path or a GitHub URL (use https://github.com/OWNER/REPO or a local clone)'],
     [['https://github.com/o/demo', '--pr', 'feature-branch'], 2, 'error: --pr feature-branch: a GitHub URL takes a pull request number (--pr N); for a branch use a local clone'],
     [['https://github.com/o/missing'], 2, 'error: not found (private repos: use a local clone)'],
-    [['https://github.com/o/demo', '--pr', '99'], 2, 'error: not found (private repos: use a local clone)'],
+    [['https://github.com/o/demo', '--pr', '99'], 2, 'error: no pull request #99 in o/demo'],
     [['https://github.com/o/noreadme'], 2, 'error: no README in https://github.com/o/noreadme (README.md, readme.md or README)'],
+    // a README the local reader would not take (not at the root, another format, empty) is no README
+    [['https://github.com/o/docsreadme'], 2, 'error: no README in https://github.com/o/docsreadme (README.md, readme.md or README)'],
+    [['https://github.com/o/rstreadme'], 2, 'error: no README in https://github.com/o/rstreadme (README.md, readme.md or README)'],
+    [['https://github.com/o/emptyreadme'], 2, 'error: no README in https://github.com/o/emptyreadme (README.md, readme.md or README)'],
     [['https://github.com/o/demo', '--release', 'v9.9.9'], 2, 'error: no tag "v9.9.9" in https://github.com/o/demo'],
     [['https://github.com/o/limited'], 1, 'error: rate limited by GitHub: set GITHUB_TOKEN or try later'],
     [['https://github.com/o/busy'], 1, 'error: rate limited by GitHub: set GITHUB_TOKEN or try later'],
@@ -367,4 +390,78 @@ test('release: when every tried predecessor is off the tag\'s history, a warning
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).items, [{ label: 'head', tag: 'feature' }, { label: 'init', tag: 'other' }]);
     assert.equal(f2.log.filter((l) => l.url.includes('/compare/')).length, 5);
   } finally { await f2.close(); }
+});
+
+test('release: a compare GitHub cannot answer (404) names the range, not a private repo', async () => {
+  const f2 = await startFake({
+    '/repos/o/c': { name: 'c', html_url: 'https://github.com/o/c' },
+    '/repos/o/c/tags?per_page=100': [['v2.0.0', 'b'], ['v1.0.0', 'a']].map(([name, s]) => ({ name, commit: { sha: s } })),
+  });
+  const file = path.join(out, 'c.json');
+  try {
+    const r = await cli(['repo', 'https://github.com/o/c', '--release', 'v2.0.0', '--out', file], { MK_GITHUB_API: f2.base });
+    assert.equal(r.status, 2, r.stderr);
+    assert.equal(r.stderr, 'error: cannot compare v1.0.0...v2.0.0 in o/c\n');
+  } finally { await f2.close(); }
+});
+
+test('pages: a list cut at 10 pages with a next link left warns', async () => {
+  const routes = { '/repos/o/many': { name: 'many', html_url: 'https://github.com/o/many' } };
+  for (let i = 1; i <= 11; i++) {
+    const at = i === 1 ? '/repos/o/many/tags?per_page=100' : `/repos/o/many/tags?per_page=100&page=${i}`;
+    routes[at] = { status: 200, headers: { link: `</repos/o/many/tags?per_page=100&page=${i + 1}>; rel="next"` }, body: [{ name: `t${i}`, commit: { sha: `s${i}` } }] };
+  }
+  const f2 = await startFake(routes);
+  const file = path.join(out, 'many.json');
+  try {
+    const r = await cli(['repo', 'https://github.com/o/many', '--release', 'nope', '--out', file], { MK_GITHUB_API: f2.base });
+    assert.equal(r.status, 2);
+    assert.equal(r.stderr, 'warning: GitHub lists more than 10 pages for /repos/o/many/tags: only the first 10 were read (a local clone reads them all)\n'
+      + 'error: no tag "nope" in https://github.com/o/many\n');
+    assert.equal(f2.log.filter((l) => l.url.includes('/tags')).length, 10);
+  } finally { await f2.close(); }
+});
+
+test('api: a body that stalls past the timeout is the same sentence as a request that does', async () => {
+  const server = http.createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"na'); });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const saved = [process.env.MK_GITHUB_API, process.env.MK_GITHUB_TIMEOUT_MS];
+  try {
+    process.env.MK_GITHUB_API = `http://127.0.0.1:${server.address().port}`;
+    process.env.MK_GITHUB_TIMEOUT_MS = '300';
+    await assert.rejects(api('/repos/o/x'), (e) => !(e instanceof UsageError) && e.message === 'the GitHub API did not answer in 0.3 s');
+  } finally {
+    [process.env.MK_GITHUB_API, process.env.MK_GITHUB_TIMEOUT_MS] = saved;
+    if (saved[1] === undefined) delete process.env.MK_GITHUB_TIMEOUT_MS;
+    server.closeAllConnections();
+    await new Promise((ok) => server.close(ok));
+  }
+});
+
+test('trailers stay out over a URL too: merge bodies, PR bodies and PR commits', async () => {
+  const c = (sha, parents, message) => ({ sha, commit: { author: { name: 'Ann' }, message }, parents: parents.map((p) => ({ sha: p })) });
+  const f2 = await startFake({
+    '/repos/o/t': { name: 't', html_url: 'https://github.com/o/t' },
+    '/repos/o/t/tags?per_page=100': [['v2.0.0', 'm2'], ['v1.0.0', 'a']].map(([name, s]) => ({ name, commit: { sha: s } })),
+    '/repos/o/t/compare/v1.0.0...v2.0.0': { status: 'ahead', total_commits: 4, commits: [
+      c('b', ['a'], 'work\n\nSigned-off-by: Ann <a@x.y>'),
+      c('m1', ['a', 'b'], "Merge branch 'b'\n\nSigned-off-by: Max <m@x.y>"),
+      c('d', ['m1'], 'more'),
+      c('m2', ['m1', 'd'], 'Merge pull request #2 from o/d\n\nCo-Authored-By: Cy <c@x.y>\n\nfeat: the thing'),
+    ] },
+    '/repos/o/t/pulls/3': { number: 3, title: 'fix: a bug', body: 'Signed-off-by: Ann <a@x.y>\n\nWhat it fixes.\n', labels: [] },
+    '/repos/o/t/pulls/3/commits?per_page=100': [c('p', ['a'], 'fix: a bug\n\nCo-Authored-By: Cy <c@x.y>')],
+  });
+  const saved = process.env.MK_GITHUB_API;
+  try {
+    process.env.MK_GITHUB_API = f2.base;
+    const rel = await readRepo('https://github.com/o/t', { story: 'release', release: 'v2.0.0' });
+    assert.deepEqual(rel.items, [{ label: 'the thing', tag: 'feature' }]);
+    const pr = await readRepo('https://github.com/o/t', { story: 'pr', pr: '3' });
+    assert.equal(pr.subtitle, 'What it fixes.');
+    assert.deepEqual(pr.items, [{ label: 'a bug', tag: 'fix' }]);
+  } finally {
+    process.env.MK_GITHUB_API = saved;
+    await f2.close();
+  }
 });

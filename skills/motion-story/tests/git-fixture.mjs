@@ -61,7 +61,8 @@ $ ./install.sh
 
 // The story fixture: tags v1.9.0 (lightweight), v1.10.0 (annotated), v2.0.0-rc.1 (lightweight) and v2.0.0
 // (annotated); a merged pull request (topic, by Cy) between rc.1 and 2.0.0; an unmerged feature-branch after 2.0.0
-// whose tip is tagged v2.1.0-rc.1 (a pre-release, so latest stays v2.0.0).
+// whose tip is tagged v2.1.0-rc.1 (a pre-release, so latest stays v2.0.0); its commits carry trailers
+// (Signed-off-by, Co-Authored-By), which never reach the facts.
 export function storyRepo() {
   const r = makeRepo();
   r.commit('init', { file: 'README.md', text: README });
@@ -81,8 +82,8 @@ export function storyRepo() {
   r.commit('refactor: tidy');
   r.tag('v2.0.0', { annotated: true });
   r.git(['checkout', '-q', '-b', 'feature-branch']);
-  r.commit('feat: captions', { body: 'Burned-in captions for every chapter.\nSecond line.\n\nMore detail.' });
-  r.commit('fix(captions): timing', { file: 'captions.txt', text: 'a\nb\nc\n' });
+  r.commit('feat: captions', { body: 'Burned-in captions for every chapter.\nSecond line.\n\nMore detail.\n\nSigned-off-by: Ann Author <ann@example.com>\nCo-Authored-By: Bo Builder <bo@example.com>' });
+  r.commit('fix(captions): timing', { file: 'captions.txt', text: 'a\nb\nc\n', body: 'Co-Authored-By: Bo Builder <bo@example.com>' });
   r.tag('v2.1.0-rc.1');
   r.git(['checkout', '-q', 'main']);
   r.git(['remote', 'add', 'origin', 'git@github.com:o/demo.git']);

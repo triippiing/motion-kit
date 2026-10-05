@@ -480,18 +480,24 @@ node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro 
 ```
 
 - SOURCE is a local git work tree or `https://github.com/OWNER/REPO`. A URL is read with read-only GETs to the GitHub
-  API (public repos only: a private one is `not found (private repos: use a local clone)`; `GITHUB_TOKEN`, sent only
-  when set, raises the 60-an-hour limit; a release lists at most 250 commits, with a warning); nothing else is sent.
-  `--release latest` is the highest version tag that is not a pre-release; `--pr N` needs a URL, `--pr BRANCH` a
-  local clone. Bad input exits 2, a read failure 1.
+  API (a private repo, with no token that can read it, is `not found (private repos: use a local clone)`;
+  `GITHUB_TOKEN`, sent only when set, raises the 60-an-hour limit; a release lists at most 250 commits and tags or
+  commits at most 10 pages, with a warning); nothing else is sent. `--release TAG` reads from the previous version
+  tag (a non-version tag: the tag created before it; over a URL, the API's listed order, as GitHub does not promise
+  creation order), and over a URL a GitHub release body with bullets takes precedence; `--release latest` is the
+  highest version tag that is not a pre-release. `--pr N` needs a URL, `--pr BRANCH` a local clone (its title: the
+  oldest commit's subject, prefix stripped). Bad input exits 2, a read failure 1.
 - The facts file (format: the header of `scripts/facts.mjs`): title, subtitle, at most 12 items (label, detail, tag),
-  stats, links, media, and `source.command`, the command that re-creates it. Text is cut to fixed caps (title 80,
-  subtitle 200 in whole sentences, label 60, detail and alt 160); badges and docs-link bullets are skipped. The same
-  input gives a byte-identical file.
+  stats, links, media, and `source.command`, the command that re-creates it (`--intro`, the default, never written;
+  `parseCommand` splits it back into argv). Intro items are in README order, release and pr items ranked. Text is
+  cut to fixed caps (title 80, subtitle 200 in whole sentences when they fit, label 60, detail and alt 160); badges,
+  navigation bullets (tables of contents, docs links) and commit trailers are skipped. The same input gives a
+  byte-identical file.
 - STORY.md: a hook, 3 to 5 moments for one loop (more becomes a sequence) and an end card, each with a catalog
-  component and words taken from the facts. Never invent facts or numbers (a README with no features section gives
-  no items: use the subtitle, stats and links); media becomes footage only with the user's say-so; nothing is posted
-  anywhere; music is never downloaded.
+  component and words taken from the facts; every moment moves or changes within its hold (no dead beats), and the
+  end card's text is short (`OWNER/REPO`, not a full URL). `## Left out` and `## Media` are notes, not moments.
+  Never invent facts or numbers (a README with no features section gives no items: use the subtitle, stats and
+  links); media becomes footage only with the user's say-so; nothing is posted anywhere; music is never downloaded.
 
 ## Rules that matter (the tests enforce most of them)
 

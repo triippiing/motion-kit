@@ -152,6 +152,33 @@ test('pr BRANCH: compared with its merge base on main; first commit names it, co
   assert.deepEqual(f.stats, { additions: 4, commits: 2, contributors: 1, deletions: 0, files: 2 });
 });
 
+test('trailers never reach the facts: a trailers-only body gives no subtitle, a trailers-only merge no item', async () => {
+  const r = makeRepo();
+  r.commit('init', { file: 'README.md', text: '# x\n' });
+  r.tag('v1.0.0');
+  r.git(['checkout', '-q', '-b', 'topic']);
+  r.commit('feat: one', { body: 'Co-Authored-By: Claude <noreply@example.com>' });
+  r.commit('fix: two', { body: 'Signed-off-by: Ann <ann@example.com>\nReviewed-by: Bo <bo@example.com>' });
+  r.git(['checkout', '-q', 'main']);
+  const pr = await readRepo(r.dir, { story: 'pr', pr: 'topic' });
+  // a merge whose body is only trailers lists no item; one with a PR title after its trailers lists that title
+  r.git(['merge', '-q', '--no-ff', 'topic', '-m', "Merge branch 'topic'", '-m', 'Signed-off-by: Max <max@x.y>']);
+  r.git(['checkout', '-q', '-b', 'second']);
+  r.commit('docs: three');
+  r.git(['checkout', '-q', 'main']);
+  r.git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #2 from o/second', '-m', 'Co-Authored-By: Cy <cy@x.y>', '-m', 'docs: the guide']);
+  r.tag('v1.1.0');
+  assert.equal(pr.title, 'one');
+  assert.equal(pr.subtitle, undefined);
+  assert.deepEqual(pr.items, [{ label: 'one', tag: 'feature' }, { label: 'two', tag: 'fix' }]);
+  const rel = await readRepo(r.dir, { story: 'release', release: 'v1.1.0' });
+  assert.deepEqual(rel.items, [{ label: 'the guide', tag: 'docs' }]);
+  // the shared fixture: its oldest branch commit's trailers stay out of the subtitle
+  const f = await readRepo(repo.dir, { story: 'pr', pr: 'feature-branch' });
+  assert.equal(f.subtitle, 'Burned-in captions for every chapter.\nSecond line.');
+  for (const s of [JSON.stringify(pr), JSON.stringify(rel), JSON.stringify(f)]) assert.doesNotMatch(s, /Signed-off-by|Co-Authored-By|Reviewed-by/i);
+});
+
 test('same run twice -> byte-identical facts', () => {
   for (const args of [[], ['--release', 'latest'], ['--pr', 'feature-branch']]) {
     const a = path.join(out, 'twice-a.json'), b = path.join(out, 'twice-b.json');
@@ -159,6 +186,14 @@ test('same run twice -> byte-identical facts', () => {
     assert.equal(cli(['repo', repo.dir, ...args, '--out', b]).status, 0);
     assert.equal(readFileSync(a, 'utf8'), readFileSync(b, 'utf8'), args.join(' '));
   }
+});
+
+test('--intro is the default: repo X and repo X --intro write byte-identical files', () => {
+  const a = path.join(out, 'intro-a.json'), b = path.join(out, 'intro-b.json');
+  assert.equal(cli(['repo', repo.dir, '--out', a]).status, 0);
+  assert.equal(cli(['repo', repo.dir, '--intro', '--out', b]).status, 0);
+  assert.equal(readFileSync(a, 'utf8'), readFileSync(b, 'utf8'));
+  assert.equal(JSON.parse(readFileSync(b, 'utf8')).source.command, `story_facts.mjs repo ${repo.dir}`);
 });
 
 test('a relative SOURCE is recorded as an absolute path', () => {

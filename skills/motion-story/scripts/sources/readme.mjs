@@ -5,14 +5,16 @@
 // title: the first level-1 heading (`# x`, `x` underlined with ===, or an HTML <h1>). subtitle: the first paragraph
 // of plain text after it, before the next heading (badges, images, HTML tags, <sub>/<sup>/<small> captions and lines
 // of nothing but links are skipped).
-// items: the top-level bullets of a section whose heading names features, "what it does" or highlights, else of the
-// first top-level bullet list; each split at the first ":", " — ", " – " or " - " into label and detail. install: the
-// first line of the first sh/bash/shell/console/zsh fence (else of the first fence), "$ " stripped and comment lines
-// skipped. media: every image outside fences, in order, as written (relative paths stay relative), badges left out
+// items (in README order): the top-level bullets (- * + or 1. 1)) of a section whose heading names features, "what
+// it does" or highlights, else of the first top-level list; each split at the first ":", " — ", " – " or " - " into
+// label and detail. install: the first line of the first sh/bash/shell/console/zsh fence (else of the first fence),
+// "$ " stripped and comment lines skipped. media: every image outside fences, in order, as written (relative paths stay relative), badges left out
 // (a src naming shields.io, badgen.net or "badge", or a paragraph of nothing but linked remote images).
-// A bullet that is a link to a .md file is a docs list, not an item; a features section without bullets gives its
-// sub-headings; a bullet led by a **bold run** takes it as the label.
-// Text is cleaned of Markdown, HTML, entities and emoji; a missing part is undefined (items and media are []).
+// A bullet that is only a link to an #anchor, a URL or a .md file (a description after it or not) is navigation (a
+// table of contents, a docs list), not an item; a features section without item bullets gives its sub-headings, and
+// with neither gives no items (no other list stands in); a bullet led by a **bold run** takes it as the label.
+// Text is cleaned of Markdown, HTML, entities and emoji (plainText(s) does the same to any line, such as a repo's
+// description); a missing part is undefined (items and media are []).
 //
 //   parseNotes(markdown) -> { paragraph, bullets: [{ heading, text }] }    bulletItem(text) -> { label, detail?, tag } | null
 //
@@ -68,7 +70,7 @@ const HR = /^ {0,3}([-*_])( *\1){2,} *$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/;
 const ATX = /^ {0,3}(#{1,6})(?:\s+(.*?))?(?:\s+#+)?\s*$/;
 const HTML_H = /^\s*<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>\s*$/i;
-const BULLET = /^( *)[-*+]\s+(.*)$/;
+const BULLET = /^( *)(?:[-*+]|\d{1,9}[.)])\s+(.*)$/; // a bullet or a numbered item
 
 // The README as blocks: heading { level, text }, para { lines }, bullet { indent, text }, fence { lang, lines },
 // blank. HTML comments are removed first.
@@ -108,15 +110,16 @@ function blocks(md) {
   return out;
 }
 
-// A bullet that is a link to a Markdown file (with or without a description): a docs list, not a feature.
-const DOC_LINK = /^\[[^\]]*\]\(\s*<?[^)\s>]*\.md(?:#[^)\s>]*)?>?\s*\)\s*(?:$|[:—–-])/i;
+// A bullet that is only a link to an #anchor, an absolute URL or a Markdown file, with or without a description
+// after a separator: navigation (a table of contents, a docs list), not a feature.
+const NAV_LINK = /^\[[^\]]*\]\(\s*<?(?:#[^)\s>]*|[a-z][a-z0-9+.-]*:[^)\s>]*|[^)\s>]*\.md(?:#[^)\s>]*)?)>?(?:\s+"[^"]*")?\s*\)\s*(?:$|[:—–-])/i;
 const BOLD_LEAD = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1\s*([\s\S]*)$/;
 
 // A bullet as an item: a leading bold run is the label; else label and detail split at the first separator (when
-// both sides have text). null for a docs link or an empty bullet.
+// both sides have text). null for a navigation link or an empty bullet.
 function item(raw) {
   const r = raw.replace(/^\[[ xX]\]\s+/, '');
-  if (DOC_LINK.test(r)) return null;
+  if (NAV_LINK.test(r.replace(/^(\*\*|__)(\[[\s\S]*?\))\1/, '$2'))) return null;
   const bold = BOLD_LEAD.exec(r);
   if (bold) {
     const label = inline(bold[2]).replace(/[\s:—–-]+$/, '');
@@ -137,11 +140,13 @@ function item(raw) {
 }
 
 export const bulletItem = item;
+export const plainText = (s) => inline(String(s ?? ''));
 
 const TOP = 2; // a bullet indented less than this is top level
 
-// The features section's top-level bullets; with none, its sub-headings (label) and the first paragraph under each
-// (detail); with neither, the first top-level bullet list in the README.
+// The features section's top-level bullets; with none that are items, its sub-headings (label) and the first
+// paragraph under each (detail); with neither, none (never another section's list). With no features section, the
+// first top-level bullet list in the README.
 function items(bs) {
   const at = bs.findIndex((b) => b.type === 'heading' && FEATURES.test(inline(b.text)));
   if (at >= 0) {
@@ -154,8 +159,9 @@ function items(bs) {
         if (inline(b.text)) subs.push({ label: inline(b.text), detail: '' });
       } else if (b.type === 'para' && subs.length && !subs.at(-1).detail) subs.at(-1).detail = inline(b.lines.join('\n'));
     }
-    if (bullets.length) return bullets.map((b) => item(b.text)).filter(Boolean);
-    if (subs.length) return subs.map(({ label, detail }) => (detail ? { label, detail, tag: 'feature' } : { label, tag: 'feature' }));
+    const found = bullets.map((b) => item(b.text)).filter(Boolean);
+    if (found.length) return found;
+    return subs.map(({ label, detail }) => (detail ? { label, detail, tag: 'feature' } : { label, tag: 'feature' }));
   }
   const start = bs.findIndex((b) => b.type === 'bullet' && b.indent < TOP);
   if (start < 0) return [];

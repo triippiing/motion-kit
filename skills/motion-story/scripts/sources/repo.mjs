@@ -5,19 +5,26 @@
 // intro: the README (parseReadme), the commit count on HEAD and the GitHub url of origin. release: the commits
 // between TAG and its predecessor, first parent only, grouped by their conventional prefix (stats count every
 // commit in the range). pr: a branch's commits that are not on the default branch (origin/HEAD, else main, else
-// master), with its diff stats.
+// master), with its diff stats; its title is the oldest commit's subject (prefix stripped), its subtitle that commit
+// body's first paragraph. intro items are in README order; release and pr items are ranked (features first).
+// Commit trailers (Signed-off-by:, Co-Authored-By: ...; a paragraph of nothing but `Key: value` lines that are not
+// conventional prefixes) are stripped from every commit, release and PR body, so none reaches a title, subtitle or
+// item.
 // Git runs as `git -C PATH ...` through execFile (never a shell) with the caller's GIT_DIR and friends removed.
 // Bad input (not a work tree, no README, no tags, an unknown tag or branch) is a UsageError; a git failure an Error.
 //
 // A GitHub URL (https://github.com/OWNER/REPO, see github.mjs; any other URL is bad input) is read through the API
 // with read-only GETs, aiming at the facts a local clone of the same repo gives:
-// - intro: the readme endpoint's README; stats.stars and stats.forks (no commit count); the repo description when
-//   the README has no subtitle; links.url the repo's html_url.
-// - release: the tags endpoint (100 a page, up to 10 pages; listed newest first, which stands in for creation
-//   order when there are no version tags). latest is picked as locally (never GitHub's releases/latest). The
-//   predecessor is the highest lower version among all the tags whose compare says it is an ancestor of TAG
-//   (status ahead or identical; up to 5 tried, then a warning and none), as the local reader takes it among the
-//   tags reachable from TAG; for a non-version tag the one listed just before it, likewise checked.
+// - intro: the readme endpoint's README, used only when it is one the local reader would take (at the root, named
+//   README.md, readme.md, README or a case variant, not empty), else no README; stats.stars and stats.forks (no
+//   commit count); the repo description (cleaned like README text) when the README has no subtitle; links.url the
+//   repo's html_url.
+// - release: the tags endpoint (100 a page, up to 10 pages, a warning past that). For non-version tags its listed
+//   order stands in for creation order (GitHub does not promise creation order; a local clone uses it). latest is
+//   picked as locally (never GitHub's releases/latest). The predecessor is the highest lower version among all the
+//   tags whose compare says it is an ancestor of TAG (status ahead or identical; up to 5 tried, then a warning and
+//   none), as the local reader takes it among the tags reachable from TAG; for a non-version tag the one listed just
+//   after it (created before it, as listed), likewise checked.
 //   When a GitHub release for TAG has bullets, they are the items: a bullet's tag comes from its heading
 //   (Features/Added/New -> feature, Fixes/Fixed -> fix, Changed -> change, Docs -> docs; not "What's Changed"),
 //   else its conventional prefix, else other; credit sections (New Contributors) are skipped. Otherwise the items
@@ -31,19 +38,22 @@
 //   subjects; tag: the bullet's heading, else its conventional prefix, else the labels' hint (bug -> fix,
 //   enhancement/feature -> feature), else other. stats: files, additions, deletions from the PR, commits and
 //   contributors from its commits (as for a release).
+// A 404 on the repo is `not found (private repos: use a local clone)`; on a PR `no pull request #N in O/R`; on a
+// compare `cannot compare A...B in O/R`.
 import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MAX_ITEMS, UsageError } from '../facts.mjs';
 import { api, pages, parseGithubUrl } from './github.mjs';
-import { bulletItem, parseNotes, parseReadme } from './readme.mjs';
+import { bulletItem, parseNotes, parseReadme, plainText } from './readme.mjs';
 
 const run = promisify(execFile);
 
 export const notSource = (s) => `"${s}" is not a local path or a GitHub URL (use https://github.com/OWNER/REPO or a local clone)`;
 export const NO_TAGS = 'no tags: tag a release first, or use --intro';
 const README_NAMES = ['README.md', 'readme.md', 'README'];
+const isReadmeName = (n) => README_NAMES.includes(n) || /^readme(\.md)?$/i.test(n); // the names the local reader takes
 const noReadme = (where) => `no README in ${where} (${README_NAMES.slice(0, -1).join(', ')} or ${README_NAMES.at(-1)})`;
 
 // env vars that would point git somewhere other than -C PATH
@@ -147,16 +157,27 @@ const group = (items) => items.filter((it) => it.label)
 // Subjects (oldest first) to items: grouped by rank, commit order kept within a group, at most MAX_ITEMS.
 export const groupCommits = (subjects) => group(subjects.map(commitItem));
 
+// A trailer line (Signed-off-by: x, Co-Authored-By: x): a key, a colon and a space; a known conventional prefix
+// (feat: x) is not one.
+const TRAILER = /^[A-Za-z][\w-]*:\s/;
+const isTrailer = (line) => TRAILER.test(line.trim()) && !prefix(line);
+
+// A commit body without its trailer paragraphs (every line a trailer), so no trailer reaches a title, a subtitle
+// or an item.
+export const stripTrailers = (body) => String(body ?? '').replace(/\r\n?/g, '\n').split(/\n\s*\n/)
+  .filter((p) => { const ls = p.split('\n').filter((l) => l.trim()); return ls.length && !ls.every(isTrailer); }).join('\n\n');
+
 // The subject a commit lists as its item: a merge's is its body's first line (see commits()).
 const itemSubject = (subject, body, merge) => (merge ? body.split('\n').map((l) => l.trim()).find(Boolean) ?? '' : subject);
 
-// The commits git log lists for args, oldest first: { author, subject, body }. A merge's subject is its body's first
-// line: a GitHub "Merge pull request #N from x/y" carries the PR title there; a merge with no body (Merge branch
-// 'x') gets an empty subject, so it lists no item but still counts.
+// The commits git log lists for args, oldest first: { author, subject, body }, trailers stripped from the body. A
+// merge's subject is its body's first line: a GitHub "Merge pull request #N from x/y" carries the PR title there; a
+// merge with no body but trailers (Merge branch 'x') gets an empty subject, so it lists no item but still counts.
 async function commits(dir, args) {
   const out = await git(dir, ['log', '--reverse', '--format=%an%x1f%P%x1f%s%x1f%b%x1e', ...args, '--']);
   return out.split('\x1e').map((r) => r.replace(/^\n/, '')).filter(Boolean).map((r) => {
-    const [author, parents, subject, body] = r.split('\x1f');
+    const [author, parents, subject, raw] = r.split('\x1f');
+    const body = stripTrailers(raw);
     return { author, body, subject: itemSubject(subject, body, parents.trim().split(' ').length > 1) };
   });
 }
@@ -165,7 +186,7 @@ async function commits(dir, args) {
 
 async function intro(dir, top, name) {
   const names = readdirSync(top).filter((n) => { try { return statSync(path.join(top, n)).isFile(); } catch { return false; } }).sort();
-  const file = README_NAMES.find((n) => names.includes(n)) ?? names.find((n) => /^readme(\.md)?$/i.test(n));
+  const file = README_NAMES.find((n) => names.includes(n)) ?? names.find(isReadmeName);
   if (!file) throw new UsageError(noReadme(top));
   const r = parseReadme(readFileSync(path.join(top, file), 'utf8'));
   const head = await git(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'], { quiet: true });
@@ -277,7 +298,7 @@ const enc = encodeURIComponent;
 const apiCommit = (c) => {
   const msg = String(c.commit?.message ?? '').replace(/\r\n?/g, '\n');
   const nl = msg.indexOf('\n');
-  const subject = nl < 0 ? msg : msg.slice(0, nl), body = nl < 0 ? '' : msg.slice(nl + 1);
+  const subject = nl < 0 ? msg : msg.slice(0, nl), body = stripTrailers(nl < 0 ? '' : msg.slice(nl + 1));
   const merge = (c.parents?.length ?? 0) > 1;
   return { subject: itemSubject(subject, body, merge), merge, author: c.commit?.author?.name };
 };
@@ -324,24 +345,27 @@ async function readGithub({ owner, repo }, story, rel, pr) {
   const info = await api(r);
   const url = parseGithubUrl(info.html_url) ? info.html_url : `https://github.com/${owner}/${repo}`;
   const name = typeof info.name === 'string' && info.name ? info.name : repo;
-  const facts = story === 'release' ? await ghRelease(r, url, name, rel)
-    : story === 'pr' ? await ghPr(r, num)
+  const facts = story === 'release' ? await ghRelease(r, url, name, rel, `${owner}/${repo}`)
+    : story === 'pr' ? await ghPr(r, num, `${owner}/${repo}`)
     : await ghIntro(r, url, name, info);
   facts.links = { ...facts.links, url };
   return facts;
 }
 
 async function ghIntro(r, url, name, info) {
+  // GitHub's pick, used only when the local reader would pick it too: at the root, one of its names, not empty
   const readme = await api(`${r}/readme`, { optional: true });
-  if (!readme) throw new UsageError(noReadme(url));
-  const text = Buffer.from(String(readme.content ?? ''), readme.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8');
+  const at = typeof readme?.path === 'string' ? readme.path : '';
+  const text = readme && Buffer.from(String(readme.content ?? ''), readme.encoding === 'base64' ? 'base64' : 'utf8').toString('utf8');
+  if (!readme || at.includes('/') || !isReadmeName(at) || !text.trim()) throw new UsageError(noReadme(url));
   const p = parseReadme(text);
+  const description = typeof info.description === 'string' ? plainText(info.description) : '';
   const stats = {};
   if (Number.isFinite(info.stargazers_count)) stats.stars = info.stargazers_count;
   if (Number.isFinite(info.forks_count)) stats.forks = info.forks_count;
   return {
     title: p.title || name,
-    subtitle: p.subtitle ?? (typeof info.description === 'string' && info.description.trim() ? info.description : undefined),
+    subtitle: p.subtitle ?? (description || undefined),
     items: p.items.slice(0, MAX_ITEMS),
     stats,
     links: p.install ? { install: p.install } : {},
@@ -351,7 +375,7 @@ async function ghIntro(r, url, name, info) {
 
 const MAX_TRIES = 5; // predecessors tried for one that is an ancestor of the tag
 
-async function ghRelease(r, url, name, want) {
+async function ghRelease(r, url, name, want, slug) {
   const tagList = (await pages(`${r}/tags?per_page=100`)).filter((t) => typeof t?.name === 'string');
   const all = tagList.map((t) => t.name).reverse(); // the API lists the newest first
   if (!all.length) throw new UsageError(NO_TAGS);
@@ -370,7 +394,7 @@ async function ghRelease(r, url, name, want) {
         + 'reading every commit up to it (a local clone finds its predecessor)\n');
       break;
     }
-    const cmp = await api(`${r}/compare/${enc(prev)}...${enc(tag)}`);
+    const cmp = await api(`${r}/compare/${enc(prev)}...${enc(tag)}`, { notFound: `cannot compare ${prev}...${tag} in ${slug}` });
     if (cmp.status === 'ahead' || cmp.status === 'identical') {
       list = Array.isArray(cmp.commits) ? cmp.commits : [];
       if (Number(cmp.total_commits) > list.length) {
@@ -383,7 +407,7 @@ async function ghRelease(r, url, name, want) {
   }
   list ??= (await pages(`${r}/commits?sha=${enc(tag)}&per_page=100`)).reverse();
 
-  const notes = release?.body ? notesItems(parseNotes(release.body).bullets) : [];
+  const notes = release?.body ? notesItems(parseNotes(stripTrailers(release.body)).bullets) : [];
   return {
     title: `${name} ${tag}`,
     items: notes.length ? group(notes) : groupCommits(firstParent(list, head).map((c) => apiCommit(c).subject)),
@@ -393,11 +417,11 @@ async function ghRelease(r, url, name, want) {
 
 const LABEL_HINTS = { bug: 'fix', enhancement: 'feature', feature: 'feature' };
 
-async function ghPr(r, num) {
-  const p = await api(`${r}/pulls/${num}`);
+async function ghPr(r, num, slug) {
+  const p = await api(`${r}/pulls/${num}`, { notFound: `no pull request #${num} in ${slug}` });
   const list = await pages(`${r}/pulls/${num}/commits?per_page=100`);
   const hint = (p.labels ?? []).map((l) => LABEL_HINTS[String(l?.name ?? '').toLowerCase()]).find(Boolean);
-  const notes = parseNotes(typeof p.body === 'string' ? p.body : '');
+  const notes = parseNotes(stripTrailers(typeof p.body === 'string' ? p.body : ''));
   let items = notesItems(notes.bullets, hint);
   if (!items.length) {
     items = list.map(apiCommit).filter((c) => !c.merge).map((c) => commitItem(c.subject))

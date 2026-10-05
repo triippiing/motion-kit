@@ -23,6 +23,12 @@ motion-kit stands on other people's work. Thank you to all of them.
 - **Jesse Vincent, [Superpowers](https://github.com/obra/superpowers)** (MIT): the Claude Code skills
   workflow used to design, plan, build and review this kit (brainstorming, writing plans,
   subagent-driven development, code review).
+- **[Semantic Versioning](https://semver.org)** by Tom Preston-Werner (CC BY 3.0): `motion-story` orders
+  version tags by its precedence rules (numbers compared as numbers, a pre-release before its release, its
+  parts compared numerically before alphabetically) to find a release's previous tag and the latest release.
+- **[Conventional Commits](https://www.conventionalcommits.org)** (CC BY 3.0): `motion-story` reads its
+  commit prefixes (`feat:`, `fix:`, `docs:`, a scope, `!`) to tag and rank a release's or pull request's
+  changes.
 
 ## Music in the demos
 

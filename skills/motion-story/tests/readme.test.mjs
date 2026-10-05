@@ -148,3 +148,43 @@ test('parseReadme: a leading bold run is the label, even with a separator inside
     { label: 'Typed', tag: 'feature' },
   ]);
 });
+
+test('parseReadme: a bullet that is only a link (#anchor, URL or .md), with or without a description, is navigation', () => {
+  const toc = '# T\n\nTagline.\n\n## Table of contents\n\n- [Install](#install)\n- [Usage](#usage)\n  - [Flags](#flags)\n'
+    + '- [Docs](https://example.com/docs): the full guide\n- [`API`](docs/api.md) — reference\n\n## Install\n\nRun it.\n';
+  assert.deepEqual(parseReadme(toc).items, []);
+  assert.deepEqual(parseReadme('# T\n\n## Contents\n\n1. [Why](#why)\n2. [How](#how)\n').items, []);
+  // a link that is part of the words is still an item; a relative non-.md link with a description too
+  const kept = '# T\n\n## Features\n\n- Works with [Node](https://nodejs.org) 20\n- [Gallery](gallery/): every component\n- [Site](https://x.y) integration: on save\n';
+  assert.deepEqual(parseReadme(kept).items, [
+    { label: 'Works with Node 20', tag: 'feature' },
+    { label: 'Gallery', detail: 'every component', tag: 'feature' },
+    { label: 'Site integration', detail: 'on save', tag: 'feature' },
+  ]);
+});
+
+test('parseReadme: numbered list items count as bullets', () => {
+  const md = '# T\n\n## Features\n\n1. **Fast**: renders in seconds\n2) Small - ships light\n   continued\n10. Typed\n';
+  assert.deepEqual(parseReadme(md).items, [
+    { label: 'Fast', detail: 'renders in seconds', tag: 'feature' },
+    { label: 'Small', detail: 'ships light continued', tag: 'feature' },
+    { label: 'Typed', tag: 'feature' },
+  ]);
+  assert.deepEqual(parseReadme('# T\n\n1. one: first\n2. two\n').items,
+    [{ label: 'one', detail: 'first', tag: 'feature' }, { label: 'two', tag: 'feature' }]);
+});
+
+test('parseReadme: a features heading with nothing usable gives no items, never another section\'s list', () => {
+  const empty = '# T\n\n- not this\n\n## Features\n\nComing soon.\n\n## Usage\n\n- not this either\n';
+  assert.deepEqual(parseReadme(empty).items, []);
+  const docs = '# T\n\n- not this\n\n## Features\n\n- [Guide](docs/guide.md)\n- [More](#more)\n\n## Usage\n\n- no\n';
+  assert.deepEqual(parseReadme(docs).items, []);
+});
+
+test('parseReadme: a features section of only doc links falls back to its own sub-headings', () => {
+  const md = '# T\n\n## Features\n\n- [Guide](docs/guide.md)\n- [API](#api)\n\n### Fast\n\nRenders quickly.\n\n### Tiny\n\n## Usage\n\n- no\n';
+  assert.deepEqual(parseReadme(md).items, [
+    { label: 'Fast', detail: 'Renders quickly.', tag: 'feature' },
+    { label: 'Tiny', tag: 'feature' },
+  ]);
+});

@@ -18,8 +18,9 @@ A launch video that does not loop gets `"loop": false` in `PROJECT/project.json`
 
 A request that comes as an approved `STORY.md` (from motion-story: a video of a repo, a release or a pull request) is
 a ready-made request: skip the questions it answers (the goal and the moments, with their components and words),
-keep its words and numbers as written, and ask the rest as usual (where it will be posted, length, the song, the
-product's look). Everything after that (song measurement, the ear check, the brief, check_brief, approval) is unchanged.
+keep its words and numbers as written, and ask the rest as usual (where it will be posted, the song, the product's
+look). The length is settled as usual (bars from the measured song). Everything after that (song measurement, the
+ear check, the brief, check_brief, approval) is unchanged.
 
 Components come from `~/.claude/skills/motion-video/components/CATALOG.md`: pick one per moment by
 its "Use when" line. Consecutive rows of the same component animate a change (tabs Day then Month).

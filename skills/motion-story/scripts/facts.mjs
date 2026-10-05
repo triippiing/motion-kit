@@ -7,7 +7,8 @@
 // whitespace in the text, cuts long text at a word boundary with "…" (a subtitle to its whole sentences that fit,
 // when it can; caps: title 80, subtitle 200, label 60, detail and alt 160) and puts the keys in a fixed order;
 // writeFacts does both and writes the file atomically. The same input gives byte-identical output.
-import { renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 export class UsageError extends Error {}
 
@@ -153,12 +154,13 @@ export function validateFacts(facts) {
 }
 
 // Normalizes and validates facts, then writes them to file (two-space JSON, trailing newline) through a temp file
-// and a rename, so a reader never sees half a file. Invalid facts throw UsageError naming every problem.
-// Returns the facts as written.
+// and a rename, so a reader never sees half a file; a missing directory is created. Invalid facts throw UsageError
+// naming every problem. Returns the facts as written.
 export function writeFacts(file, facts) {
   const f = normalizeFacts(facts);
   const problems = validateFacts(f);
   if (problems.length) throw new UsageError(`invalid facts:\n  ${problems.join('\n  ')}`);
+  mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
   try {
     writeFileSync(tmp, `${JSON.stringify(f, null, 2)}\n`);
