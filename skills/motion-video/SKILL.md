@@ -432,7 +432,8 @@ missing or unreadable video is `error: ...`, exit 2.
   spent clip at the seam: that warning then ends `(at the loop seam: set from, or end on a non-footage row)`.
 - A frame that fails to load (a deleted JPEG) is a page error: `render.mjs` exits 1 with
   `error: ... footage: cannot load footage/SRC/frame-00031.jpg (...); the last good frame stays`. Re-capture the clip.
-- Watch does not watch `footage/`: after re-capturing a clip, save index.html (or restart watch) to see it.
+- Watch does not watch `footage/` (and a save that changes nothing does not reload): after re-capturing a clip,
+  reload the watch page in the browser to see it, or restart watch to re-check the tables against it.
 - Capture uses Playwright's private `window.__pwClock.builtins`, tested with the pinned playwright 1.63.0: after a
   Playwright upgrade, run `tests/capture.test.mjs` before trusting a capture.
 

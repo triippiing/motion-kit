@@ -363,7 +363,8 @@ unreadable video is `error: ...`, exit 2.
   `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it
   (`footage: cannot load footage/SRC/frame-00031.jpg ...`). A project whose `components/` copy predates footage gets
   `the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)`.
-- Watch does not watch `footage/`: after re-capturing a clip, save index.html (or restart watch) to reload it.
+- Watch does not watch `footage/` (and a save that changes nothing does not reload): after re-capturing a clip,
+  reload the watch page in the browser to see it, or restart watch to re-check the tables against it.
 
 ## Long pieces and 4K
 
