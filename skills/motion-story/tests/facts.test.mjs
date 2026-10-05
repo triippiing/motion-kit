@@ -165,7 +165,7 @@ test('CLI: bad input exits 2 with an error line, never a traceback', () => {
     [['repo', '.', '--out'], /--out/],
     [['repo', '.', '--bogus', '--out', 'f.json'], /--bogus/],
     [['repo', '.', '--intro', '--release', 'v1', '--out', 'f.json'], /pass one of --intro, --release/],
-    [['repo', '.', '--out', 'f.json'], /error: repo reader not built yet/],
+    [['repo', 'git@github.com:o/r', '--out', 'f.json'], /error: "git@github\.com:o\/r" is not a local path/],
   ];
   for (const [args, re] of cases) {
     const r = cli(...args);
