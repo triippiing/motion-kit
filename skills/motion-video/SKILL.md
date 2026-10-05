@@ -440,10 +440,11 @@ missing or unreadable video is `error: ...`, exit 2.
   a URL longer than half the window is cut with `…`). The window is part of the zoomed content: zoom 1 fits the whole
   window (the shape takes its aspect), and `focus` stays a fraction of the clip's own frame, so zoomed in on the page
   the bar is off the shape (the URL is then marked `data-overhang` for the frame check). A continuation that turns
-  `browser` on or off glides too (the clip stays where it was on screen at the row change), so a pull-back can end on
-  the window: `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage',
-  src: 'app', browser: 'example.com/app' }`; turning it off, the bar goes at the row change. Setting the same
-  `browser` on every row also works. A browser row's shape has the window's aspect (W x (H + bar)), so framing just
+  `browser` on or off glides too, so a pull-back can end on the window: `{ at: 0, use: 'footage', src: 'app', zoom: 4,
+  focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app', browser: 'example.com/app' }`. Turning it on, the
+  clip stays exactly where it was on screen at the row change; turning it off, the bar goes there and, under `cover`
+  from a zoom near 1, the clip steps up by about bar / H (zoom cannot go under 1). Setting the same `browser` on every
+  row avoids both. A browser row's shape has the window's aspect (W x (H + bar)), so framing just
   the page needs `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides
   slightly.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
