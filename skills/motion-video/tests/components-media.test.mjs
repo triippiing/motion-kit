@@ -3,14 +3,15 @@
 // the clip's own JPEGs, seek order not mattering, and the brief checks (missing clip, unknown step, a held last frame).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { tempDir } from './tmp.mjs';
 import { makeProject, openScene } from './harness.mjs';
 import { FFMPEG, shoot } from '../scripts/render.mjs';
 import { footage as makeClip } from '../scripts/footage.mjs';
 import { checkBrief } from '../scripts/check_brief.mjs';
+import { startWatch } from '../scripts/watch.mjs';
 import { validate } from '../components/core/validate.js';
 import { registry } from '../components/index.js';
 import * as F from '../components/media/footage.js';
@@ -125,6 +126,12 @@ test('validate (strict): a row longer than the clip left warns that it holds its
   const rows = [{ at: 0, use: 'footage', src: 'checkout', from: 0.2 }, { at: 6, use: 'footage', src: 'checkout', from: 0.2 }];
   const w = v(rows, undefined, { checkout: clip }, true).warnings;
   assert.ok(w.includes('checkout holds its last frame for 1.2 s (footage at beat 0)'), w.join('\n'));
+  // the last row of a loop continues a clip that has run out: the hint says how to fix the seam
+  const plain = [{ at: 0, use: 'footage', src: 'checkout' }, { at: 6, use: 'footage', src: 'checkout' }];
+  const w2 = v(plain, undefined, { checkout: clip }, true).warnings;
+  assert.ok(w2.includes('checkout holds its last frame for 1 s (footage at beat 6) (at the loop seam: set from, or end on a non-footage row)'), w2.join('\n'));
+  const once = validate({ states: plain, cursor: [{ at: 0, x: 0, y: 0 }, { at: 6, x: 0, y: 0 }], registry, song, clips: { checkout: clip }, strict: true, loop: false, beatT: (b) => b * 0.5 }).warnings;
+  assert.ok(!once.some((x) => /loop seam/.test(x)), 'no seam hint for a one-off piece');
   assert.ok(!v(rows, undefined, { checkout: clip }, false).warnings.some((x) => /holds its last frame/.test(x)), 'strict only');
   const fits = [{ at: 0, use: 'footage', src: 'checkout', speed: 0.5 }, { at: 6, use: 'footage', src: 'checkout', from: 0 }];
   assert.ok(!v(fits, undefined, { checkout: clip }, true).warnings.some((x) => /checkout holds/.test(x) && /beat 0\)/.test(x)), 'a clip that lasts the row is fine');
@@ -169,19 +176,29 @@ test('render: shuffled seeks give the same screenshots as in-order seeks in one 
   } finally { await s.close(); }
 });
 
-test('render: a frame that will not load keeps the last good frame and rejects nothing', async () => {
+test('render: a frame that will not load keeps the last good frame, resolves the seek, and is a page error naming it', async () => {
   const dir = withClip(makeProject(pageRows));
   writeFileSync(path.join(dir, 'footage', 'demo', 'frame-00031.jpg'), 'not a jpeg');
   const s = await openScene(dir);
-  const logged = [];
-  s.page.on('console', (m) => { if (m.type() === 'error') logged.push(m.text()); });
   try {
     const before = await shoot(s.page, 0.5);
-    const after = await shoot(s.page, 1.0);                               // clip time 1 s: frame 31, broken
+    const after = await shoot(s.page, 1.0);                               // clip time 1 s: frame 31, broken; the seek resolved
     assert.ok(after.equals(before), 'the last good frame stays');
-    assert.ok(logged.some((x) => /footage: cannot load footage\/demo\/frame-00031\.jpg/.test(x)), logged.join('\n'));
-    assert.deepEqual(s.errors, [], 'no unhandled rejection');
+    // Row 1 (the continuation) starts on frame 31, so every page that ran ready (the probe and the worker) tried it.
+    assert.ok(s.errors.length >= 1);
+    for (const e of s.errors) {
+      assert.match(e.message, /^footage: cannot load footage\/demo\/frame-00031\.jpg/);
+      assert.doesNotMatch(e.message, /Uncaught \(in promise\)/, 'reported, not an unhandled rejection');
+    }
   } finally { await s.close(); }
+});
+
+test('render.mjs on a project with a deleted frame exits 1 with an error naming it', () => {
+  const dir = withClip(makeProject(pageRows));
+  rmSync(path.join(dir, 'footage', 'demo', 'frame-00031.jpg'));
+  const r = spawnSync('node', [path.join(import.meta.dirname, '..', 'scripts', 'render.mjs'), dir, '--preview', '--workers', '1', '--from', '0.9', '--to', '1.1'], { encoding: 'utf8', timeout: 60000 });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /^error: .*footage: cannot load footage\/demo\/frame-00031\.jpg/m);
 });
 
 // ---- check_brief reads the project's clips
@@ -236,4 +253,22 @@ test('in the page the cursor aims at a step through the real clip (not the no-cl
     assert.ok(Math.abs(c.x - (720 + 310)) < 0.5 && Math.abs(c.y - (720 + 160)) < 0.5, JSON.stringify(c));
     assert.deepEqual(s.errors, []);
   } finally { await s.close(); }
+});
+
+test('check_brief: a project whose components/ copy predates footage is told to copy a fresh one', async () => {
+  const dir = withClip(makeProject({ bars: 2 }));
+  rmSync(path.join(dir, 'components', 'media'), { recursive: true });
+  const idx = path.join(dir, 'components', 'index.js');
+  writeFileSync(idx, readFileSync(idx, 'utf8').split('\n').filter((l) => !/footage/i.test(l)).join('\n'));
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief("[{ at: 0, use: 'footage', src: 'demo' }, { at: END - 2, use: 'footage', src: 'demo' }]", STILL));
+  const r = await checkBrief(dir, { frameCheck: noFrames });
+  assert.deepEqual(r.errors, ["the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)"]);
+});
+
+test('watch: a footage row whose clip is missing is held back with the error', async () => {
+  const dir = makeProject({ bars: 2, states: "[{ at: 0, use: 'footage', src: 'checkout' }, { at: END - 2, use: 'footage', src: 'checkout' }]", cursor: STILL });
+  const w = await startWatch(dir, { quiet: true });
+  try {
+    assert.ok(w.status().errors.includes('footage: no clip at footage/checkout/clip.json'), w.status().errors.join('\n'));
+  } finally { await w.close(); }
 });

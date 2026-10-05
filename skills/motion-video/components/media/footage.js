@@ -2,8 +2,8 @@
 // inside the shape, frame-exact. Clip time is from + (t - t0) x speed, clamped to the clip (it holds the last frame) and
 // frozen outside the row's window; frame n = round(clipT x fps) + 1: a pure function of t. render shows frame n and
 // registers its decode with ctx.wait, so seek(t) resolves once the frame is on screen; callers that do not await
-// (watch, sync, ?play) show it as soon as it decodes. A decode that fails keeps the last good frame and is reported on
-// the console: ctx.wait never sees a rejection.
+// (watch, sync, ?play) show it as soon as it decodes. A decode that fails keeps the last good frame and is raised with
+// reportError (a page error: render.mjs exits 1 on it), while ctx.wait still sees its promise resolve.
 // The page fetches each used clip's clip.json before ready (ctx.clips[src]); validation receives the same as data.
 export const meta = {
   name: 'footage', group: 'media',
@@ -98,7 +98,10 @@ export function render(root, p, ctx, t) {
     while (st.cache.size > CACHE) st.cache.delete(st.cache.keys().next().value);
     if (st.want === n) show(img);   // a later seek may want another frame by now: then this one is only cached
   }, (e) => {
-    console.error(`footage: cannot load ${url} (${e?.message ?? e}); keeping the last good frame`);
+    // Resolve (ctx.wait never sees a rejection: callers that do not await must not get an unhandled one), but raise
+    // it on the page's error path: render.mjs fails on it rather than encode a held frame, and watch shows it.
+    const err = new Error(`footage: cannot load ${url} (${e?.message ?? e}); the last good frame stays`);
+    if (typeof reportError === 'function') reportError(err); else console.error(err.message);
   }).finally(() => { st.loading.delete(n); });
   st.loading.set(n, job);
   ctx.wait(job);
@@ -124,7 +127,8 @@ export function hotspot(name, p, geo, ctx) {
 }
 
 // Validation (validate.js), with the clips as data: info = { clips, strict, at (the row's beat, for messages), row,
-// beatT (null: no timing, so no hold check), t1 (seconds; Infinity when unknown), continues, prev }. No clips
+// beatT (null: no timing, so no hold check), t1 (seconds; Infinity when unknown), continues, prev, seam (the last row
+// of a looping piece) }. No clips
 // (undefined): nothing to check against.
 export function check(p, info) {
   const errors = [], warnings = [];
@@ -134,7 +138,8 @@ export function check(p, info) {
   if (info.strict && p.speed > 0 && info.beatT && Number.isFinite(info.t1)) {
     const span = info.t1 - info.beatT(info.row.at), left = (clip.duration - startTime(p, info)) / p.speed;
     const hold = span - Math.max(0, left);
-    if (hold >= 0.05) warnings.push(`${p.src} holds its last frame for ${hold.toFixed(1)} s (footage at beat ${info.at})`);
+    const seam = info.seam ? ' (at the loop seam: set from, or end on a non-footage row)' : '';
+    if (hold >= 0.05) warnings.push(`${p.src} holds its last frame for ${+hold.toFixed(1)} s (footage at beat ${info.at})${seam}`);
   }
   return { errors, warnings };
 }

@@ -27,7 +27,9 @@
 //   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips }) -> reason | null:
 //   rules that need data beyond the row (footage's clip), run by validate. info = { clips, strict, at (the row's
 //   beat, for messages), row, beatT (null when the caller gave none), t1 (seconds; Infinity when unknown), continues,
-//   prev }; clips is undefined when the caller has none (no project), and then there is nothing to check against.
+//   prev, seam (the last row of a loop) }; clips is undefined when the caller has none (no project), and then there is
+//   nothing to check against. In validation this info is also the ctx endState gets: a partial ctx (clips, beatT,
+//   row, t1, continues, prev only), so anything check, checkTarget or endState reads must be among those.
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
