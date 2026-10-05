@@ -140,7 +140,6 @@ skills/motion-design/    planning skill + direction and state-plan references
 skills/motion-video/     scripts, seek(t) template, component library, tests
 skills/motion-ui/        in-app motion skill + tested patterns
 demos/                   01 reference sequence, 02 finance-app promo, 03 dock pill capture
-docs/superpowers/        the original design spec and implementation plan (historical record)
 CLAUDE.md                the project guide for Claude (and people): start here
 CREDITS.md               everyone and everything this builds on
 ```

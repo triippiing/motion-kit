@@ -10,3 +10,4 @@ song.json.bak.tmp
 *.tmp-*
 .song.json.*
 .swap-backup/
+docs/superpowers/

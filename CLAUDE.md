@@ -394,8 +394,6 @@ skills/motion-design/references/  planner.md (the planner checklist), state-plan
                                   direction.md (the look)
 skills/motion-ui/references/      patterns.md (pattern 2 is extracted and tested by tests/patterns.test.mjs)
 demos/                            worked examples (see "Demos" below)
-docs/superpowers/                 the design spec and implementation plan this was built from (historical: the
-                                  code and CLAUDE.md are current; the plan records how it was first built)
 tests/, skills/*/tests/           node:test + python unittest
 DIR/.source.json                  per project, written by analyze_song.py: {"path": the song's absolute path}, read by
                                   sync.mjs Save. Local only and git-ignored: never commit it
