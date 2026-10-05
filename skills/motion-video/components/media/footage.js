@@ -13,14 +13,15 @@
 // crop [x, y, w, h]: a rect of the clip's frame (fractions, like focus) that the shape shows, fitted to the LIVE
 // shape (ctx.shapeAt) and masked to the rect. A first row (after a cut) is contain-fitted, so the shape's fill shows
 // round it while the outline morphs. A continuation where either row has crop glides rect to rect on the live shape's
-// own progress (rectAt), cover-fitted (no fill band when the content scale changes); at one scale (same width) the
-// page stays exactly pinned to the outline. A row without crop counts as the region its settled framing shows.
-import { prog, textW } from '../core/helpers.js';
+// own progress (rectAt; on the 0.6 beat time spring when the shape keeps its size, a cut for two crops of one size),
+// cover-fitted (no fill band when the content scale changes; rectFit); at one scale (same width) the page stays
+// exactly pinned to the outline. A row without crop counts as the region its settled framing shows.
+import { landed, prog, textW } from '../core/helpers.js';
 
 export const meta = {
   name: 'footage', group: 'media',
   useWhen: 'Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.',
-  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape\'s centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape\'s own spring, filling the shape: with the same `width` on both rows the page stays exactly pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and when the scale changes the content eases in or out while the edges sweep (share `width` across a crop chain for exact pinning). Two crops of one size cut. A row without crop (zoom, browser) counts as the region it shows.',
+  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape\'s centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape\'s own spring, filling the shape: with the same `width` on both rows the page stays exactly pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and when the scale changes the content eases in or out while the edges sweep (share `width` across a crop chain for exact pinning); when the shape keeps its size (a crop into zoom 1 of its own aspect) the rect glides on the 0.6 beat zoom spring instead. Two crops of one size cut. A row without crop (zoom, browser) counts as the region it shows; with `fit: \'contain\'` and its own w/h it eases from cover to contain over the glide. A crop glide that moves the shape lasts the house spring\'s settle (song.rules.spring.settle_sec, 0.6 beat by default), any other glide 0.6 beat: a row shorter than that makes the next row jump (check_brief warns).',
   props: { src: ['string', 'demo'], from: ['number', 0], speed: ['number', 1], fit: ['enum:cover|contain', 'cover'], width: ['number', 0],
     zoom: ['number', 1], focus: ['number[]', [0.5, 0.5]], browser: ['string', ''], crop: ['any', null] },
   hotspots: ['step:<name>', 'point:<x,y>'],
@@ -139,15 +140,23 @@ const rectBrowser = (p, ctx) => p.browser || glidesFrom(p, ctx)?.browser || '';
 // The rect at t. A continuation (same src, either row with crop) glides from the previous row's settled rect to
 // this row's, driven by the live shape (ctx.shapeAt) so the page stays pinned to the outline: per axis, u is how far
 // the shape's size has got from the previous row's geometry to this row's (an axis that does not change, by under
-// 1 design px, takes the other's u; neither: u = 1 from t0). Edges lerp by u (past 1 on the spring's overshoot),
-// then the rect is clamped to the window. Otherwise, or without shapeAt (validation), this row's own rect.
+// 1 design px, takes the other's u). Neither axis moving (one shape: a crop into zoom 1 of its own aspect, a crop
+// into a smaller crop of the same aspect), u is the time spring viewAt uses (0.6 beat, no overshoot), so it glides
+// like a zoom; only two crops of one size (rectCut) have nothing to glide but a slide, and cut (u = 1 from t0).
+// Edges lerp by u (past 1 on the shape spring's overshoot), then the rect is clamped to the window. Otherwise, or
+// without shapeAt (validation), this row's own rect.
+const sameSize = (a, b) => Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6;
+const rectCut = (p, prev, from, to) => !!cropOf(p) && !!cropOf(prev) && sameSize(from, to);
+const shapeMoves = (geo, pgeo) => Math.abs(geo.w - pgeo.w) >= 1 || Math.abs(geo.h - pgeo.h) >= 1;
 export function rectAt(p, ctx, t) {
   const clip = ctx.clips?.[p.src] ?? FALLBACK, geo = ctx.geo ?? geometry(p, ctx), to = settledRect(p, geo, clip);
   const prev = glidesFrom(p, ctx);
   if (!prev || !usesRect(p, ctx) || typeof ctx.shapeAt !== 'function' || !(t < Infinity)) return to;
   const pgeo = prev._geo ?? geometry(prev, ctx), from = prev._rect ?? settledRect(prev, pgeo, clip), live = ctx.shapeAt(t);
   const prog1 = (a) => (Math.abs(geo[a] - pgeo[a]) >= 1 ? (live[a] - pgeo[a]) / (geo[a] - pgeo[a]) : null);
-  const px = prog1('w'), py = prog1('h'), ux = px ?? py ?? 1, uy = py ?? px ?? 1;
+  const px = prog1('w'), py = prog1('h');
+  const u0 = px ?? py ?? (rectCut(p, prev, from, to) || !ctx.Springs ? 1 : prog(ctx, t, ctx.t0, SETTLE, 1));
+  const ux = px ?? u0, uy = py ?? u0;
   const lerp = (a, b, u) => a + (b - a) * u;
   const bar = barHeight(clip, rectBrowser(p, ctx));
   const x0 = Math.max(0, lerp(from.x, to.x, ux)), x1 = Math.min(clip.width, lerp(from.x + from.w, to.x + to.w, ux));
@@ -288,24 +297,39 @@ function place(st, p, ctx, t) {
   }
 }
 
-// A rect row: --s (screen px per clip px) fits the rect to the live shape; .ft-mask is the rect's box, centred; the
-// window sits in it so the rect's corner is at the mask's. The first row after a cut fits by contain (the shape's fill
-// round the rect masks the outline's morph from another component). A glide (rectAt's continuation) fits by cover:
-// its lerped rect's aspect lags the live shape's when the content scale changes, and contain would leave fill bands;
-// the mask then overhangs the shape on one axis and #shape clips it. Same aspect (same scale): the two are one.
+// How a rect row fits its rect to the live shape: 1 contain, 0 cover, between them a blend of the two scales. The
+// first row after a cut is contain (the shape's fill round the rect masks the outline's morph from another
+// component). A glide (rectAt's continuation) is cover: its lerped rect's aspect lags the live shape's when the
+// content scale changes, and contain would leave fill bands. Settled, a glide row's region has its shape's aspect
+// (a crop on its crop's shape, a framing on its own) and the two are one, except a row without crop, fit 'contain',
+// whose own w/h are off the frame's aspect: its settled region is the whole window, letterboxed. That row eases from
+// cover to contain on the time spring (0.6 beat; landed, so exactly contain from then on): no step at the settle,
+// and once settled it shows what its hotspot maps. (A crop row with its own w/h off the crop's aspect stays cover.)
+export function rectFit(p, ctx, t) {
+  if (!(glidesFrom(p, ctx) && typeof ctx.shapeAt === 'function' && t < Infinity)) return 1;
+  if (cropOf(p) || p.fit !== 'contain' || !ctx.Springs) return 0;
+  const geo = ctx.geo ?? geometry(p, ctx), R = settledRect(p, geo, ctx.clips?.[p.src] ?? FALLBACK);
+  if (Math.abs((geo.h * R.w) / R.h - geo.w) < 1) return 0;   // the shape's aspect (geometry rounds to whole px)
+  return landed(prog(ctx, t, ctx.t0, SETTLE, 1));
+}
+
+// A rect row: --s (screen px per clip px) fits the rect to the live shape (rectFit); .ft-mask is the rect's box,
+// centred; the window sits in it so the rect's corner is at the mask's. Under cover the mask overhangs the shape on
+// one axis and #shape clips it.
 function placeRect(st, p, ctx, t) {
   const { box, mask, win, url, parts } = st, R = rectAt(p, ctx, t), f = (n) => +n.toFixed(4);
-  const glide = !!glidesFrom(p, ctx) && typeof ctx.shapeAt === 'function' && t < Infinity;
-  mask.style.setProperty('--s', `${glide ? 'max' : 'min'}(100cqw / ${f(R.w)}, 100cqh / ${f(R.h)})`);
+  const g = rectFit(p, ctx, t), a = `100cqw / ${f(R.w)}`, b = `100cqh / ${f(R.h)}`;
+  mask.style.setProperty('--s', g === 1 ? `min(${a}, ${b})` : g === 0 ? `max(${a}, ${b})` : `calc(max(${a}, ${b}) * ${f(1 - g)} + min(${a}, ${b}) * ${f(g)})`);
   Object.assign(mask.style, { left: `calc(50cqw - var(--s) * ${f(R.w / 2)})`, top: `calc(50cqh - var(--s) * ${f(R.h / 2)})`,
     width: `calc(var(--s) * ${f(R.w)})`, height: `calc(var(--s) * ${f(R.h)})` });
   Object.assign(box.style, { left: `calc(var(--s) * ${f(-R.x)})`, top: `calc(var(--s) * ${f(-(R.y + win.bar))})`,
     width: `calc(var(--s) * ${win.W})`, height: `calc(var(--s) * ${win.H})` });
   if (url) {
-    // the region in view, in rect space: R itself (contain), or under cover the live shape's box at the scale, centred on R
+    // the region in view, in rect space: R itself (contain), or else the live shape's box at the scale, centred on R
     let V = R;
-    if (glide) {
-      const live = ctx.shapeAt(t), s = Math.max(live.w / R.w, live.h / R.h), vw = Math.min(R.w, live.w / s), vh = Math.min(R.h, live.h / s);
+    if (g < 1) {
+      const live = ctx.shapeAt(t), sx = live.w / R.w, sy = live.h / R.h, s = Math.max(sx, sy) * (1 - g) + Math.min(sx, sy) * g;
+      const vw = Math.min(R.w, live.w / s), vh = Math.min(R.h, live.h / s);
       V = { x: R.x + (R.w - vw) / 2, y: R.y + (R.h - vh) / 2, w: vw, h: vh };
     }
     const x0 = (win.W - parts.field) / 2, y0 = (parts.B - parts.fieldH) / 2 - win.bar;   // the field in rect space
@@ -352,7 +376,8 @@ export function render(root, p, ctx, t) {
 // step:NAME aims at the centre of the box the capture clicked; point:X,Y at fractions of the frame. Clip pixels map
 // through fit (cover crops, contain letterboxes), the browser bar and the row's own SETTLED zoom/focus (or its crop,
 // contain-fitted) to the shape, as offsets from its centre. The engine resolves a cursor row to one fixed point (hotspot has no t), so on a row
-// that glides in from another framing, aim and press once the glide has settled (0.6 beat after the row's beat).
+// that glides in from another framing, aim and press once the glide has settled (0.6 beat after the row's beat; a
+// crop glide that moves the shape: song.rules.spring.settle_sec, 0.6 beat by default).
 // Without the clip (validation asks with ctx = {}) a step resolves at the centre: whether it exists is
 // checkTarget's call.
 export function hotspot(name, p, geo, ctx) {
@@ -414,7 +439,27 @@ export function check(p, info) {
     const seam = info.seam ? ' (at the loop seam: set from, or end on a non-footage row)' : '';
     if (hold >= 0.05) warnings.push(`${p.src} holds its last frame for ${+hold.toFixed(1)} s (footage at beat ${info.at})${seam}`);
   }
+  const sec = info.strict && info.beatT && Number.isFinite(info.t1) ? glideSec(p, info, clip) : null;
+  if (sec && info.t1 - info.beatT(info.row.at) < sec - 1e-9)
+    warnings.push(`footage at beat ${info.at} is shorter than its glide (${+sec.toFixed(2)} s): the next row starts from where it settles`);
   return { errors, warnings };
+}
+
+// How long this row's glide takes (seconds) when the next row starts from where it settles, else null. The next row
+// (the same src) starts from this row's SETTLED rect (endState's _rect) when it lays out by rect, or, after a row that
+// lays out by rect, from a view that row never showed; only a zoom/focus row followed by another carries the view it
+// really ended on (_view), so cutting its glide short is no jump. A rect glide that moves the shape rides the shape's
+// spring (settle_sec); one that does not, and a zoom glide, take 0.6 beat; two crops of one size cut (no glide).
+function glideSec(p, info, clip) {
+  const prev = glidesFrom(p, info), nx = info.next;
+  if (!prev || !info.beat_sec || !nx || nx.use !== info.row?.use || nx.src !== p.src) return null;
+  if (!usesRect(p, info) && !cropOf(nx)) return null;
+  if (!usesRect(p, info)) return framed(p) || framed(prev) ? SETTLE * info.beat_sec : null;
+  const geo = info.geo ?? geometry(p, info), pgeo = prev._geo ?? geometry(prev, info);
+  const from = prev._rect ?? settledRect(prev, pgeo, clip), to = settledRect(p, geo, clip);
+  if (shapeMoves(geo, pgeo)) return info.settle_sec ?? SETTLE * info.beat_sec;
+  if (rectCut(p, prev, from, to) || ['x', 'y', 'w', 'h'].every((k) => Math.abs(from[k] - to[k]) < 1e-6)) return null;
+  return SETTLE * info.beat_sec;
 }
 
 // A cursor target on this row that cannot be right for its clip (a step the capture never named): the reason (an

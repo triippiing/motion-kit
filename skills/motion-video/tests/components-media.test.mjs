@@ -686,6 +686,89 @@ test('crop: neither axis changing is no glide; one axis still is, from the other
   assert.deepEqual(F.rectAt(B, ctxB, 1), { x: 640, y: 360, w: 640, h: 360 }, 'the same shape: this row\'s own crop from t0');
 });
 
+// Two rows of one shape: A's settled rect at t0, then rectAt(B) at 1/120 s steps; returns the largest edge step.
+const sameShapeGlide = (A, B) => {
+  const g = F.geometry(A, { clips }), shapeAt = shapeSpring(g, F.geometry(B, { clips }), 1);
+  const ctxA = cropCtx(A, { at: 0, use: 'footage', src: 'demo' }, { t0: -1e6, t1: 1, continues: false, prev: null, settled: true, shapeAt });
+  const ctxB = cropCtx(B, { at: 2, use: 'footage', src: 'demo' }, { t0: 1, t1: Infinity, continues: true, prev: F.endState(A, ctxA), settled: false, shapeAt });
+  let last = F.rectAt(A, ctxA, 0.99), step = 0;
+  for (let t = 1; t <= 1.6 + 1e-9; t += 1 / 120) {
+    const R = F.rectAt(B, ctxB, t);
+    for (const k of ['x', 'y', 'w', 'h']) step = Math.max(step, Math.abs(R[k] - last[k]));
+    last = R;
+  }
+  return { step, ctxB, first: F.rectAt(B, ctxB, 1), soon: F.rectAt(B, ctxB, 1 + 1 / 120) };
+};
+
+test('crop: one shape, a crop into zoom 1 (or into a crop of another size) glides on the time spring and settles', () => {
+  // crop [0.1, 0.1, 0.3, 0.3] of the 16:9 clip is 16:9: the shape does not move, so u comes from time (0.6 beat)
+  const A = props({ crop: [0.1, 0.1, 0.3, 0.3] }), B = props({});
+  assert.deepEqual([F.geometry(A, { clips }).w, F.geometry(A, { clips }).h], [F.geometry(B, { clips }).w, F.geometry(B, { clips }).h], 'one shape');
+  const z = sameShapeGlide(A, B);
+  assert.deepEqual(z.first, { x: 128, y: 72, w: 384, h: 216 }, 'at t0: exactly the crop');
+  assert.ok(z.soon.w < 500, `no cut to the whole frame: ${JSON.stringify(z.soon)}`);
+  assert.ok(z.step < 60, `no jump between frames: ${z.step}`);
+  const end = F.rectAt(B, z.ctxB, 5);
+  assert.ok(near(end.x, 0, 1e-3) && near(end.y, 0, 1e-3) && near(end.w, 1280, 1e-3) && near(end.h, 720, 1e-3), `settles on the whole frame: ${JSON.stringify(end)}`);
+  // two crops of one aspect and different sizes share the shape: a zoom in, gliding too
+  const c = sameShapeGlide(props({ crop: [0, 0, 0.5, 0.5] }), props({ crop: [0.25, 0.25, 0.25, 0.25] }));
+  assert.ok(c.soon.w > 600 && c.step < 30, `crop to a smaller crop glides: ${JSON.stringify(c.soon)} ${c.step}`);
+  // two crops of one size still cut (the test above): only that pair has nothing to glide but a jump
+});
+
+test('crop: a no-crop fit contain row with its own w/h eases from cover to contain over its glide (render == hotspot once settled)', () => {
+  const A = props({ crop: [0.1, 0.1, 0.3, 0.3] }), B = props({ fit: 'contain' });
+  const gA = F.geometry(A, { clips }), gB = { ...F.geometry(B, { clips }), w: 900, h: 900 }, shapeAt = shapeSpring(gA, gB, 1);
+  const ctxA = cropCtx(A, { at: 0, use: 'footage', src: 'demo' }, { t0: -1e6, t1: 1, continues: false, prev: null, settled: true, shapeAt });
+  const ctxB = { ...cropCtx(B, { at: 2, use: 'footage', src: 'demo', fit: 'contain', w: 900, h: 900 }, { t0: 1, t1: Infinity, continues: true, prev: F.endState(A, ctxA), settled: false, shapeAt }), geo: gB };
+  assert.equal(F.rectFit(B, ctxB, 1), 0, 'cover at t0: what the crop row showed');
+  assert.ok(F.rectFit(B, ctxB, 1 + 0.3) > 0.9999 && F.rectFit(B, ctxB, 1 + 0.31) === 1, 'contain once the glide has settled (0.6 beat)');
+  let last = 0;
+  for (let t = 1; t <= 1.3 + 1e-9; t += 1 / 120) {
+    const g = F.rectFit(B, ctxB, t);
+    assert.ok(g >= last && g - last < 0.2, `t ${t.toFixed(3)}: eases (${last} -> ${g})`);
+    last = g;
+  }
+  // settled: the scale render uses equals hotspot's (contain)
+  const R = F.rectAt(B, ctxB, 5), live = shapeAt(5), s = Math.min(live.w / R.w, live.h / R.h);
+  const k = Math.min(900 / 1280, 900 / 720), h = F.hotspot('point:0.05,0.5', B, gB, { clips });
+  assert.ok(near(s, k, 1e-6), `${s} vs ${k}`);
+  assert.ok(near(h.x, (0.05 * 1280 - (R.x + R.w / 2)) * s, 1e-3) && near(h.y, (0.5 * 720 - (R.y + R.h / 2)) * s, 1e-3), JSON.stringify(h));
+  // every other rect row keeps its fit: cover through a glide, contain after a cut, and a contain row whose settled
+  // region has the shape's aspect (no w/h) stays cover (its cover and contain are one once settled)
+  assert.equal(F.rectFit(props({ fit: 'cover' }), { ...ctxB, geo: gB }, 1.3), 0);
+  assert.equal(F.rectFit(props({ crop: [0.1, 0.1, 0.5, 0.5] }), { ...ctxB, geo: gB }, 1.3), 0);
+  assert.equal(F.rectFit(B, { ...ctxB, geo: F.geometry(B, { clips }) }, 1.3), 0);
+  assert.equal(F.rectFit(A, ctxA, 0.5), 1);
+});
+
+test('validate (strict): a rect-gliding row shorter than its glide warns; a zoom-only chain carries its real end view and does not', () => {
+  const short = /shorter than its glide/;
+  const rows = (mid, next) => [{ at: 0, use: 'footage', src: 'demo', crop: [0.1, 0.1, 0.5, 0.2] }, { at: 2, use: 'footage', src: 'demo', ...mid },
+    { at: 2.5, use: 'footage', src: 'demo', ...next }, { at: 6, use: 'footage', src: 'demo', crop: [0.1, 0.1, 0.5, 0.2] }];
+  // the beat-2 row glides from the crop on the shape's spring (song without rules: 0.6 beat = 0.3 s) but lasts 0.25 s
+  assert.deepEqual(v(rows({}, { zoom: 2, focus: [0.3, 0.3] }), undefined, clips, true).warnings.filter((w) => short.test(w)),
+    ['footage at beat 2 is shorter than its glide (0.3 s): the next row starts from where it settles']);
+  assert.deepEqual(v(rows({}, { zoom: 2, focus: [0.3, 0.3] }), undefined, clips, false).warnings.filter((w) => short.test(w)), [], 'strict only');
+  // zoom -> zoom (short) -> zoom: the next row carries the view the short row really ended on: no jump, no warning
+  const zooms = [{ at: 0, use: 'footage', src: 'demo', zoom: 3 }, { at: 2, use: 'footage', src: 'demo', zoom: 2, focus: [0.3, 0.3] },
+    { at: 2.5, use: 'footage', src: 'demo' }, { at: 6, use: 'footage', src: 'demo', zoom: 3 }];
+  assert.deepEqual(v(zooms, undefined, clips, true).warnings.filter((w) => short.test(w)), []);
+  // a zoom row cut short before a crop row: the crop row starts from the zoom's settled region
+  const toCrop = [{ at: 0, use: 'footage', src: 'demo', zoom: 3 }, { at: 2, use: 'footage', src: 'demo' },
+    { at: 2.5, use: 'footage', src: 'demo', crop: [0.1, 0.1, 0.5, 0.2] }, { at: 6, use: 'footage', src: 'demo', zoom: 3 }];
+  assert.deepEqual(v(toCrop, undefined, clips, true).warnings.filter((w) => short.test(w)), ['footage at beat 2 is shorter than its glide (0.3 s): the next row starts from where it settles']);
+  // long enough, or the next row is another component or src: nothing
+  const long = rows({}, { zoom: 2, focus: [0.3, 0.3] }).map((r) => (r.at === 2.5 ? { ...r, at: 3 } : r));
+  assert.deepEqual(v(long, undefined, clips, true).warnings.filter((w) => short.test(w)), []);
+  const other = rows({}, {}).map((r) => (r.at === 2.5 ? { at: 2.5, use: 'button', label: 'Go' } : r));
+  assert.deepEqual(v(other, undefined, clips, true).warnings.filter((w) => short.test(w)), []);
+  // two crops of one size are a cut: nothing to glide
+  const cut = [{ at: 0, use: 'footage', src: 'demo', crop: [0, 0, 0.5, 0.5] }, { at: 2, use: 'footage', src: 'demo', crop: [0.5, 0.5, 0.5, 0.5] },
+    { at: 2.5, use: 'footage', src: 'demo', crop: [0, 0, 0.5, 0.5] }, { at: 6, use: 'footage', src: 'demo', crop: [0, 0, 0.5, 0.5] }];
+  assert.deepEqual(v(cut, undefined, clips, true).warnings.filter((w) => short.test(w)), []);
+});
+
 test('crop -> browser window (and back): glides from the crop to the whole window with no cut, and settles on it', () => {
   const A = props({ crop: [0.59, 0.52, 0.40, 0.06] }), B = props({ browser: 'example.com/sync' });
   const gA = F.geometry(A, { clips }), gB = F.geometry(B, { clips }), shapeAt = shapeSpring(gA, gB, 1);
@@ -877,6 +960,36 @@ test('render: a crop glide that changes the content scale (panel -> whole page) 
       if (w / h > 0.9 && w / h < 1.7) mid++;                                    // between the panel's aspect (0.77) and the page's (1.78)
     }
     assert.ok(mid >= 3, `sampled mid-glide ${mid} times`);
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+});
+
+test('render: a fit contain row with its own w/h after a crop eases to contain; once settled it matches its hotspot', async () => {
+  // crop [0.1, 0.1, 0.3, 0.3] into { fit: 'contain', w: 900, h: 900 }: cover at the row change (no jump), contain
+  // (the whole frame letterboxed) once the glide has settled, which is what hotspot maps
+  const C = "use: 'footage', src: 'demo', speed: 0, crop: [0.1, 0.1, 0.3, 0.3]";
+  const dir = withClip(makeProject({ bars: 2,
+    states: `[{ at: 0, ${C} }, { at: 2, use: 'footage', src: 'demo', speed: 0, fit: 'contain', w: 900, h: 900 }, { at: END - 2, ${C} }]`,
+    cursor: '[{ at: 0, x: 0, y: 600, hide: true }, { at: END - 2, x: 0, y: 600, hide: true }]' }));
+  const s = await openScene(dir);
+  try {
+    const bs = await s.page.evaluate(() => fetch('song.json').then((r) => r.json()).then((j) => j.beat_sec)), t0 = 2 * bs;
+    // the page's width in shape widths, and the screen px per design px (the shape is 900 design px wide once settled)
+    const at = async (t) => { await s.seek(t); return s.page.evaluate((row) => {
+      const sh = document.querySelector('#shape').getBoundingClientRect(), pg = document.querySelector(`.c-footage[data-row="${row}"] .ft-page`).getBoundingClientRect();
+      return { sh: [sh.left, sh.top, sh.width, sh.height], pg: [pg.left, pg.top, pg.width, pg.height] };
+    }, t < t0 ? 0 : 1); };
+    let last = await at(t0 - 1 / 60);
+    for (let i = 0; i <= Math.ceil(0.9 * bs * 60); i++) {
+      const r = await at(t0 + i / 60), step = Math.abs(Math.log(r.pg[2] / last.pg[2]));
+      assert.ok(step < (i === 0 ? 0.01 : 0.2), `t0 + ${i}/60: the page scale steps ${step.toFixed(3)} (${JSON.stringify([last, r])})`);
+      last = r;
+    }
+    const r = await at(t0 + 1.5 * bs), z = r.sh[2] / 900, k = Math.min(900 / 1280, 900 / 720);
+    assert.ok(Math.abs(r.pg[2] - 1280 * k * z) < 1 && Math.abs(r.pg[3] - 720 * k * z) < 1, `contain once settled: ${JSON.stringify(r)}`);
+    const h = F.hotspot('point:0.05,0.5', { src: 'demo', fit: 'contain', zoom: 1, focus: [0.5, 0.5], browser: '', crop: null }, { w: 900, h: 900 }, { clips });
+    const px = r.pg[0] + 0.05 * r.pg[2], py = r.pg[1] + 0.5 * r.pg[3], cx = r.sh[0] + r.sh[2] / 2, cy = r.sh[1] + r.sh[3] / 2;
+    assert.ok(Math.abs(px - (cx + h.x * z)) < 1 && Math.abs(py - (cy + h.y * z)) < 1, `the hotspot is where the point shows: ${JSON.stringify({ px, py, h, cx, cy, z })}`);
     assert.deepEqual(s.errors, []);
   } finally { await s.close(); }
 });

@@ -312,8 +312,8 @@ viewer must read (body copy, labels, values). Icons come from
 Springs only, through `ctx.Springs` and the helpers; position and size springs have zeta 1.
 Text stays inside the shape: check_brief's frame check reports words that run past it or are cut off.
 An element meant to sit outside the shape, like a tooltip above its point, can carry `data-overhang` so the
-frame check does not report it: an opt-in hook for your component (footage sets it on its browser URL only while a
-zoom crops it). `#shape`
+frame check does not report it: an opt-in hook for your component (footage sets it on its browser URL while a zoom
+crops it, and always on a crop row with `browser`, whose bar sits above the crop). `#shape`
 still clips its overflow, so the element is cut off at the shape's edge all the same.
 
 ### 10. Props, class names and copy

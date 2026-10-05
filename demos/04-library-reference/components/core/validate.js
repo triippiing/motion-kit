@@ -253,7 +253,8 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
         const before = rows[i - 1], nextAt = states[i + 1]?.at ?? END;
         const continues = i > 0 && before.comp === comp;
         r.info = { clips, strict, at: B(row), row, beatT: beatT ?? null, t1: beatT && nextAt != null ? beatT(nextAt) : Infinity, continues,
-          seam: loop && i > 0 && i === states.length - 1,
+          seam: loop && i > 0 && i === states.length - 1, geo: r.geo, next: states[i + 1] ?? null,
+          beat_sec: song?.beat_sec ?? null, settle_sec: song?.rules?.spring?.settle_sec ?? (song?.beat_sec ? 0.6 * song.beat_sec : null),
           prev: continues && before.info && beatT ? (comp.endState ? comp.endState(before.props, before.info) : before.props) : null };
         const res = comp.check(r.props, r.info);
         errors.push(...res.errors); warnings.push(...res.warnings);

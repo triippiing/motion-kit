@@ -43,7 +43,8 @@ one with `use:` and passes its props; the cursor aims at its hotspots with `targ
 - `components/WRITING-A-COMPONENT.md`: how to add one when the library lacks it.
 - Text stays inside the shape: the frame check (`scripts/framecheck.mjs`, run by check_brief) reports words that
   run past it or are cut off, measuring the words' own line boxes. `data-overhang` on an element (a tooltip above
-  its point) is an opt-in hook for component authors (no built-in component uses it today); it only silences that
+  its point) is an opt-in hook for component authors (footage sets it on its browser URL while a zoom crops it, and
+  always on a crop row with `browser`, whose bar sits above the crop); it only silences that
   check: `#shape` clips its overflow, so the element is still cut at the shape's edge.
 
 ## Build loop
@@ -445,7 +446,8 @@ missing or unreadable video is `error: ...`, exit 2.
   clip's height, its width / 32)` clip px tall, three `muted` dots, the URL as real text in a centred rounded field;
   a URL longer than half the window is cut with `…`). The window is part of the zoomed content: zoom 1 fits the whole
   window (the shape takes its aspect), and `focus` stays a fraction of the clip's own frame, so zoomed in on the page
-  the bar is off the shape (the URL is then marked `data-overhang` for the frame check). A continuation that turns
+  the bar is off the shape (the URL is then marked `data-overhang` for the frame check; a crop row with `browser`
+  always marks it, as the bar sits above the crop). A continuation that turns
   `browser` on or off glides too, so a pull-back can end on the window: `{ at: 0, use: 'footage', src: 'app', zoom: 4,
   focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app', browser: 'example.com/app' }`. Turning it on, the
   clip stays exactly where it was on screen at the row change; turning it off, the bar goes there and, under `cover`
@@ -464,13 +466,23 @@ missing or unreadable video is `error: ...`, exit 2.
   clip at one scale) the page stays exactly pinned to the outline: a strip `[0.59, 0.52, 0.40, 0.06]` then
   `[0.59, 0.05, 0.40, 0.53]` grows up out of the strip with the strip's bottom edge still on the shape's. When the
   scale changes (another `width`, or a crop into the whole page) the content eases in or out while the edges sweep;
-  share `width` across a crop chain for exact pinning. Two crops of the same size (neither axis changes) are a cut:
-  the new rect shows from the row's beat. The glide starts from the previous row's settled rect, so give each crop
-  row at least 0.6 beat or the content jumps at its successor's beat. A row without crop counts as the region its
+  share `width` across a crop chain for exact pinning. When the shape does not change (a crop into zoom 1 of the
+  crop's own aspect, or into a smaller crop of the same aspect) the rect glides on the 0.6 beat no-overshoot spring
+  zoom uses; only two crops of the same size are a cut: the new rect shows from the row's beat. The glide starts from
+  the previous row's settled rect, so give each row in a crop chain at least its glide or the content jumps at its
+  successor's beat: a crop glide that moves the shape rides the shape's spring, `song.rules.spring.settle_sec` (0.6
+  beat by default); one that keeps the shape, and a zoom/focus glide, a fixed 0.6 beat. check_brief warns
+  `footage at beat 4 is shorter than its glide (0.3 s): the next row starts from where it settles` (not between two
+  zoom/focus rows: the next one carries the view the short one really ended on). A row without crop counts as the region its
   settled framing shows (the window, bar included, for a `browser` row), so crop to zoom or browser and back glide the
   same way. Reveal a page element by element: the strip alone, then grow it up, then down, then out to the side, then
   end on `browser: '...'`. Rows with only zoom/focus glide as before. A crop with `browser` set shows no bar (the crop
-  is inside the clip's frame), and `fit` does not apply (contain after a cut, cover in a glide).
+  is inside the clip's frame), and `fit` does not apply (contain after a cut, cover in a glide). A row without crop
+  gliding from one with it is cover-fitted too, except `fit: 'contain'` with its own `w`/`h` off the frame's aspect:
+  it eases from cover to contain (the whole window, letterboxed) over 0.6 beat, so once settled it shows what its
+  hotspots map. Row-level `w`/`h` off the crop's aspect on a crop row: a first row shows the crop contain-fitted with
+  fill bands and steps to cover at its successor's beat when that row glides from it, and a continuation stays cover
+  (its settled hotspots, mapped contain, are off); give crop rows no `w`/`h`, or `w`/`h` at the crop's aspect.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
@@ -478,7 +490,8 @@ missing or unreadable video is `error: ...`, exit 2.
   bar, the row's own settled zoom/focus (or crop) and the shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up
   with the captured click when it is at the row's time plus `(step t - from) / speed`: with the clip at beat 4 on a
   0.5 s beat and `pay` at 0.9 s, beat 5.8. A cursor row resolves to one fixed point, so on a row that glides in from
-  another framing, aim and press after the glide has settled (0.6 beat after the row's beat).
+  another framing, aim and press after the glide has settled (0.6 beat after the row's beat; a crop glide that moves
+  the shape: `song.rules.spring.settle_sec`, 0.6 beat by default).
 - The page fetches each used clip's clip.json before `ready`; `seek(t)` returns a promise that settles once the
   frame has decoded. render, beat_stills and the frame check await it; watch and the sync page show each frame as
   soon as it decodes.

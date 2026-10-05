@@ -10,9 +10,10 @@ import http from 'node:http';
 import { accessSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
-import { FFMPEG } from '../scripts/render.mjs';
+import { FFMPEG, UsageError } from '../scripts/render.mjs';
 import { framePath, readClip } from '../scripts/clip.mjs';
 import { calibrate, isCalibration } from '../scripts/capture.mjs';
+import { checkKeys } from '../scripts/capture_steps.mjs';
 import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -487,3 +488,13 @@ for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromi
     } finally { srv.close(); }
   });
 }
+
+test('checkKeys: only Playwright\'s unknown-key error is bad usage; any other failure is rethrown as it is', async () => {
+  const browser = (fail) => ({ newContext: async () => ({ newPage: async () => ({ keyboard: { press: async () => { throw fail; } } }), close: async () => {} }) });
+  const steps = [{ action: 'press', key: 'Foo', label: 'step 1 (press "Foo")' }];
+  await assert.rejects(checkKeys(browser(new Error('keyboard.press: Unknown key: "Foo"')), steps),
+    (e) => e instanceof UsageError && /^step 1 \(press "Foo"\): Playwright does not know the key \(Unknown key: "Foo"\)/.test(e.message));
+  const crash = new Error('Target page, context or browser has been closed');
+  await assert.rejects(checkKeys(browser(crash), steps), (e) => e === crash && !(e instanceof UsageError));
+  await checkKeys(browser(new Error('never pressed')), [{ action: 'click', sel: '#a' }]);
+});

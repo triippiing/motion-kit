@@ -194,8 +194,8 @@ function focusedBox() {
 }
 
 // Try every press step's key once in a throwaway context of `browser` (a launched Playwright browser): Playwright
-// knows a key name only when it presses it, and the app's page must not get stray keys. A key it does not know is a
-// UsageError naming the step (exit 2), before the first frame.
+// knows a key name only when it presses it, and the app's page must not get stray keys. A key it does not know (its
+// "Unknown key" error) is a UsageError naming the step (exit 2), before the first frame; any other failure is rethrown.
 export async function checkKeys(browser, steps) {
   const presses = steps.filter((s) => s.action === 'press');
   if (!presses.length) return;
@@ -204,6 +204,7 @@ export async function checkKeys(browser, steps) {
     const page = await context.newPage();
     for (const s of presses) {
       try { await page.keyboard.press(s.key); } catch (e) {
+        if (!/Unknown key/.test(String(e?.message))) throw e;   // a crash (closed page, ...) is a runtime error, exit 1
         const why = String(e.message).split('\n')[0].replace(/^keyboard\.press: /, '');
         throw new UsageError(`${s.label}: Playwright does not know the key (${why}); key names are like "m", "Enter", "ArrowRight" or "Shift+ArrowLeft"`);
       }
