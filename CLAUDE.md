@@ -310,14 +310,20 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   and Chromium for `--realtime`. CLIPDIR must be new, empty or an existing clip (its frames are replaced); frames go to
   a temp directory beside it first, so a failed run leaves it as it was. At most 99999 frames.
 - The steps file is a JSON list: `{ "wait": SEC }`, `{ "click": SEL }`, `{ "hover": SEL }`,
-  `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer) or `{ "scroll": PX, "in": SEL }`,
-  each optionally with a unique `"name"` (a named step lands in clip.json with its `t` and `box`). Selectors are
+  `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer), `{ "scroll": PX, "in": SEL }`
+  or `{ "press": KEY }` (a Playwright key name pressed into whatever has focus, modifiers joined with `+`: `"m"`,
+  `"Enter"`, `"ArrowRight"`, `"Alt+ArrowRight"`, `"Shift+ArrowLeft"`; `"repeat": N` times, default 1, 1 to 200,
+  `"every": SEC` apart, default 0.1; the step lasts repeat x every, the pointer stays put, and a named press's `box`
+  is the focused element's, or the viewport's when nothing is focused), each optionally with a unique `"name"` (a named step lands in clip.json with its `t` and `box`). Selectors are
   Playwright selectors (CSS); several matches use the first. The pointer starts at the viewport's centre and moves to
   a target's centre over `"move"` seconds (default 0.4, ease-in-out); `type` clicks to focus, then types `"cps"`
-  characters a second (default 12); a scroll turns the wheel over 0.3 s. A 0.5 s hold comes before the first step and
+  characters a second (default 12); a scroll turns the wheel over 0.3 s. Stepped, each key press lands on its own
+  frame of the fake clock; `--realtime` presses on the wall clock. A 0.5 s hold comes before the first step and
   after the last; steps run back to back, laid out on frames up front.
-- Prints `capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> CLIPDIR`. Bad input (unknown key, unreadable or
-  invalid steps file, a selector Playwright cannot parse, checked before the first frame) is `error: ...`, exit 2. A
+- Prints `capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> CLIPDIR`. Bad input (an unknown step key, an unreadable or
+  invalid steps file, a `repeat` or `every` out of range, a selector Playwright cannot parse or a `press` key name it
+  does not know, these two checked before the first frame: `error: step 2 (press "Foo"): Playwright does not know the
+  key ...`) is `error: ...`, exit 2. A
   selector that matches nothing is exit 1 naming the step: `error: step 2 (click "#pay"): no element matches (waited 5 s)`
   (also exit 1: not visible, or its centre outside the viewport: scroll to it first). A page that throws gets
   `warning: the page threw N error(s) during the capture; the first: ...`.

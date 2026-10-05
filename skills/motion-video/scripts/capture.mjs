@@ -9,8 +9,9 @@
 // --scale (device pixels per CSS pixel, default 1; 2 for retina-sharp stepped frames), plays the steps
 // (capture_steps.mjs has the format) and writes one JPEG per frame at --fps (default 60) plus clip.json (mode
 // "stepped", browser, source, the named steps' t and box) into CLIPDIR, which must be new, empty, or an existing clip
-// (its frames are replaced). Clips are git-ignored (footage/), like renders. Frames go to a temp directory beside
-// CLIPDIR first, so a failed run leaves it as it was.
+// (its frames are replaced). A press step's key name is tried first in a throwaway context (checkKeys), so an
+// unknown key is exit 2 before the first frame. Clips are git-ignored (footage/), like renders. Frames go to a temp
+// directory beside CLIPDIR first, so a failed run leaves it as it was.
 //
 // Stepped capture runs the page on a fake clock, so the same page and steps give the same frames on every run:
 // - Playwright's page.clock fakes Date, performance.now, timers and requestAnimationFrame, installed paused before
@@ -39,9 +40,9 @@
 // --realtime is for an app that will not step (a fake clock breaks it, or it animates in ways the sync cannot reach):
 // no fake clock and no animation sync, and Chromium unless --browser says otherwise. Playwright records the context
 // (recordVideo) while the same planned steps run on the real clock: the StepRunner is called for frame i at the
-// absolute deadline zero + i / fps, so pointer moves, keys and wheel turns keep their eased timing. A late frame just
-// runs late, and the frames after it run back to back until they catch up, so motion right after a stall is
-// compressed. The context is closed to flush the video and ffmpeg cuts the clip's frames from it (clip.mjs
+// absolute deadline zero + i / fps, so pointer moves, typed keys, key presses and wheel turns keep their timing. A
+// late frame just runs late, and the frames after it run back to back until they catch up, so motion right after a
+// stall is compressed. The context is closed to flush the video and ffmpeg cuts the clip's frames from it (clip.mjs
 // extractFrames), mode "realtime". Clip zero is when the page has loaded (and its fonts) and the selectors are
 // checked; a named step's t is the real time of its action since then, so frame round(t * fps) + 1 shows it,
 // approximately. Measured with playwright 1.63.0 on macOS:
@@ -70,7 +71,7 @@ import path from 'node:path';
 import { FFMPEG, UsageError, serve } from './render.mjs';
 import { isMain } from './is_main.mjs';
 import { MAX_FRAMES, checkClipDir, extractFrames, framePath, prepareClipDir, writeClip } from './clip.mjs';
-import { StepRunner, checkSteps, planSteps } from './capture_steps.mjs';
+import { StepRunner, checkKeys, checkSteps, planSteps } from './capture_steps.mjs';
 
 const USAGE = 'usage: capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromium] [--size WxH] [--fps N] [--scale N] [--realtime]';
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -169,6 +170,7 @@ export async function capture(target, steps, { out, browser, size = [1280, 800],
     if (file) served = await serve(path.dirname(file));
     const url = remote ?? served.url + encodeURIComponent(path.basename(file));
     instance = await type.launch();
+    await checkKeys(instance, plan.steps);
     const job = { instance, url, errors, tmp, out, plan, fps, size, scale, browser, frame: [width, height] };
     const got = await (realtime ? recordRealtime(job) : recordStepped(job));
     instance = null;

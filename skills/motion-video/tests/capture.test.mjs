@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import http from 'node:http';
 import { accessSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
@@ -230,6 +231,76 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
   });
 }
 
+// ---- press steps: a page that logs each (non-modifier) keydown with its clock time (performance.now() - 1000 is clip time in a
+// stepped capture: capture.mjs loads the page at 1000) to the test's own server, and widens a bar per key.
+const KEYS_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin: 0; background: #fff; }
+#field { position: absolute; left: 20px; top: 20px; width: 100px; height: 30px; box-sizing: border-box; }
+#bar { position: absolute; left: 0; top: 100px; width: 10px; height: 40px; background: rgb(0, 0, 255); }
+</style></head><body><input id="field"><div id="bar"></div><script>
+let n = 0;
+addEventListener('keydown', (e) => {
+  if (['Shift', 'Alt', 'Control', 'Meta'].includes(e.key)) return;   // a modifier's own keydown (Shift+ArrowLeft sends two)
+  document.getElementById('bar').style.width = (10 + 20 * ++n) + 'px';
+  fetch('/log', { method: 'POST', body: JSON.stringify({ key: e.key, shift: e.shiftKey, t: performance.now() - 1000 }) });
+});
+</script></body></html>`;
+async function keyServer() {
+  const log = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (d) => { body += d; });
+      req.on('end', () => { log.push(JSON.parse(body)); res.end('ok'); });
+      return;
+    }
+    res.setHeader('content-type', 'text/html');
+    res.end(KEYS_PAGE);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/keys.html`, log, close: () => server.close() };
+}
+// At 30 fps: the click arrives at 0.6 s (frame index 18), then ArrowRight x3 every 0.1 s (18, 21, 24), Shift+ArrowLeft
+// at 0.9 s (27), a 0.2 s wait and the 0.5 s hold: 1.7 s, 51 frames.
+const KEY_STEPS = [{ click: '#field', move: 0.1 }, { press: 'ArrowRight', repeat: 3, every: 0.1, name: 'nudge' }, { press: 'Shift+ArrowLeft', name: 'back' }, { wait: 0.2 }];
+
+for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}: press steps land on their frames, repeats spaced exactly (stepped)`, { skip }, async () => {
+    const srv = await keyServer(), dir = path.join(TMP, name, 'keys');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`keys-${name}`, KEY_STEPS), '--out', dir, '--fps', String(FPS), '--size', '320x240', '--browser', name);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(srv.log.map((e) => [e.key, e.shift, e.t]), [['ArrowRight', false, 600], ['ArrowRight', false, 700], ['ArrowRight', false, 800], ['ArrowLeft', true, 900]]);
+      const clip = readClip(dir);
+      assert.equal(clip.frames, Math.round(1.7 * FPS));
+      const [nudge, back] = clip.steps;
+      assert.deepEqual([nudge.name, nudge.action, back.name, back.action], ['nudge', 'press', 'back', 'press']);
+      assert.ok(Math.abs(nudge.t - 0.6) < 1e-9 && Math.abs(back.t - 0.9) < 1e-9, `t ${nudge.t}, ${back.t}`);
+      // the box of a press is the focused element's (the input the click focused)
+      for (const [k, want] of Object.entries({ x: 20, y: 20, w: 100, h: 30 })) assert.ok(Math.abs(nudge.box[k] - want) <= 1, `box.${k} ${nudge.box[k]}`);
+      // the bar grows 20 px on each press's own frame: frame n is clip time (n - 1) / fps
+      const blue = (n, x) => rgbAt(framePath(dir, n), x, 120)[2] - rgbAt(framePath(dir, n), x, 120)[0] > 150;
+      for (const [i, x] of [[18, 25], [21, 45], [24, 65], [27, 85]]) {
+        assert.ok(!blue(i, x) && blue(i + 1, x), `the press at frame index ${i} shows on frame ${i + 1}, not before (x ${x})`);
+      }
+    } finally { srv.close(); }
+  });
+}
+
+test('chromium --realtime: press steps run on the wall clock, spaced about every', { skip: installed(chromium) ? false : 'playwright chromium is not installed' }, async () => {
+  const srv = await keyServer(), dir = path.join(TMP, 'realtime-keys');
+  try {
+    const r = await captureAsync(srv.url, '--steps', stepsFile('keys-rt', KEY_STEPS), '--out', dir, '--fps', String(FPS), '--size', '320x240', '--realtime');
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(srv.log.map((e) => e.key), ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowLeft']);
+    const gaps = srv.log.slice(1).map((e, i) => e.t - srv.log[i].t);
+    assert.ok(gaps.every((g) => Math.abs(g - 100) < 60), `gaps ${gaps.map((g) => g.toFixed(0))} ms`);
+    const nudge = readClip(dir).steps.find((s) => s.name === 'nudge');
+    assert.ok(Math.abs(nudge.t - 0.6) <= 0.25, `nudge.t ${nudge.t}`);
+  } finally { srv.close(); }
+});
+
 test('--realtime without --browser records in chromium', { skip: installed(chromium) ? false : 'playwright chromium is not installed' }, async () => {
   const dir = path.join(TMP, 'realtime-default');
   const r = await captureAsync(APP, '--steps', stepsFile('short', [{ wait: 0.2 }]), '--out', dir, '--fps', '10', '--size', '320x240', '--realtime');
@@ -292,6 +363,17 @@ test('bad input exits 2 with error: and no traceback', () => {
     [['file:///no/such/app.html', '--steps', STEPS_FILE, '--out', o], /no such file/],
     [[path.join(TMP, 'missing.html'), '--steps', STEPS_FILE, '--out', o], /missing\.html/],
     [[APP, '--steps', STEPS_FILE, '--out', busy], /not empty/],
+    [[APP, '--steps', bad('nokey', '[{"press": ""}]'), '--out', o], /step 1: "press" must be a key name/],
+    [[APP, '--steps', bad('numkey', '[{"press": 5}]'), '--out', o], /step 1: "press" must be a key name/],
+    [[APP, '--steps', bad('rep0', '[{"press": "m", "repeat": 0}]'), '--out', o], /step 1: "repeat" must be a whole number from 1 to 200, got 0/],
+    [[APP, '--steps', bad('rep201', '[{"press": "m", "repeat": 201}]'), '--out', o], /"repeat" must be a whole number from 1 to 200, got 201/],
+    [[APP, '--steps', bad('repfrac', '[{"press": "m", "repeat": 1.5}]'), '--out', o], /"repeat" must be a whole number/],
+    [[APP, '--steps', bad('every0', '[{"press": "m", "every": 0}]'), '--out', o], /step 1: "every" must be a number of seconds > 0, got 0/],
+    [[APP, '--steps', bad('everyneg', '[{"press": "m", "every": -0.1}]'), '--out', o], /"every" must be a number of seconds > 0/],
+    [[APP, '--steps', bad('pressmove', '[{"press": "m", "move": 0.2}]'), '--out', o], /step 1: "move" does not go with press/],
+    [[APP, '--steps', bad('clickrep', '[{"click": "#btn", "repeat": 2}]'), '--out', o], /step 1: "repeat" does not go with click/],
+    [[APP, '--steps', bad('badkey', '[{"wait": 0.1}, {"press": "Foo"}]'), '--out', o, '--size', '320x240', '--fps', '10'], /step 2 \(press "Foo"\): Playwright does not know the key/],
+    [[APP, '--steps', bad('badkey-rt', '[{"press": "Shift+Nope"}]'), '--out', o, '--size', '320x240', '--fps', '10', '--realtime'], /step 1 \(press "Shift\+Nope"\): Playwright does not know the key/],
   ];
   for (const [args, msg] of cases) {
     const r = capture(...args);

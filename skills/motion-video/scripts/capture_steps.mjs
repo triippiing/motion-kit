@@ -2,20 +2,24 @@
 // playing it into a Playwright page one frame at a time.
 //
 // A steps list is [{ "wait": SEC } | { "click": SEL } | { "hover": SEL } | { "type": SEL, "text": STR } |
-// { "scroll": PX } | { "scroll": PX, "in": SEL }], each optionally "name"d (names are unique; a named step lands in
-// clip.json with its time and box). The pointer moves to a target's centre over "move" seconds (default 0.4) on an
+// { "scroll": PX } | { "scroll": PX, "in": SEL } | { "press": KEY }], each optionally "name"d (names are unique; a
+// named step lands in clip.json with its time and box). The pointer moves to a target's centre over "move" seconds (default 0.4) on an
 // ease-in-out straight line, found when the step begins (5 s to appear, else exit 1); then a click is a press and
 // release there, a hover just arrives, a type clicks to focus and types "cps" characters a second (default 12, one
 // key per due frame), and a scroll in an element turns the wheel there by PX over 0.3 s. A scroll without "in" turns
-// it wherever the pointer is. A selector matching several elements uses the first; one Playwright cannot parse is
-// bad input (exit 2), checked before the first frame. Steps run back to back after a 0.5 s hold, and a 0.5 s hold
+// it wherever the pointer is. A press presses KEY (a Playwright key name, modifiers joined with +: "m", "Enter",
+// "ArrowRight", "Alt+ArrowRight", "Shift+ArrowLeft") into whatever has focus, "repeat" times (default 1, 1 to 200)
+// "every" seconds apart (default 0.1), the pointer staying put; the step lasts repeat x every, and its box is the
+// focused element's (the viewport when nothing is focused). A selector matching several elements uses the first; one
+// Playwright cannot parse, or a key it does not know (tried in a throwaway page: checkKeys), is bad input (exit 2),
+// checked before the first frame. Steps run back to back after a 0.5 s hold, and a 0.5 s hold
 // ends the clip. All times are laid out on frames up front (round(t * fps)), so a step lands on the same frame on
 // every run.
 import { UsageError } from './render.mjs';
 
-export const HOLD = 0.5, MOVE = 0.4, CPS = 12, WHEEL = 0.3, FIND_MS = 5000;
-const ACTIONS = ['wait', 'click', 'type', 'scroll', 'hover'];
-const EXTRA = { wait: [], click: ['move'], hover: ['move'], type: ['text', 'move', 'cps'], scroll: ['in', 'move'] };
+export const HOLD = 0.5, MOVE = 0.4, CPS = 12, WHEEL = 0.3, FIND_MS = 5000, EVERY = 0.1, MAX_REPEAT = 200;
+const ACTIONS = ['wait', 'click', 'type', 'scroll', 'hover', 'press'];
+const EXTRA = { wait: [], click: ['move'], hover: ['move'], type: ['text', 'move', 'cps'], scroll: ['in', 'move'], press: ['repeat', 'every'] };
 
 // A step that failed in the page (exit 1, not a usage error).
 export class StepError extends Error {}
@@ -23,7 +27,8 @@ export class StepError extends Error {}
 const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 const selector = (x) => typeof x === 'string' && x.trim() !== '';
 
-// Check a parsed steps list; returns normalised steps { n, action, sel, name, wait, move, text, cps, px, label }.
+// Check a parsed steps list; returns normalised steps { n, action, sel, name, wait, move, text, cps, px, key, repeat,
+// every, label }.
 export function checkSteps(list) {
   if (!Array.isArray(list)) throw new UsageError('the steps file must hold a list of steps, e.g. [{"click": "#pay"}]');
   const names = new Set();
@@ -53,6 +58,11 @@ export function checkSteps(list) {
       if (!isNum(v) || v === 0) bad(`: "scroll" must be a non-zero number of pixels (down is positive), got ${JSON.stringify(v)}`);
       if (raw.in != null && !selector(raw.in)) bad(': "in" must be a selector');
       s.px = v; s.sel = raw.in ?? null;
+    } else if (action === 'press') {
+      if (typeof v !== 'string' || !v) bad(`: "press" must be a key name, e.g. "Enter", "m" or "Shift+ArrowLeft", got ${JSON.stringify(v)}`);
+      s.key = v; s.sel = null; s.repeat = raw.repeat ?? 1; s.every = raw.every ?? EVERY;
+      if (!Number.isInteger(s.repeat) || s.repeat < 1 || s.repeat > MAX_REPEAT) bad(`: "repeat" must be a whole number from 1 to ${MAX_REPEAT}, got ${JSON.stringify(raw.repeat)}`);
+      if (!isNum(s.every) || s.every <= 0) bad(`: "every" must be a number of seconds > 0, got ${JSON.stringify(raw.every)}`);
     } else {
       if (!selector(v)) bad(`: "${action}" must be a selector, got ${JSON.stringify(v)}`);
       s.sel = v;
@@ -69,13 +79,13 @@ export function checkSteps(list) {
 
 // Lay checked steps out on frame indices (0-based; frame i is clip time i / fps). Each step gets begin (its target is
 // found then), arrive (the pointer is there: the click, focus or first wheel turn), keys [[frame, char]], wheel
-// [[frame, dy]] and last (its last frame with work). Returns { steps, frames }.
+// [[frame, dy]], hits [frame] (a press's key presses) and last (its last frame with work). Returns { steps, frames }.
 export function planSteps(steps, fps) {
   const at = (t) => Math.round(t * fps);
   let t = HOLD, lastAction = 0;
   const planned = steps.map((s) => {
-    const p = { ...s, begin: at(t), keys: [], wheel: [] };
-    const pointer = s.action !== 'wait' && (s.action !== 'scroll' || s.sel != null);
+    const p = { ...s, begin: at(t), keys: [], wheel: [], hits: [] };
+    const pointer = s.action !== 'wait' && s.action !== 'press' && (s.action !== 'scroll' || s.sel != null);
     const move = pointer ? s.move : 0;
     p.arrive = at(t + move);
     let dur = move;
@@ -89,8 +99,12 @@ export function planSteps(steps, fps) {
       for (let j = 0; j < w; j++) p.wheel.push([p.arrive + j, Math.round((s.px * (j + 1)) / w) - Math.round((s.px * j) / w)]);
       dur += WHEEL;
     }
+    if (s.action === 'press') {
+      for (let j = 0; j < s.repeat; j++) p.hits.push(at(t + j * s.every));
+      dur = s.repeat * s.every;
+    }
     p.pointer = pointer;
-    p.last = Math.max(p.arrive, ...p.keys.map(([f]) => f), ...p.wheel.map(([f]) => f));
+    p.last = Math.max(p.arrive, ...p.keys.map(([f]) => f), ...p.wheel.map(([f]) => f), ...p.hits);
     lastAction = Math.max(lastAction, p.last);
     t += dur;
     return p;
@@ -103,8 +117,8 @@ const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);   // 
 // Plays planned steps into a page: call frame(i) for every frame in order, before that frame's screenshot. The pointer
 // starts at the viewport's centre (call start() once, before frame 0; it also checks every selector parses). Named
 // steps are collected in `record` as { name, action, t, box } with the box in clip pixels (CSS pixels x scale), read
-// on the action's frame (where the target was found, if it has gone by then; the viewport for a wait or a scroll
-// without "in"). t is clock(i), the frame's clip time i / fps unless the caller measures it (realtime capture).
+// on the action's frame (where the target was found, if it has gone by then; the focused element for a press; the
+// viewport for a wait, a scroll without "in" or a press with nothing focused). t is clock(i), the frame's clip time i / fps unless the caller measures it (realtime capture).
 export class StepRunner {
   constructor(page, plan, { fps, size, scale, clock = (i) => i / fps }) {
     Object.assign(this, { page, plan, fps, size, scale, clock, record: [] });
@@ -143,6 +157,7 @@ export class StepRunner {
     }
     for (const [f, ch] of s.keys) if (f === i) await keyboard.type(ch);
     for (const [f, dy] of s.wheel) if (f === i) await mouse.wheel(0, dy);
+    for (const f of s.hits) if (f === i) await keyboard.press(s.key);
   }
 
   // The step's target box (CSS pixels) once it is attached, visible and its centre is in the viewport.
@@ -164,7 +179,34 @@ export class StepRunner {
     let box = s.found ?? { x: 0, y: 0, width: this.size[0], height: this.size[1] };
     const loc = s.sel != null && this.page.locator(s.sel).first();
     if (loc && await loc.count()) box = (await loc.boundingBox({ timeout: 1000 }).catch(() => null)) ?? box;   // gone: where it was found
+    if (s.action === 'press') box = (await this.page.evaluate(focusedBox)) ?? box;
     const k = this.scale, r = (x) => Math.round(x * k * 100) / 100;
     this.record.push({ name: s.name, action: s.action, t: this.clock(i), box: { x: r(box.x), y: r(box.y), w: r(box.width), h: r(box.height) } });
   }
+}
+
+// The focused element's box (CSS pixels), or null when nothing (or nothing with a size) has focus. Runs in the page.
+function focusedBox() {
+  const e = document.activeElement;
+  if (!e || e === document.body || e === document.documentElement) return null;
+  const r = e.getBoundingClientRect();
+  return r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, width: r.width, height: r.height } : null;
+}
+
+// Try every press step's key once in a throwaway context of `browser` (a launched Playwright browser): Playwright
+// knows a key name only when it presses it, and the app's page must not get stray keys. A key it does not know is a
+// UsageError naming the step (exit 2), before the first frame.
+export async function checkKeys(browser, steps) {
+  const presses = steps.filter((s) => s.action === 'press');
+  if (!presses.length) return;
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    for (const s of presses) {
+      try { await page.keyboard.press(s.key); } catch (e) {
+        const why = String(e.message).split('\n')[0].replace(/^keyboard\.press: /, '');
+        throw new UsageError(`${s.label}: Playwright does not know the key (${why}); key names are like "m", "Enter", "ArrowRight" or "Shift+ArrowLeft"`);
+      }
+    }
+  } finally { await context.close().catch(() => {}); }
 }

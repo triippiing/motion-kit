@@ -367,14 +367,19 @@ The steps file is a JSON list, run in order:
 | `{ "hover": SEL }` | moves the pointer there |
 | `{ "type": SEL, "text": STR }` | clicks to focus, then types `"cps"` characters a second (default 12) |
 | `{ "scroll": PX }` / `{ "scroll": PX, "in": SEL }` | turns the wheel PX (down is positive) over 0.3 s where the pointer is / over the element |
+| `{ "press": KEY }` | presses KEY into whatever has focus (a Playwright key name, modifiers joined with `+`: `"m"`, `"Enter"`, `"ArrowRight"`, `"Alt+ArrowRight"`, `"Shift+ArrowLeft"`); `"repeat": N` times (default 1, 1 to 200), `"every": SEC` apart (default 0.1); lasts repeat x every; the pointer stays put |
 
 Any step takes `"name"` (unique; a named step lands in clip.json with its `t` and `box`, for the cursor's `step:NAME`)
 and a pointer step `"move"` (seconds to reach the target, default 0.4, ease-in-out; the pointer starts at the
 viewport's centre). Selectors are Playwright selectors (CSS); several matches use the first. A 0.5 s hold comes
-before the first step and after the last, e.g. `[{ "click": "#pay", "name": "pay" }, { "wait": 1 }]` is 2.4 s.
+before the first step and after the last, e.g. `[{ "click": "#pay", "name": "pay" }, { "wait": 1 }]` is 2.4 s. Click
+or type into a field first to give a `press` its focus; a named press's `box` is the focused element's (the
+viewport's when nothing is focused). Stepped, each key press lands on its own frame of the fake clock (repeats
+exactly `every` apart); with `--realtime` they are pressed on the wall clock.
 
-Errors: `error: ...`, exit 2, for bad input: an unknown key, an unreadable or invalid steps file, a selector
-Playwright cannot parse (checked before the first frame). Exit 1 when the page lets a step down: a selector that
+Errors: `error: ...`, exit 2, for bad input: an unknown step key, an unreadable or invalid steps file, a `repeat` or
+`every` out of range, a selector Playwright cannot parse or a `press` key name it does not know (both checked before
+the first frame: `error: step 2 (press "Foo"): Playwright does not know the key ...`). Exit 1 when the page lets a step down: a selector that
 matches nothing within 5 s (`error: step 2 (click "#pay"): no element matches (waited 5 s)`), an element that is not
 visible, or one whose centre is outside the viewport (scroll to it first). `warning: the page threw N error(s) during
 the capture; the first: ...` when the app throws.
