@@ -168,10 +168,10 @@ function muteScript() {
   if (M) {
     Object.defineProperty(M, 'muted', { configurable: true, enumerable: mutedD.enumerable,
       get() { return own.has(this) ? own.get(this).muted : mutedD.get.call(this); },
-      set(v) { silence(this); own.get(this).muted = !!v; } });
+      set(v) { if (exempt.has(this)) return mutedD.set.call(this, v); silence(this); own.get(this).muted = !!v; } });
     Object.defineProperty(M, 'volume', { configurable: true, enumerable: volD.enumerable,
       get() { return own.has(this) ? own.get(this).volume : volD.get.call(this); },
-      set(v) { volD.set.call(this, v); const now = volD.get.call(this); silence(this); own.get(this).volume = now; } });   // the real setter checks v
+      set(v) { volD.set.call(this, v); if (exempt.has(this)) return; const now = volD.get.call(this); silence(this); own.get(this).volume = now; } });   // the real setter checks v
     const play = M.play, load = M.load;
     M.play = function (...a) { silence(this); return play.apply(this, a); };
     M.load = function (...a) { silence(this); return load.apply(this, a); };

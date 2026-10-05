@@ -450,6 +450,7 @@ document.getElementById('go').addEventListener('click', async () => {
   fed.loop = true;
   const an = ctx.createAnalyser();
   ctx.createMediaElementSource(fed).connect(an);
+  fed.volume = 0.7;   // an exempt element's own setters are the real ones
   an.connect(ctx.destination);
   const loose = new Audio('/tone.wav');
   loose.loop = true;
@@ -482,7 +483,7 @@ for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromi
       if (name === 'chromium') assert.ok(peak > 20, `the analyser sees the tone: peak ${peak}`);
       assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], JSON.stringify(out));
       assert.deepEqual(out.media, [{ muted: true, volume: 0 }, { muted: true, volume: 0 }], `the detached and the shadow-root element: ${JSON.stringify(out)}`);
-      assert.deepEqual(out.exempt, [{ muted: false, volume: 1 }], JSON.stringify(out));
+      assert.deepEqual(out.exempt, [{ muted: false, volume: 0.7 }], JSON.stringify(out));
     } finally { srv.close(); }
   });
 }
