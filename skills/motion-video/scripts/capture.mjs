@@ -53,7 +53,9 @@
 //   which ties recording time to the clock (to within one 40 ms recorded frame, plus the paint, as for any step).
 //   The clip is cut from zero, so the calibration and the loading page are not in it, for the steps' frame count,
 //   so the ~0.4 s the recording runs on into the close is not either. If the frame at zero still shows the
-//   calibration page, the measurement is off and the capture fails (exit 1) rather than give misaligned footage.
+//   calibration page, the measurement is off. Either failure (CalibrationError) records once more with the blue page held
+//   CAL_RETRY_MS (a busy machine can start the recording late), with a warning; a second failure is exit 1 rather
+//   than misaligned footage.
 // - Rate and size: the recording is 25 fps (at --fps 30 or 60 some frames repeat) and in CSS pixels (--scale has no
 //   effect on its frames; the clip is never scaled up). Playwright pads the picture grey to the recording's size, and
 //   WebKit on macOS draws it at 90% with a light 1 px edge and its colours shifted (pure green comes out
@@ -91,6 +93,10 @@ const TICKS0 = 1000;
 // Recorded, pure blue comes out ~rgb(0, 0, 253) in Chromium and ~rgb(0, 0, 244) in WebKit on macOS; magenta
 // ~rgb(253, 0, 251) and ~rgb(233, 49, 244). The thresholds (isBlue, isMagenta) leave ~50 or more each way.
 const CAL_BLUE = '#0000ff', CAL_FLIP = '#ff00ff', CAL_MS = 300, FLIP_MS = 200;
+// A busy machine can start the recording after the blue page has gone (seen once in a full parallel test run): the
+// calibration then fails, and the capture is recorded once more with the blue page held CAL_RETRY_MS.
+const CAL_RETRY_MS = 1500;
+export class CalibrationError extends Error {}
 const isBlue = ([r, g, b]) => b > 150 && r < 100 && g < 100;
 const isMagenta = ([r, g, b]) => r > 150 && b > 150 && g < 100;
 const REALTIME_WARNING = 'warning: realtime capture: timing is approximate (about ±1 frame per step)';
@@ -250,7 +256,8 @@ function checkOptions({ browser, size, fps, scale }) {
   return [w, h];
 }
 
-export async function capture(target, steps, { out, browser, size = [1280, 800], fps = 60, scale = 1, realtime = false } = {}) {
+export async function capture(target, steps, { out, browser, size = [1280, 800], fps = 60, scale = 1, realtime = false,
+  calibrationMs = [CAL_MS, CAL_RETRY_MS] } = {}) {   // calibrationMs: the blue hold, first try and retry (tests: -1 skips it)
   if (!out) throw new UsageError('--out CLIPDIR is required (e.g. --out footage/NAME in the project)');
   browser ??= realtime ? 'chromium' : 'webkit';
   const [width, height] = checkOptions({ browser, size, fps, scale });
@@ -272,7 +279,18 @@ export async function capture(target, steps, { out, browser, size = [1280, 800],
     instance = await type.launch(browser === 'chromium' ? { args: ['--mute-audio'] } : {});   // and muteScript, in both
     await checkKeys(instance, plan.steps);
     const job = { instance, url, errors, tmp, out, plan, fps, size, scale, browser, frame: [width, height] };
-    const got = await (realtime ? recordRealtime(job) : recordStepped(job));
+    let got;
+    if (!realtime) got = await recordStepped(job);
+    else {
+      try { got = await recordRealtime({ ...job, blueMs: calibrationMs[0] }); }
+      catch (e) {
+        if (!(e instanceof CalibrationError)) throw e;
+        console.error(`warning: ${e.message}; recording again with a longer calibration`);
+        errors.length = 0;
+        instance = await type.launch(browser === 'chromium' ? { args: ['--mute-audio'] } : {});
+        got = await recordRealtime({ ...job, instance, blueMs: calibrationMs[1] });
+      }
+    }
     instance = null;
     const clip = writeClip(out, { fps, width: got.width, height: got.height, frames: got.frames, duration: got.frames / fps,
       mode: realtime ? 'realtime' : 'stepped', source, browser, steps: got.record });
@@ -330,7 +348,7 @@ async function recordStepped({ instance, url, errors, tmp, out, plan, fps, size,
 // Realtime capture (see the header): the steps on the real clock while Playwright records, then the recording's
 // frames into out (all of the steps' frames, unless the recording ends short). Closes the browser; returns
 // { record: the named steps, frames, width, height }.
-async function recordRealtime({ instance, url, errors, tmp, out, plan, fps, size, scale }) {
+async function recordRealtime({ instance, url, errors, tmp, out, plan, fps, size, scale, blueMs = CAL_MS }) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const created = Date.now();
   const context = await instance.newContext({ viewport: { width: size[0], height: size[1] }, deviceScaleFactor: scale,
@@ -338,8 +356,9 @@ async function recordRealtime({ instance, url, errors, tmp, out, plan, fps, size
   await context.addInitScript(muteScript);
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(e));
-  await page.goto(`data:text/html,<body style="margin:0;background:${encodeURIComponent(CAL_BLUE)}"></body>`);
-  await sleep(CAL_MS);
+  // blueMs < 0 skips the blue page (tests use it to force a failed calibration and so the retry)
+  if (blueMs >= 0) await page.goto(`data:text/html,<body style="margin:0;background:${encodeURIComponent(CAL_BLUE)}"></body>`);
+  await sleep(Math.max(0, blueMs));
   const before = Date.now();
   await page.evaluate((c) => { document.body.style.background = c; }, CAL_FLIP);
   const flip = ((before + Date.now()) / 2 - created) / 1000;
@@ -365,7 +384,7 @@ async function recordRealtime({ instance, url, errors, tmp, out, plan, fps, size
   const cal = await calibrate(file, size, flip);
   const start = (zero - created) / 1000 + cal.offset;   // clip zero in recording seconds
   if (start < 0 || await isCalibration(file, start, size)) {
-    throw new Error(`recording offset larger than expected: the recording still shows the calibration page at clip zero (${start.toFixed(2)} s in); try again`);
+    throw new CalibrationError(`recording offset larger than expected: the recording still shows the calibration page at clip zero (${start.toFixed(2)} s in)`);
   }
   const area = await contentArea(file, cal.still, size);
   if (Math.abs(area.kx / area.ky - 1) > 0.03) throw new Error(`the page fills ${area.w}x${area.h} of the recording, not the ${size.join('x')} viewport's shape`);
@@ -399,7 +418,7 @@ export async function calibrate(video, size, flip) {
   const first = track.findIndex((f) => isBlue(f.rgb));
   const turn = first < 0 ? -1 : track.findIndex((f, i) => i > first && isMagenta(f.rgb));
   if (turn < 0) {
-    throw new Error(`could not find the calibration flip in the recording (no ${first < 0 ? 'blue' : 'magenta'} frame in its first ${(flip + 3).toFixed(1)} s); try again`);
+    throw new CalibrationError(`could not find the calibration flip in the recording (no ${first < 0 ? 'blue' : 'magenta'} frame in its first ${(flip + 3).toFixed(1)} s)`);
   }
   let last = turn - 1;
   while (last > first && !isBlue(track[last].rgb)) last--;

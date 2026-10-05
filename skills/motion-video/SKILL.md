@@ -406,7 +406,8 @@ and set from that clock each frame, so the same page and steps give the same fra
 the page while the steps run on the real clock and ffmpeg cuts the frames. It always warns
 `warning: realtime capture: timing is approximate (about ±1 frame per step)`. The recording is 25 fps (at `--fps`
 30 or 60 some frames repeat) and in CSS pixels (`--scale` does not apply). Each run measures its own recording offset
-(a calibration flash before the app loads) and fails with exit 1 rather than give misaligned footage. Chromium is
+(a calibration flash before the app loads); when the recording missed the flash (a busy machine) it warns and records once
+more with a longer one, and if that fails too it exits 1 rather than give misaligned footage. Chromium is
 its default (sharp, true colour); `--realtime --browser webkit` warns
 `warning: webkit realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default`.
 Realtime frames differ from run to run.
