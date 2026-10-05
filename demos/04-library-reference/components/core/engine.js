@@ -8,7 +8,8 @@
 // offset) and `row.marker` holding the name; `offset` is gone. A bad marker throws like any validation error.
 // createScene options beyond the tables: loop (default true; false for a one-off piece whose last row need not
 // repeat the first) and designScale (the camera scale K; default min(W, H) / 1440, never below 1). The template
-// reads both from project.json.
+// reads both from project.json. clips: { src: clip.json object } for the footage rows' clips (the template fetches
+// footage/<src>/clip.json for each before ready); default {}, so a row whose clip is missing is a validation error.
 //
 // Component module contract:
 //   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
@@ -23,11 +24,16 @@
 //   hotspot is also called with ctx = {} (validation, and choosing which row a cursor row aims at, happen
 //   before any row has a ctx): whether it returns null must not depend on ctx, and any ctx read is guarded
 //   (ctx?.continues). A cursor row aims at the first candidate row on which its hotspot resolves.
+//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips }) -> reason | null:
+//   rules that need data beyond the row (footage's clip), run by validate. info = { clips, strict, at (the row's
+//   beat, for messages), row, beatT (null when the caller gave none), t1 (seconds; Infinity when unknown), continues,
+//   prev }; clips is undefined when the caller has none (no project), and then there is nothing to check against.
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
-//           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
+//           prev, continues, settled, clips, wait }   settled: true for row 0, shown with its entrance long finished.
+//   clips: the createScene option (geometry gets it too, through the same base ctx).
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
 //   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
 //   press } (the cursor moved elsewhere), in time order. A component that reacts to where the cursor is aimed
@@ -62,13 +68,13 @@ import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
 export function createScene(o) {
-  const { extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
+  const { extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale, clips = {} } = o;
   // Marker rows become beat numbers before anything else reads the tables.
   const rs = resolveRows(o.states, song), rc = resolveRows(o.cursor, song);
   const bad = [...rs.errors.map((e) => markerMessage(e, 'states()')), ...rc.errors.map((e) => markerMessage(e, 'cursor()'))];
   if (bad.length) throw new Error('motion-kit: ' + bad.join('\n  - '));
   const states = rs.rows, cursor = rc.rows;
-  const { errors } = validate({ states, cursor, registry, song, theme, loop });
+  const { errors } = validate({ states, cursor, registry, song, theme, loop, clips, beatT });
   if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
   const { track, fromSettle } = Springs;
   const bs = song.beat_sec;
@@ -87,7 +93,7 @@ export function createScene(o) {
   const CX = stage.width / 2, CY = stage.height / 2;
   // Pending work registered by renders (ctx.wait) during the current seek; a fresh list each seek.
   let pending = [];
-  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null,
+  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null, clips,
     wait: (p) => { pending.push(p); } };
 
   // ---- rows: props with defaults, geometry, time window

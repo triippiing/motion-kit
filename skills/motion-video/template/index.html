@@ -41,7 +41,7 @@
 <script type="module">
 import { createScene, registry } from './components/index.js';
 import { beatTime } from './components/core/timing.js';
-let STAGE, PROJECT, THEME, song, END, beatT, scene, since;
+let STAGE, PROJECT, THEME, song, END, beatT, scene, since, CLIPS = {};
 const $ = (s) => document.querySelector(s);
 
 // ---------------- the three tables you edit ----------------
@@ -100,6 +100,7 @@ window.ready = (async () => {
   const fam = getComputedStyle(document.documentElement).getPropertyValue('--font');
   await Promise.all([400, 500, 600].map((wt) => document.fonts.load(`${wt} 34px ${fam}`).catch(() => {})));
   await document.fonts.ready;
+  CLIPS = await loadClips();
   scene = build();
   since = scene.since;
   window.SFX = scene.sfx;
@@ -108,9 +109,19 @@ window.ready = (async () => {
 window.seek = seek;
 window.inspect = (t) => scene.inspect(t);
 
+// Each footage row's clip.json (footage/<src>/clip.json), fetched before the scene is built: the component reads it
+// synchronously. One that is missing (or not JSON) is left out, and createScene names its path.
+async function loadClips() {
+  const srcs = new Set(states().filter((r) => r?.use === 'footage' && typeof r.src === 'string' && r.src).map((r) => r.src));
+  const out = {};
+  await Promise.all([...srcs].map((src) => fetch(`footage/${src.split('/').map(encodeURIComponent).join('/')}/clip.json`)
+    .then((r) => (r.ok ? r.json() : null)).then((c) => { if (c) out[src] = c; }, () => {})));
+  return out;
+}
+
 function build() {
   return createScene({ states: states(), cursor: cursor(), extraSfx: extraSfx(), content, song, stage: STAGE, theme: THEME,
-    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
+    beatT, Springs: window.Springs, registry, loop: PROJECT.loop !== false, designScale: PROJECT.designScale, clips: CLIPS, dom: { camera: $('#camera'), shape: $('#shape'), cursor: $('#cursor') } });
 }
 
 // For the sync page only (scripts/sync-page): rebuild the scene for another song (a nudge or swing preview, or the

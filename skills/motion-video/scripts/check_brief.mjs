@@ -16,8 +16,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { validate } from '../components/core/validate.js';
+import { beatTime } from '../components/core/timing.js';
 import { isMain } from './is_main.mjs';
-import { briefCode, runTables, TablesError } from './tables.mjs';
+import { briefCode, projectClips, runTables, TablesError } from './tables.mjs';
 
 const SECTIONS = ['## Request', '## Decisions', '## Moments', '## Beat table'];
 export const SWAP_HINT = ' (after a song swap, place it on the sync page: node sync.mjs DIR)';
@@ -147,7 +148,14 @@ export async function checkBrief(dir, opts = {}) {
   // never draws it. Supported means both: validate.js lists 'hide' in CURSOR_KEYS and engine.js reads `.hide`.
   if (Array.isArray(cursor) && cursor.some((c) => c && typeof c === 'object' && Object.hasOwn(c, 'hide')) && !knowsHide(dir))
     errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
-  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
+  // Footage rows are checked against the project's clips (footage/<src>/clip.json). One that is there but invalid is
+  // its own error, so validate's "no clip at" for it is dropped.
+  const footage = await projectClips(dir, states);
+  errors.push(...footage.errors.map((e) => e.message));
+  const unread = new Set(footage.errors.map((e) => `footage: no clip at footage/${e.src}/clip.json`));
+  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true, clips: footage.clips,
+    beatT: (b) => beatTime(song, b) });
+  r.errors = r.errors.filter((e) => !unread.has(e));
   // A marker the song lacks is usually one a song swap dropped: the sync page places it (validate.js stays as it is,
   // pinned to demo 04's copy, so the hint is added here, unless the message already names sync.mjs).
   const hint = (e) => (/^\S+ row \d+: unknown marker /.test(e) && !e.includes('sync.mjs') ? `${e}${SWAP_HINT}` : e);

@@ -28,6 +28,7 @@ import * as dock from './chrome/dock.js';
 import * as island from './chrome/island.js';
 import * as player from './chrome/player.js';
 import * as sheet from './chrome/sheet.js';
+import * as footage from './media/footage.js';
 export const registry = {
   'button': button,
   'checkbox': checkbox,
@@ -57,4 +58,5 @@ export const registry = {
   'island': island,
   'player': player,
   'sheet': sheet,
+  'footage': footage,
 };

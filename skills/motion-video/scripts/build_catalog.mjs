@@ -8,7 +8,7 @@ import path from 'node:path';
 import { isMain } from './is_main.mjs';
 
 const COMP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'components');
-const GROUPS = [['controls', 'Controls'], ['feedback', 'Feedback'], ['data', 'Data and content'], ['chrome', 'App chrome']];
+const GROUPS = [['controls', 'Controls'], ['feedback', 'Feedback'], ['data', 'Data and content'], ['chrome', 'App chrome'], ['media', 'Media']];
 
 export async function collect() {
   const out = [];

@@ -637,3 +637,30 @@ Every row accepts these keys whatever its component (they are never component pr
 ```js
 { at: 0, use: 'sheet', title: 'Delete goal?', body: 'This removes Holiday fund and its history.' }
 ```
+
+## Media
+
+[footage](#footage)
+
+### footage
+
+![footage](docs-images/footage.png)
+
+**Use when:** Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.
+
+**Motion:** The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs.
+
+| Prop | Type | Default |
+|---|---|---|
+| `src` | `string` | `"demo"` |
+| `from` | `number` | `0` |
+| `speed` | `number` | `1` |
+| `fit` | `enum:cover\|contain` | `"cover"` |
+| `width` | `number` | `0` |
+
+**Hotspots:** `step:<name>`, `point:<x,y>`  
+**Sounds:** none
+
+```js
+{ at: 0, use: 'footage', src: 'demo' }
+```

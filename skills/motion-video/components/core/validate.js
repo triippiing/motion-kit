@@ -197,7 +197,10 @@ function shapeErrors(list, what) {
 
 // theme: the colour roles ({ role: '#rrggbb', ... }); when given, fill/ink must name one of them or be #rrggbb.
 // Rows whose `at` names a marker are resolved first (resolveRows), so every rule below sees beat numbers.
-export function validate({ states: S, cursor: Cu, registry, song, theme, loop = true, strict = false }) {
+// clips: { src: clip.json object } for footage rows, passed in as data (this module reads no files); undefined when
+// the caller has no project to read them from, and then the clip rules are skipped. beatT: beat -> loop seconds (the
+// page's, or timing.js beatTime on the song), for rules in seconds (a clip running out); without it they are skipped.
+export function validate({ states: S, cursor: Cu, registry, song, theme, loop = true, strict = false, clips, beatT }) {
   const errors = [], warnings = [];
   const done = () => ({ errors: [...new Set(errors)], warnings: [...new Set(warnings)] });
   const END = song?.beats?.length;
@@ -243,6 +246,17 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       if (!r.bad) {
         r.props = rowProps(row, comp);
         try { r.geo = rowGeo(row, comp, r.props); } catch (e) { errors.push(`${row.use} at beat ${B(row)} cannot be sized: ${e.message}`); r.bad = true; }
+      }
+      // Rules needing data beyond the row (comp.check: footage's clip). A continuation (same component as the row
+      // before) gets that row's end state as prev, as the engine gives it.
+      if (comp.check && !r.bad) {
+        const before = rows[i - 1], nextAt = states[i + 1]?.at ?? END;
+        const continues = i > 0 && before.comp === comp;
+        r.info = { clips, strict, at: B(row), row, beatT: beatT ?? null, t1: beatT && nextAt != null ? beatT(nextAt) : Infinity, continues,
+          prev: continues && before.info && beatT ? (comp.endState ? comp.endState(before.props, before.info) : before.props) : null };
+        const res = comp.check(r.props, r.info);
+        errors.push(...res.errors); warnings.push(...res.warnings);
+        if (res.errors.length) r.bad = true;
       }
       // Typing that has not finished when the next row starts: that row continues from text never fully shown.
       // Kept characters are approximated from the previous row's text (the component reads its end state, which
@@ -351,6 +365,9 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       // A target naming a duplicated key resolves, but on the first of the duplicates only.
       const d = hit?.dups?.find((k) => hit.comp.meta.hotspots.some((h) => h.includes(':<') && c.target === h.slice(0, h.indexOf(':<') + 1) + k));
       if (d !== undefined) errors.push(`cursor target "${c.target}" at beat ${B(c)} names a duplicate label of ${hit.row.use}; it reaches the first "${d}" only`);
+      // A target the row's component can tell is wrong for its data (a step the footage's clip does not have).
+      const why = hit && !hit.bad && hit.comp.checkTarget?.(c.target, hit.props, { clips });
+      if (why) errors.push(`cursor target "${c.target}" at beat ${B(c)}: ${why}`);
       // An unknown component is already reported above; a hotspot error on it would only mislead.
       if (cands.some(unknown) || hit) return;
       const named = cands.filter((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target));
