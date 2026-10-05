@@ -352,7 +352,7 @@ Default 60 fps, the video's size capped at 1600 px wide (never scaled up; even d
 and no steps (aim the cursor with `point:X,Y`) and prints `footage: N frames, S s, WxH -> CLIPDIR`. A missing or
 unreadable video is `error: ...`, exit 2.
 
-**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0 }`:
+**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0, zoom: 1, focus: [0.5, 0.5], browser: '' }`:
 
 - `src` names `DIR/footage/<src>/`; `from` is seconds into the clip (default 0), `speed` (default 1), `fit` `cover`
   (default; crops) or `contain` (letterboxes), `width` the shape's width in design px (default 0: the clip's aspect
@@ -363,11 +363,30 @@ unreadable video is `error: ...`, exit 2.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the same
   `src`) carries on from where the clip had got to unless it sets `from`, while the shape morphs.
-- Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit` and
-  the shape (time the press to the step: the row's beat time plus `(t - from) / speed` of the step's `t`), and
-  `point:X,Y` at fractions (0..1) of the frame.
+- `zoom` (1 or more, default 1) scales the clip about `focus` (`[x, y]`, fractions 0..1 of the frame, default
+  `[0.5, 0.5]`): focus is the frame point shown at the shape's centre, clamped so the clip never leaves an empty edge
+  (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src` (and
+  the same `browser` on or off) glides from where the previous row's framing ended to its own, released at its
+  beat on a no-overshoot spring that settles in 0.6 beat (zoom eases geometrically, the centre linearly; row 0 shows
+  its own). The frame is laid out at its zoomed size (no scaling transform, no `will-change`), so it stays sharp. A
+  row with zoom 1, the default focus and no browser (and not gliding from one that had them) is the plain footage,
+  DOM and pixels as before.
+- `browser` (a URL, default `''`: off) draws the clip inside a plain window: a title bar (`max(4% of the clip's
+  height, its width / 32)` clip px) in `surface`, three `muted` dots and the URL as real text in a centred rounded
+  field (a URL too long for half the window's width is cut with `…`). The window is part of the zoomed content:
+  zoom 1 fits the whole window (the shape takes the window's aspect), and focus is still a fraction of the clip's
+  own frame, so a high zoom on the page puts the bar off the shape. While the zoom crops the URL's field it carries
+  `data-overhang` (the frame check measures it only when it is in view). A continuation that turns `browser` on or
+  off does not glide: it shows its own framing from its beat.
+- Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
+  browser bar, the row's own settled zoom/focus and the shape (time the press to the step: the row's beat time plus
+  `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves
+  to one fixed point, so on a row that glides in from another framing, aim and press after the glide has settled
+  (0.6 beat after the row's beat).
 - Checks: `footage: no clip at footage/SRC/clip.json` and a `step:` the clip does not have (the error lists its
-  steps) are errors in check_brief, watch and the page, as are `footage needs src` and an unsafe `src`; an invalid
+  steps) are errors in check_brief, watch and the page, as are `footage needs src`, an unsafe `src`,
+  `footage: zoom must be 1 or more (1 shows the whole frame), got 0.5` and `footage: focus must be [x, y], two
+  fractions of the frame from 0 to 1, got [1.2,0.5]` (a non-number `zoom` or `focus` is the usual prop type error); an invalid
   clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"). check_brief also warns when a row's
   window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
   repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
@@ -520,9 +539,9 @@ node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro 
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
 - **Text stays inside the shape:** the frame check measures the words' own line boxes. An element meant to sit
-  outside the shape (a tooltip above its point) can carry `data-overhang`, an opt-in hook for component authors (no
-  built-in component uses it today); it only silences the frame check: `#shape` clips its overflow, so the element is
-  still cut off at the shape's edge.
+  outside the shape (a tooltip above its point) can carry `data-overhang`, an opt-in hook for component authors
+  (footage sets it on its browser URL only while a zoom crops it); it only silences the frame check: `#shape` clips
+  its overflow, so the element is still cut off at the shape's edge.
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and

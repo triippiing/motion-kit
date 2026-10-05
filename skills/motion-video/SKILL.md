@@ -419,22 +419,40 @@ missing or unreadable video is `error: ...`, exit 2.
 
 - Props: `src` (the clip under `DIR/footage/`), `from` (seconds into the clip, default 0), `speed` (default 1),
   `fit` (`cover`, the default, crops; `contain` letterboxes), `width` (the shape's width in design px; default 0:
-  the clip's aspect fitted inside the stage less a 10% margin on every side; the height follows the aspect). `src` is
-  required (meta's `'demo'` default is for the catalog only) and must be a folder inside `footage/`.
+  the clip's aspect fitted inside the stage less a 10% margin on every side; the height follows the aspect), `zoom`
+  (1 or more, default 1), `focus` (`[x, y]`, fractions 0..1 of the frame, default `[0.5, 0.5]`) and `browser` (a URL,
+  default `''`: off). `src` is required (meta's `'demo'` default is for the catalog only) and must be a folder inside
+  `footage/`.
+- Zoom: the clip is scaled by `zoom` with `focus` at the shape's centre, clamped so the clip never leaves an empty
+  edge (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src`
+  (and the same `browser` on or off) glides from the previous row's framing to its own from its beat, on a
+  no-overshoot spring that settles in 0.6 beat; row 0 shows its own. A pull-back from a close-up to the whole screen:
+  `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app' }`.
+  The frame is laid out at its zoomed size (no scaling transform), so it stays sharp. Zoom 1 with the default focus
+  and no browser is the plain footage, unchanged.
+- Browser: `browser: 'example.com/sync'` draws a plain window around the clip (a `surface` title bar `max(4% of the
+  clip's height, its width / 32)` clip px tall, three `muted` dots, the URL as real text in a centred rounded field;
+  a URL longer than half the window is cut with `…`). The window is part of the zoomed content: zoom 1 fits the whole
+  window (the shape takes its aspect), and `focus` stays a fraction of the clip's own frame, so zoomed in on the page
+  the bar is off the shape (the URL is then marked `data-overhang` for the frame check). A continuation that turns
+  `browser` on or off does not glide.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
-- Hotspots: `step:NAME`, the centre of the box the capture's named step acted on, mapped through `fit` and the
-  shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up with the captured click when it is at the row's
-  time plus `(step t - from) / speed`: with the clip at beat 4 on a 0.5 s beat and `pay` at 0.9 s, beat 5.8.
+- Hotspots: `step:NAME`, the centre of the box the capture's named step acted on, mapped through `fit`, the browser
+  bar, the row's own settled zoom/focus and the shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up
+  with the captured click when it is at the row's time plus `(step t - from) / speed`: with the clip at beat 4 on a
+  0.5 s beat and `pay` at 0.9 s, beat 5.8. A cursor row resolves to one fixed point, so on a row that glides in from
+  another framing, aim and press after the glide has settled (0.6 beat after the row's beat).
 - The page fetches each used clip's clip.json before `ready`; `seek(t)` returns a promise that settles once the
   frame has decoded. render, beat_stills and the frame check await it; watch and the sync page show each frame as
   soon as it decodes.
 - Checks: `footage: no clip at footage/SRC/clip.json`, a `step:` the clip lacks
   (`cursor target "step:X" at beat B: the clip footage/SRC has no step "X" (steps: a, b)`), a row without `src`
-  (`footage needs src`) and a `src` with a `..` segment or an absolute path (`footage: src "SRC" must be a folder
-  inside footage/ (no ".." segments, not an absolute path)`; no script reads it) are errors in check_brief, watch
-  and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
+  (`footage needs src`), a `src` with a `..` segment or an absolute path (`footage: src "SRC" must be a folder
+  inside footage/ (no ".." segments, not an absolute path)`; no script reads it), a zoom under 1 (`footage: zoom must
+  be 1 or more (1 shows the whole frame), got 0.5`) and a focus that is not two fractions (`footage: focus must be
+  [x, y], two fractions of the frame from 0 to 1, got [1.2,0.5]`) are errors in check_brief, watch and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
   "no clip at"). check_brief
   warns when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
   a shorter row, `speed` or `from`. In a loop the last row repeats the first, so a footage first row usually holds a
