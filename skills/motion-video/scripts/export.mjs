@@ -111,11 +111,10 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
     const own = path.join(root, 'out', 'shapes', g.size, 'video.mp4');
     const isDesign = g.stage[0] === design[0] && g.stage[1] === design[1];
     if (seq) {
-      // renderSequence logs "name: reused|rendered" per chapter; the join itself is always made afresh.
-      const chapters = [];
-      const note = (l) => { const at = l.lastIndexOf(': '); chapters.push({ name: l.slice(0, at), reused: l.slice(at + 2) === 'reused' }); };
-      g.file = await renderSequence(seq, { stage: isDesign ? undefined : g.stage, log: note });
-      renders.push({ size: g.size, shapes: g.shapes, path: rel(g.file), reused: false, chapters });
+      // Each chapter's render is reused by its own stamp; the join itself is always made afresh.
+      const r = await renderSequence(seq, { stage: isDesign ? undefined : g.stage, log: () => {} });
+      g.file = r.file;
+      renders.push({ size: g.size, shapes: g.shapes, path: rel(g.file), reused: false, chapters: r.chapters });
       continue;
     }
     const candidates = isDesign ? [path.join(root, 'out', 'video.mp4'), own] : [own];
@@ -330,7 +329,7 @@ function summary(f) {
     + `${step}${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
 }
 
-const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent] [--guides]';
+const USAGE = 'usage: export.mjs DIR|SEQ --for PRESET[,PRESET...] [--silent] [--guides]';
 
 function parseArgs(argv) {
   const o = { silent: false, guides: false }; let dir;

@@ -46,8 +46,10 @@
 //            (sequence-preview.mp4 with --preview; under SEQ/out/shapes/WxH/ with --stage) and a stamp beside it
 //            listing each chapter's stamp. Prints
 //            `name: rendered|reused` per chapter, then the output path.
-//   watch: see the sequences spec (docs/superpowers/specs/2026-10-04-sequences-design.md).
-import { execFile, spawnSync } from 'node:child_process';
+//   watch CHAPTER [--brief] [--port N] [--no-open]
+//            watch.mjs on that chapter's project (the live preview, for editing one chapter at a time); the flags are
+//            watch.mjs's. Ctrl+C is passed on to it and this exits with its code. An unknown chapter is exit 2.
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
@@ -58,6 +60,7 @@ import { isMain } from './is_main.mjs';
 const HERE = import.meta.dirname;
 const NEW_PROJECT = path.join(HERE, 'new_project.sh');
 const ANALYSER = path.join(HERE, 'analyze_song.py');
+const WATCH = path.join(HERE, 'watch.mjs');
 const TOP_KEYS = ['song', 'chapters', 'fade_out_sec'];
 const CHAPTER_KEYS = ['dir', 'bars', 'from_start', 'start_bar'];
 // SEQ/out holds the sequence's renders, so no chapter may be called that.
@@ -194,14 +197,11 @@ export function clock(sec) {
   return `${m}:${((tenths - m * 600) / 10).toFixed(1).padStart(4, '0')}`;
 }
 
-// Lines the chapters' loop windows up back to back on the song, on chapter 1's grid (see the header). Returns
-// [{ name, start_bar, start_sec, duration_sec }] from each chapter's new song.json. `warn` gets each warning (a
-// chapter's sync replaced or removed). A failing analyser throws (UsageError when it exits 2) naming the chapter; the
-// chapters before it are already re-analysed.
 // The sequence's sync from each chapter's ({ name, sync }, in order): the grid fields (everything but markers) are
 // chapter 1's; markers (song time) are merged by name across the chapters, in chapter order. A name with two times
-// keeps the first (chapter 1's, else the earlier chapter's) and warns. Returns { sync (undefined when there is
-// nothing), warnings }.
+// keeps the first (chapter 1's, else the earlier chapter's) and warns. A name deleted on one chapter but still on
+// another comes back, so remove a marker from every chapter's song.json. Returns { sync (undefined when there is
+// nothing; with a markers list, maybe empty, when any chapter has one), warnings }.
 export function mergeSync(chapters) {
   const warnings = [], markers = [], by = new Map();
   for (const { name, sync } of chapters) {
@@ -214,7 +214,9 @@ export function mergeSync(chapters) {
     }
   }
   const { markers: _m, ...grid } = chapters[0]?.sync ?? {};
-  const sync = markers.length ? { ...grid, markers } : grid;
+  // A markers list, even an empty one (the sync page always saves one), is kept.
+  const listed = markers.length || chapters.some((c) => Array.isArray(c.sync?.markers));
+  const sync = listed ? { ...grid, markers } : grid;
   return { sync: Object.keys(sync).length || chapters[0]?.sync !== undefined ? sync : undefined, warnings };
 }
 
@@ -388,8 +390,10 @@ async function chapterSfx(c, override) {
 
 const concatLine = (f) => `file '${f.replace(/'/g, "'\\''")}'`;
 
-// Renders the sequence (see the header) and returns the joined file. `stage` [w, h] renders every chapter at that size
-// (render.mjs --stage) into SEQ/out/shapes/WxH/. `log` gets `name: rendered|reused` per chapter.
+// Renders the sequence (see the header). Resolves { file: the joined file, chapters: [{ name, reused }] } (reused: the
+// chapter's own render was current, so it was not rendered again; the join itself is always made afresh). `stage`
+// [w, h] renders every chapter at that size (render.mjs --stage) into SEQ/out/shapes/WxH/. `log` gets
+// `name: rendered|reused` per chapter as it goes.
 export async function renderSequence(seq, { preview = false, stage, workers, log = console.log } = {}) {
   const chapters = preflight(seq, stage);
   const fps = chapters[0].song.fps, size = chapters[0].stage;
@@ -398,6 +402,7 @@ export async function renderSequence(seq, { preview = false, stage, workers, log
     if (r.fresh) c.file = r.file;
     else c.file = await render(c.dir, { preview, stage, ...(workers ? { workers } : {}) });
     c.stamp = JSON.parse(await readFile(stampPath(c.file), 'utf8'));
+    c.reused = r.fresh;
     log(`${c.name}: ${r.fresh ? 'reused' : 'rendered'}`);
   }
 
@@ -447,7 +452,7 @@ export async function renderSequence(seq, { preview = false, stage, workers, log
       renderer: await rendererId(seq.root),
       chapters: chapters.map((c) => ({ name: c.name, file: path.relative(seq.root, c.file), stamp: c.stamp })) };
     await writeFile(stampPath(out), `${JSON.stringify(stamp, null, 2)}\n`);
-    return out;
+    return { file: out, chapters: chapters.map((c) => ({ name: c.name, reused: c.reused })) };
   } finally {
     await rm(tmp, { recursive: true, force: true });
     await rm(part, { force: true });
@@ -469,7 +474,24 @@ function parseFlags(argv, { bool = [], valued = [] } = {}) {
   return { o, pos };
 }
 
-const notYet = (name) => () => { throw new Error(`${name} is not implemented yet`); };
+// The live preview of one chapter: watch.mjs on SEQ/CHAPTER, in the foreground (stdio inherited). Ctrl+C and SIGTERM
+// are passed on to it (it closes its server); this process exits with its code (130/143 for a signal it died of).
+function watchChapter(seq, argv) {
+  const names = seq.chapters.map((c) => c.name).join(', ');
+  const { o, pos } = parseFlags(argv, { bool: ['brief', 'no-open'], valued: ['port'] });
+  if (pos.length === 0) throw new UsageError(`watch needs a CHAPTER (one of: ${names})`);
+  if (pos.length > 1) throw new UsageError(`watch takes one CHAPTER, got "${pos[0]}" and "${pos[1]}"`);
+  const c = seq.chapters.find((x) => x.name === pos[0]);
+  if (!c) throw new UsageError(`no chapter ${show(pos[0])} in this sequence (chapters: ${names})`);
+  // watch.mjs checks the values (the port's range) itself.
+  const flags = [...(o.brief ? ['--brief'] : []), ...(o.port != null ? ['--port', o.port] : []), ...(o['no-open'] ? ['--no-open'] : [])];
+  const child = spawn(process.execPath, [WATCH, c.dir, ...flags], { stdio: 'inherit' });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { child.kill(sig); } catch { /* already gone */ } });
+  return new Promise((resolve) => child.on('exit', (code, signal) => {
+    process.exitCode = code ?? (signal === 'SIGINT' ? 130 : 143);
+    resolve();
+  }));
+}
 
 // The commands: `loads` = sequence.json is loaded (and checked) before `run(seqDir, argv, seq)`.
 const COMMANDS = {
@@ -527,10 +549,15 @@ const COMMANDS = {
     async run(seqDir, argv, seq) {
       const { o, pos } = parseFlags(argv, { bool: ['preview'], valued: ['stage'] });
       if (pos.length) throw new UsageError(`render takes no arguments, got "${pos[0]}"`);
-      console.log(await renderSequence(seq, { preview: !!o.preview, stage: o.stage == null ? undefined : parseStage(o.stage) }));
+      const { file } = await renderSequence(seq, { preview: !!o.preview, stage: o.stage == null ? undefined : parseStage(o.stage) });
+      console.log(file);
     },
   },
-  watch: { usage: 'watch CHAPTER', loads: true, run: notYet('watch') },
+  watch: {
+    usage: 'watch CHAPTER [--brief] [--port N] [--no-open]',
+    loads: true,
+    run: (seqDir, argv, seq) => watchChapter(seq, argv),
+  },
 };
 
 const USAGE = `usage: sequence.mjs SEQ <${Object.keys(COMMANDS).join('|')}> ...\n${Object.values(COMMANDS).map((c) => `  sequence.mjs SEQ ${c.usage}`).join('\n')}`;

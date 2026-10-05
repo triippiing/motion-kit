@@ -342,6 +342,17 @@ test('mergeSync: grid from chapter 1, markers merged by name; a clash keeps chap
   ]);
   assert.deepEqual(mergeSync([ch('a', undefined), ch('b', { swing: 0.6 })]), { sync: undefined, warnings: [] });
   assert.deepEqual(mergeSync([ch('a', { swing: 0.6 }), ch('b', undefined)]).sync, { swing: 0.6 });
+  // the sync page always saves a markers list, empty when none are placed: that is the same sync, not a difference
+  const saved = { nudge_ms: 0, swing: 0.5, markers: [], checked_by_ear: '2026-10-02' };
+  assert.deepEqual(mergeSync([ch('a', saved), ch('b', saved)]).sync, saved);
+  assert.deepEqual(mergeSync([ch('a', saved), ch('b', undefined)]).sync, saved);
+});
+
+test('check: chapters whose sync pages saved no markers (markers: []) pass', async () => {
+  const d = copyOfAnalysed();
+  for (const c of ['intro', 'kit', 'end']) editSong(d, c, (s) => ({ ...s, sync: { nudge_ms: 0, swing: 0.5, markers: [], checked_by_ear: '2026-10-02' } }));
+  const r = cli(d, 'check');
+  assert.equal(r.status, 0, r.stderr);
 });
 
 test('analyse: a marker clash keeps chapter 1\'s time and warns with both', () => {
@@ -446,16 +457,18 @@ let rendered = null; // { dir, out, log } of one preview render of smallSequence
 async function renderedSequence() {
   if (rendered) return rendered;
   const dir = copyOfSmall(), log = [];
-  const out = await renderSequence(loadSequence(dir), { preview: true, log: (m) => log.push(m) });
-  rendered = { dir, out, log };
+  const r = await renderSequence(loadSequence(dir), { preview: true, log: (m) => log.push(m) });
+  rendered = { dir, out: r.file, log, chapters: r.chapters };
   return rendered;
 }
 
 test('render: one video of every chapter\'s frames over one continuous cut of the song, chapter sounds at their offsets', async () => {
-  const { dir, out, log } = await renderedSequence();
+  const { dir, out, log, chapters } = await renderedSequence();
   assert.equal(out, path.join(dir, 'out', 'sequence-preview.mp4'), 'a preview never replaces the full sequence.mp4');
   assert.deepEqual(log.map((l) => l.replace(/:.*/, '')), ['intro', 'kit', 'end']);
   for (const l of log) assert.match(l, /: rendered$/);
+  // the same, structured, in the return value
+  assert.deepEqual(chapters, ['intro', 'kit', 'end'].map((name) => ({ name, reused: false })));
   const loops = ['intro', 'kit', 'end'].map((c) => songOf(dir, c).loop);
   const chapterFrames = ['intro', 'kit', 'end'].map((c) => videoFrames(path.join(dir, c, 'out', 'preview.mp4')));
   assert.deepEqual(chapterFrames, loops.map((L) => L.frames));
@@ -564,7 +577,8 @@ test('render --stage WxH: every chapter at that size, joined under out/shapes/Wx
   writeJson(pj, { ...readJson(pj), stage: { width: 256, height: 192 } });   // the override wins over the chapters' own sizes
   const seq = loadSequence(d);
   seq.chapters = seq.chapters.slice(0, 1);   // one short chapter keeps it quick
-  const out = await renderSequence(seq, { preview: true, stage: [128, 64], log: () => {} });
+  const { file: out, chapters } = await renderSequence(seq, { preview: true, stage: [128, 64], log: () => {} });
+  assert.deepEqual(chapters, [{ name: 'intro', reused: false }]);
   assert.equal(out, path.join(d, 'out', 'shapes', '128x64', 'sequence-preview.mp4'));
   assert.ok(existsSync(path.join(d, 'intro', 'out', 'shapes', '128x64', 'preview.mp4')));
   assert.deepEqual(readJson(`${out}.render.json`).stage, [128, 64]);
@@ -607,7 +621,7 @@ test('export SEQ --for web,gif,zoned: the joined full render through the presets
   assert.deepEqual(m.sequence, { chapters: ['intro', 'kit', 'end'] });
   assert.equal(m.project, 'seq');
   assert.deepEqual(m.renders.map((r) => [r.size, r.path]), [['192x192', 'out/sequence.mp4']]);
-  assert.deepEqual(m.renders[0].chapters.map((c) => c.name), ['intro', 'kit', 'end']);
+  assert.deepEqual(m.renders[0].chapters, ['intro', 'kit', 'end'].map((name) => ({ name, reused: false })));
   assert.deepEqual(readJson(path.join(d, 'out', 'exports', 'manifest.json')), JSON.parse(JSON.stringify(m)));
   assert.deepEqual(m.files.map((f) => `${f.preset}.${f.format}`), ['web.mp4', 'web.webm', 'web.jpg', 'gif.gif', 'zoned.mp4']);
   for (const f of m.files) assert.ok(existsSync(path.join(d, f.path)) && f.path.startsWith('out/exports/'), f.path);
@@ -648,4 +662,52 @@ test('export SEQ (CLI): an unknown preset is still error: ... exit 2, before any
   assert.match(r.stdout, /^manifest: .*seq\/out\/exports\/manifest\.json$/m);
   const m = readJson(path.join(d, 'out', 'exports', 'manifest.json'));
   assert.deepEqual(m.files.map((f) => [f.preset, f.format, f.acodec]), [['gif', 'gif', null], ['web', 'mp4', null], ['web', 'webm', null], ['web', 'jpg', null]]);
+});
+
+// ---- watch ----
+
+test('watch: an unknown or missing chapter is error: ... exit 2, naming the chapters', () => {
+  const d = seqDir(valid());
+  let r = cli(d, 'watch', 'nope');
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: no chapter "nope" in this sequence \(chapters: a, b, c\)/);
+  assert.doesNotMatch(r.stderr, /\n\s+at /, 'no stack trace');
+  r = cli(d, 'watch');
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: watch needs a CHAPTER \(one of: a, b, c\)/);
+  r = cli(d, 'watch', 'a', 'b');
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: watch takes one CHAPTER, got "a" and "b"/);
+});
+
+test('watch: hands the chapter and its flags to watch.mjs (its usage errors exit 2 as its own)', () => {
+  const r = cli(seqDir(valid()), 'watch', 'b', '--port', '99999');
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /^error: --port must be 0 to 65535, got "99999"/m);
+});
+
+test('watch: serves the chapter live; Ctrl+C reaches watch.mjs and exits 130', async () => {
+  const { spawn } = await import('node:child_process');
+  const d = copyOfSmall();
+  const child = spawn(process.execPath, [SCRIPT, d, 'watch', 'kit', '--no-open', '--port', '0'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '', err = '';
+  child.stderr.on('data', (b) => { err += b; });
+  const url = await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`no URL: ${out}${err}`)), 15000);
+    child.stdout.on('data', (b) => { out += b; const m = /watching: (\S+)/.exec(out); if (m) { clearTimeout(t); resolve(m[1]); } });
+    child.on('exit', (code) => { clearTimeout(t); reject(new Error(`exited ${code}: ${err}`)); });
+  });
+  const status = await (await fetch(new URL('/__watch/status', url))).json();
+  assert.equal(typeof status.version, 'number');
+  const html = await (await fetch(new URL('/index.html', url))).text();
+  assert.equal(html, readFileSync(path.join(d, 'kit', 'index.html'), 'utf8'), "kit's own page");
+  const code = await new Promise((resolve) => { child.removeAllListeners('exit'); child.on('exit', (c) => resolve(c)); child.kill('SIGINT'); });
+  assert.equal(code, 130, err);
+  await assert.rejects(fetch(new URL('/__watch/status', url)), 'the server is gone');
+});
+
+test('export: the usage names SEQ', () => {
+  const r = exportCli();
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: usage: export\.mjs DIR\|SEQ --for /);
 });
