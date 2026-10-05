@@ -270,7 +270,8 @@ The contract in brief (the full one is the header of `components/core/engine.js`
 example, edge cases), `geometry` (the shape's size and colours), `mount` (build DOM once), `render`
 (a pure function of `t`), `hotspot` (where the cursor lands), and optionally `sfx` and `endState` (the
 props after its presses, which the next row of the same component starts from as `ctx.prev`), and `check` /
-`checkTarget` (rules that need data beyond the row, such as footage's clip). Row 0 is
+`checkTarget` (rules that need data beyond the row, such as footage's clip; checkTarget returns an error reason, or
+`{ warning }` under check_brief). Row 0 is
 shown settled so the loop seam matches; hover comes from `ctx.targets`; anything periodic takes its
 period from `loopPeriod`. A cursor row with `hide: true` fades the cursor out from its beat (it keeps moving, and
 `inspect(t).cursor.opacity` reports it); the next row without it fades it back in; a hidden row cannot press.
@@ -365,19 +366,23 @@ unreadable video is `error: ...`, exit 2.
   `src`) carries on from where the clip had got to unless it sets `from`, while the shape morphs.
 - `zoom` (1 or more, default 1) scales the clip about `focus` (`[x, y]`, fractions 0..1 of the frame, default
   `[0.5, 0.5]`): focus is the frame point shown at the shape's centre, clamped so the clip never leaves an empty edge
-  (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src` (and
-  the same `browser` on or off) glides from where the previous row's framing ended to its own, released at its
-  beat on a no-overshoot spring that settles in 0.6 beat (zoom eases geometrically, the centre linearly; row 0 shows
-  its own). The frame is laid out at its zoomed size (no scaling transform, no `will-change`), so it stays sharp. A
-  row with zoom 1, the default focus and no browser (and not gliding from one that had them) is the plain footage,
-  DOM and pixels as before.
+  (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src` glides
+  from where the previous row's framing ended to its own, released at its beat on a no-overshoot spring that settles
+  in 0.6 beat (zoom eases geometrically and the content zooms about one fixed point, so an off-centre pull-back never
+  bends at the clamp; row 0 shows its own). The frame is laid out at its zoomed size (no scaling transform, no
+  `will-change`), so it stays sharp. A row with zoom 1, the default focus and no browser (and not gliding from one
+  that had them) is the plain footage, DOM and pixels as before.
 - `browser` (a URL, default `''`: off) draws the clip inside a plain window: a title bar (`max(4% of the clip's
   height, its width / 32)` clip px) in `surface`, three `muted` dots and the URL as real text in a centred rounded
   field (a URL too long for half the window's width is cut with `…`). The window is part of the zoomed content:
   zoom 1 fits the whole window (the shape takes the window's aspect), and focus is still a fraction of the clip's
   own frame, so a high zoom on the page puts the bar off the shape. While the zoom crops the URL's field it carries
   `data-overhang` (the frame check measures it only when it is in view). A continuation that turns `browser` on or
-  off does not glide: it shows its own framing from its beat.
+  off glides too (the clip stays where it was on screen at the row change), so a pull-back can end on the window:
+  `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app',
+  browser: 'example.com/app' }`; turning it off, the bar goes at the row change. Setting the same `browser` on every
+  row also works. A browser row's shape has the window's aspect (W x (H + bar)), so framing just the page needs
+  `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides slightly.
 - Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
   browser bar, the row's own settled zoom/focus and the shape (time the press to the step: the row's beat time plus
   `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves
@@ -387,7 +392,10 @@ unreadable video is `error: ...`, exit 2.
   steps) are errors in check_brief, watch and the page, as are `footage needs src`, an unsafe `src`,
   `footage: zoom must be 1 or more (1 shows the whole frame), got 0.5` and `footage: focus must be [x, y], two
   fractions of the frame from 0 to 1, got [1.2,0.5]` (a non-number `zoom` or `focus` is the usual prop type error); an invalid
-  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"). check_brief also warns when a row's
+  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"); zoom/focus
+  errors are reported together with a missing clip. check_brief also warns when a cursor's `step:` or `point:` target
+  lands off the shape at the row's settled framing (zoomed past it): `footage at beat 4: step:mark is outside the
+  shape at zoom 4` (beat: the footage row's), and when a row's
   window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
   repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
   `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it

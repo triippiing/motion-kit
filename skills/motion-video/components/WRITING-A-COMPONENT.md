@@ -69,7 +69,7 @@ export function hotspot(name, props, geo, ctx) { return { x, y } /* offset from 
 export function sfx(props, ctx) { return [{ beat, file, gain }]; }   // optional: its own sounds
 export function endState(props, ctx) { return { ...props, ... }; }   // optional: props after the presses
 export function check(props, info) { return { errors: [], warnings: [] }; }  // optional: rules needing data beyond the row
-export function checkTarget(name, props, { clips }) { return null; }  // optional: why a cursor target cannot be right, or null
+export function checkTarget(name, props, { clips, strict, row, at }) { return null; }  // optional: why a cursor target cannot be right (or { warning }), or null
 ```
 
 `check` and `checkTarget` are for rules that need data the row does not hold (today only `footage`, whose clip's
@@ -83,9 +83,11 @@ length and step names live in `footage/<src>/clip.json`). The validator (the pag
   row's end in seconds (`Infinity` when unknown); `continues` and `prev` are as in `ctx`; `seam` is true for the last
   row of a looping piece (it repeats the first), so a message can say what to do at the seam (footage adds `(at the
   loop seam: set from, or end on a non-footage row)` to its hold warning).
-- `checkTarget(name, props, { clips })` runs for each cursor row aimed at one of your hotspots on this row; return
-  a reason string when the target cannot be right for that data (footage: a `step:` the clip never named), else
-  null. It is reported as an error, `cursor target "step:pay" at beat 5.8: <your reason>`.
+- `checkTarget(name, props, { clips, strict, row, at })` runs for each cursor row aimed at one of your hotspots on
+  this row (`row` is that row, `at` its beat); return a reason string when the target cannot be right for that data
+  (footage: a `step:` the clip never named), else null. It is reported as an error, `cursor target "step:pay" at
+  beat 5.8: <your reason>`. Return `{ warning: '...' }` instead for a target that is there but doubtful (footage: one
+  zoomed off the shape); it is reported as written, under `strict` only.
 - In validation that same `info` is the `ctx` `endState` gets: a partial one (`clips`, `beatT`, `row`, `t1`,
   `continues`, `prev` only), so anything `check`, `checkTarget` or `endState` reads must be among those.
 

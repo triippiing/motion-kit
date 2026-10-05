@@ -24,8 +24,9 @@
 //   hotspot is also called with ctx = {} (validation, and choosing which row a cursor row aims at, happen
 //   before any row has a ctx): whether it returns null must not depend on ctx, and any ctx read is guarded
 //   (ctx?.continues). A cursor row aims at the first candidate row on which its hotspot resolves.
-//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips }) -> reason | null:
-//   rules that need data beyond the row (footage's clip), run by validate. info = { clips, strict, at (the row's
+//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips, strict, row, at }) ->
+//   reason | { warning } | null: rules that need data beyond the row (footage's clip), run by validate (a reason is
+//   an error; a { warning } is reported as written, strict only; row and at are the aimed-at row and its beat). info = { clips, strict, at (the row's
 //   beat, for messages), row, beatT (null when the caller gave none), t1 (seconds; Infinity when unknown), continues,
 //   prev, seam (the last row of a loop) }; clips is undefined when the caller has none (no project), and then there is
 //   nothing to check against. In validation this info is also the ctx endState gets: a partial ctx (clips, beatT,

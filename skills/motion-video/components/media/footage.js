@@ -7,9 +7,9 @@
 // The page fetches each used clip's clip.json before ready (ctx.clips[src]); validation receives the same as data.
 // A row must set src itself (meta's 'demo' default is for the catalog only), to a folder inside footage/ (safeSrc).
 // zoom/focus: the clip scaled by zoom with focus (fractions of the frame) at the shape's centre, clamped so no empty
-// edge shows; a continuation of the same src glides there from the previous row's framing. browser: a drawn window
-// (title bar with three dots and the URL) around the clip, part of the zoomed content. A row with neither (and not
-// gliding from one that had them) builds exactly the DOM it always did.
+// edge shows; a continuation of the same src glides there from the previous row's framing (across a browser toggle
+// too). browser: a drawn window (title bar with three dots and the URL) around the clip, part of the zoomed content.
+// A row with neither (and not gliding from one that had them) builds exactly the DOM it always did.
 import { prog, textW } from '../core/helpers.js';
 
 export const meta = {
@@ -54,7 +54,7 @@ const goodFocus = (f) => Array.isArray(f) && f.length === 2 && f.every((x) => ty
 const focusOf = (p) => (goodFocus(p.focus) ? p.focus : [0.5, 0.5]);
 // Whether a row uses any of it: a row that does not (and does not glide from one that did) is the plain old footage.
 const framed = (p) => !!p && (p.zoom !== 1 || !Array.isArray(p.focus) || p.focus[0] !== 0.5 || p.focus[1] !== 0.5 || !!p.browser);
-const glidesFrom = (p, ctx) => (ctx?.continues && ctx.prev?.src === p.src && !ctx.prev.browser === !p.browser ? ctx.prev : null);
+const glidesFrom = (p, ctx) => (ctx?.continues && ctx.prev?.src === p.src ? ctx.prev : null);
 
 // A view { zoom, x, y }: (x, y) is the window point at the shape's centre. Clamped so the window covers the shape
 // on every axis it can (a letterboxed axis, contain, stays centred), and zoom is never under 1.
@@ -70,19 +70,33 @@ export function settledView(p, geo, clip) {
   return clampView({ zoom: zoomOf(p), x: fx * clip.width, y: win.bar + fy * clip.height }, geo, win, p.fit);
 }
 
-// The view at t: a continuation of the same src (and the same browser on/off) glides from where the previous row
-// ended (endState's _view) to this row's own on one no-overshoot spring released at t0 (0.6 beat, the house settle):
-// zoom geometrically (an even pull-back), the centre linearly, clamped after. Otherwise this row's own view.
+// The previous row's end view in this row's window space. The window spaces differ by the bar (the clip's own y is
+// shifted down by it) and the fit scale: zoom is a multiple of the fit of the live shape, which at t0 is still the
+// previous row's (_geo; the morph starts there), so the clip shows at the same screen scale on both sides of t0.
+function carried(prev, p, ctx, clip, win) {
+  const pgeo = prev._geo ?? geometry(prev, ctx), pwin = windowSize(clip, prev.browser), v = prev._view ?? settledView(prev, pgeo, clip);
+  const zoom = Math.max(1, (v.zoom * fitScale(prev.fit, pgeo, pwin)) / fitScale(p.fit, pgeo, win));
+  return { zoom, x: v.x, y: v.y + win.bar - pwin.bar };
+}
+
+// The view at t: a continuation of the same src (with or without the browser it had) glides from where the previous
+// row ended (endState's _view, carried into this window) to this row's own on one no-overshoot spring released at t0
+// (0.6 beat, the house settle). Zoom moves geometrically (an even pull-back); the centre's offset from the window's
+// middle times zoom (its screen offset) moves in step with the zoom, so the content zooms about one fixed point and
+// an off-centre pull-back never bends against the clamp (applied after, for the letterboxed axis). Otherwise this
+// row's own view.
 const SETTLE = 0.6;
 export function viewAt(p, ctx, t) {
-  const clip = ctx.clips?.[p.src] ?? FALLBACK, geo = ctx.geo ?? geometry(p, ctx);
+  const clip = ctx.clips?.[p.src] ?? FALLBACK, geo = ctx.geo ?? geometry(p, ctx), win = windowSize(clip, p.browser);
   const to = settledView(p, geo, clip), prev = glidesFrom(p, ctx);
   if (!prev || !ctx.Springs || !(t < Infinity)) return to;
-  const from = prev._view ?? settledView(prev, geo, clip);
   const k = prog(ctx, t, ctx.t0, SETTLE, 1);
   if (k >= 1) return to;
-  const lz = Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * k;
-  return clampView({ zoom: Math.exp(lz), x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k }, geo, windowSize(clip, p.browser), p.fit);
+  const from = carried(prev, p, ctx, clip, win);
+  const zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * k);
+  const u = Math.abs(to.zoom - from.zoom) > 1e-9 ? (zoom - from.zoom) / (to.zoom - from.zoom) : k;
+  const at = (a, b, mid) => mid + ((a - mid) * from.zoom + ((b - mid) * to.zoom - (a - mid) * from.zoom) * u) / zoom;
+  return clampView({ zoom, x: at(from.x, to.x, win.W / 2), y: at(from.y, to.y, win.H / 2) }, geo, win, p.fit);
 }
 
 // The window's box in shape px (from the shape's top-left) for view v: what render lays out, for the tests.
@@ -114,9 +128,9 @@ export const frameIndex = (clip, clipT) => Math.min(clip.frames, Math.max(1, Mat
 export const framePath = (src, n) => `footage/${src.split('/').map(encodeURIComponent).join('/')}/frame-${String(n).padStart(5, '0')}.jpg`;
 
 // _view: the framing the row ends on (a continuation glides from it); validation's partial ctx has no Springs, so
-// there it is the settled view.
+// there it is the settled view. _geo: the row's shape, which a continuation's morph starts from.
 export function endState(p, ctx) {
-  return { ...p, _clipEnd: clipTime(p, ctx, ctx.t1 ?? Infinity), _view: viewAt(p, ctx, ctx.t1 ?? Infinity) };
+  return { ...p, _clipEnd: clipTime(p, ctx, ctx.t1 ?? Infinity), _view: viewAt(p, ctx, ctx.t1 ?? Infinity), _geo: ctx.geo ?? geometry(p, ctx) };
 }
 
 // One <img> per frame, always made the same way, so the layer serialises the same whatever was cached.
@@ -284,7 +298,6 @@ export function check(p, info) {
   if (typeof p.zoom === 'number' && !(p.zoom >= 1)) errors.push(`footage: zoom must be 1 or more (1 shows the whole frame), got ${p.zoom}`);
   if (Array.isArray(p.focus) && p.focus.every((x) => typeof x === 'number') && !goodFocus(p.focus))
     errors.push(`footage: focus must be [x, y], two fractions of the frame from 0 to 1, got ${JSON.stringify(p.focus)}`);
-  if (errors.length) return { errors, warnings };
   if (info.clips === undefined) return { errors, warnings };
   const clip = info.clips[p.src];
   if (!clip) { errors.push(`footage: no clip at footage/${p.src}/clip.json`); return { errors, warnings }; }
@@ -297,11 +310,18 @@ export function check(p, info) {
   return { errors, warnings };
 }
 
-// A cursor target on this row that cannot be right for its clip (a step the capture never named): the reason, else null.
-export function checkTarget(name, p, { clips } = {}) {
+// A cursor target on this row that cannot be right for its clip (a step the capture never named): the reason (an
+// error). Strict only: one that lands off the shape at the row's settled framing (zoomed past it): { warning }. The
+// shape is the row's real one (the clip's aspect, the row's w/h), not validation's clip-less guess. Else null.
+export function checkTarget(name, p, { clips, strict, row, at } = {}) {
   const clip = clips?.[p.src];
-  if (!clip || !name.startsWith('step:')) return null;
-  const want = name.slice(5), names = clip.steps.map((s) => s.name);
-  if (names.includes(want)) return null;
-  return `the clip footage/${p.src} has no step "${want}" (${names.length ? `steps: ${names.join(', ')}` : 'it has no steps: only capture.mjs names them; aim with point:X,Y'})`;
+  if (!clip) return null;
+  if (name.startsWith('step:')) {
+    const want = name.slice(5), names = clip.steps.map((s) => s.name);
+    if (!names.includes(want)) return `the clip footage/${p.src} has no step "${want}" (${names.length ? `steps: ${names.join(', ')}` : 'it has no steps: only capture.mjs names them; aim with point:X,Y'})`;
+  }
+  if (!strict) return null;
+  const g = geometry(p, { clips }), geo = { w: row?.w ?? g.w, h: row?.h ?? g.h }, h = hotspot(name, p, geo, { clips });
+  if (h && (Math.abs(h.x) > geo.w / 2 || Math.abs(h.y) > geo.h / 2)) return { warning: `footage at beat ${at}: ${name} is outside the shape at zoom ${zoomOf(p)}` };
+  return null;
 }

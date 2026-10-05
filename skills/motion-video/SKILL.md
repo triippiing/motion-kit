@@ -425,8 +425,8 @@ missing or unreadable video is `error: ...`, exit 2.
   `footage/`.
 - Zoom: the clip is scaled by `zoom` with `focus` at the shape's centre, clamped so the clip never leaves an empty
   edge (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src`
-  (and the same `browser` on or off) glides from the previous row's framing to its own from its beat, on a
-  no-overshoot spring that settles in 0.6 beat; row 0 shows its own. A pull-back from a close-up to the whole screen:
+  glides from the previous row's framing to its own from its beat, on a no-overshoot spring that settles in 0.6 beat
+  (the content zooms about one fixed point, so an off-centre pull-back never bends at the edge); row 0 shows its own. A pull-back from a close-up to the whole screen:
   `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app' }`.
   The frame is laid out at its zoomed size (no scaling transform), so it stays sharp. Zoom 1 with the default focus
   and no browser is the plain footage, unchanged.
@@ -435,7 +435,12 @@ missing or unreadable video is `error: ...`, exit 2.
   a URL longer than half the window is cut with `…`). The window is part of the zoomed content: zoom 1 fits the whole
   window (the shape takes its aspect), and `focus` stays a fraction of the clip's own frame, so zoomed in on the page
   the bar is off the shape (the URL is then marked `data-overhang` for the frame check). A continuation that turns
-  `browser` on or off does not glide.
+  `browser` on or off glides too (the clip stays where it was on screen at the row change), so a pull-back can end on
+  the window: `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage',
+  src: 'app', browser: 'example.com/app' }`; turning it off, the bar goes at the row change. Setting the same
+  `browser` on every row also works. A browser row's shape has the window's aspect (W x (H + bar)), so framing just
+  the page needs `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides
+  slightly.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
@@ -453,8 +458,10 @@ missing or unreadable video is `error: ...`, exit 2.
   inside footage/ (no ".." segments, not an absolute path)`; no script reads it), a zoom under 1 (`footage: zoom must
   be 1 or more (1 shows the whole frame), got 0.5`) and a focus that is not two fractions (`footage: focus must be
   [x, y], two fractions of the frame from 0 to 1, got [1.2,0.5]`) are errors in check_brief, watch and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
-  "no clip at"). check_brief
-  warns when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
+  "no clip at"); zoom/focus errors are reported together with a missing clip. check_brief warns when a cursor's
+  `step:` or `point:` target lands off the shape at the row's settled framing (zoomed past it):
+  `footage at beat 4: step:mark is outside the shape at zoom 4` (beat: the footage row's; aim at what the row shows,
+  or zoom less), and when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
   a shorter row, `speed` or `from`. In a loop the last row repeats the first, so a footage first row usually holds a
   spent clip at the seam: that warning then ends `(at the loop seam: set from, or end on a non-footage row)`.
 - A frame that fails to load (a deleted JPEG) is a page error: `render.mjs` exits 1 with

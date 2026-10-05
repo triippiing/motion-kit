@@ -509,3 +509,114 @@ test('render: the browser window draws a bar with its URL as real text, and pass
   const fc = await checkFrames(dir, {});
   assert.deepEqual(fc.issues.filter((i) => i.kind === 'text'), []);
 });
+
+// ---- review fixes: a glide across a browser toggle, screen-space pull-backs, hotspots off the shape, errors together
+
+// The geometry each row really gets (width 0: the window's aspect inside the 1440 stage), so the rows differ by the bar.
+const rowCtx = (p, row, extra) => ({ clips, beatT: (x) => x * 0.5, beat_sec: 0.5, Springs, row, geo: F.geometry(p, { clips }), ...extra });
+
+test('glide across a browser toggle: a waveform close-up pulls back onto the window, continuously, and settles on it', () => {
+  for (const fitB of ['cover', 'contain']) {   // contain: the fit-scale ratio is not 1, so the zoom conversion is exercised
+    const A = props({ zoom: 3, focus: [0.5, 0.8] }), B = props({ browser: 'example.com/sync', fit: fitB });
+    const ctxA = rowCtx(A, { at: 0, use: 'footage', src: 'demo' }, { t0: -1e6, t1: 1, continues: false, prev: null, settled: true });
+    const ctxB = rowCtx(B, { at: 2, use: 'footage', src: 'demo' }, { t0: 1, t1: Infinity, continues: true, prev: F.endState(A, ctxA), settled: false });
+    const winA = F.windowSize(clip, ''), winB = F.windowSize(clip, B.browser), bar = winB.bar;
+    // screen px per window px and the screen offset of the clip's own point (cx, cy) from the shape's centre, on the
+    // shape that is live at t0 (row A's: the morph starts there)
+    const fit = (f, g, w) => (f === 'contain' ? Math.min : Math.max)(g.w / w.W, g.h / w.H);
+    const screen = (v, f, win) => { const s = fit(f, ctxA.geo, win) * v.zoom; return { s, x: (640 - v.x) * s, y: (360 + win.bar - v.y) * s }; };
+    const end = F.viewAt(A, ctxA, 1), start = F.viewAt(B, ctxB, 1);
+    const a = screen(end, 'cover', winA), b = screen(start, fitB, winB);
+    assert.ok(near(a.s, b.s, 1e-9) && near(a.x, b.x, 1e-6) && near(a.y, b.y, 1e-6), `${fitB}: at t0 the clip is where row A left it: ${JSON.stringify({ a, b })}`);
+    assert.ok(near(start.y, end.y + bar, 1e-9), 'the same clip point, moved down by the bar in window space');
+    let last = start;
+    for (let t = 1; t <= 1.6 + 1e-9; t += 1 / 60) {
+      const v = F.viewAt(B, ctxB, t);
+      assert.ok(Math.abs(Math.log(v.zoom / last.zoom)) < 0.2 && Math.abs(v.x - last.x) < 40 && Math.abs(v.y - last.y) < 40,
+        `${fitB} t ${t.toFixed(3)}: no jump from ${JSON.stringify(last)} to ${JSON.stringify(v)}`);
+      last = v;
+    }
+    const to = F.settledView(B, ctxB.geo, clip), done = F.viewAt(B, ctxB, 3);
+    assert.ok(near(done.zoom, to.zoom, 1e-3) && near(done.x, to.x, 0.5) && near(done.y, to.y, 0.5), `${fitB}: settles on the window ${JSON.stringify(done)}`);
+    if (fitB === 'cover') assert.deepEqual(to, { zoom: 1, x: 640, y: (720 + bar) / 2 }, 'the whole window');
+  }
+  // and back: a window row into a page close-up without the bar glides too (the bar's px come off the y)
+  const W = props({ browser: 'example.com/sync' }), P = props({ zoom: 2, focus: [0.5, 0.5] });
+  const ctxW = rowCtx(W, { at: 0, use: 'footage', src: 'demo' }, { t0: -1e6, t1: 1, continues: false, prev: null, settled: true });
+  const ctxP = rowCtx(P, { at: 2, use: 'footage', src: 'demo' }, { t0: 1, t1: Infinity, continues: true, prev: F.endState(W, ctxW), settled: false });
+  const z0 = F.viewAt(P, ctxP, 1);
+  assert.ok(z0.zoom < 1.2, `starts from the whole window's scale, not a cut to zoom 2: ${JSON.stringify(z0)}`);
+});
+
+test('pull-back: the screen offset of the view moves as one zoom about a fixed point, so the clamp never bends it', () => {
+  const bs = 0.5, base = { clips, beatT: (x) => x * bs, beat_sec: bs, Springs, geo: G };
+  const A = props({ zoom: 4, focus: [0.95, 0.1] }), B = props({ focus: [0.5, 0.5] });
+  const ctxA = { ...base, row: { at: 0, use: 'footage', src: 'demo' }, t0: -1e6, t1: 1, continues: false, prev: null, settled: true };
+  const ctxB = { ...base, row: { at: 2, use: 'footage', src: 'demo' }, t0: 1, t1: Infinity, continues: true, prev: F.endState(A, ctxA), settled: false };
+  const win = F.windowSize(clip, '');
+  const pts = [];
+  for (let t = 1; t < 1.6; t += 1 / 60) {
+    const v = F.viewAt(B, ctxB, t);
+    assert.deepEqual(F.clampView(v, G, win, 'cover'), v, `t ${t.toFixed(3)}: already inside the clamp`);
+    pts.push([v.zoom, (v.x - 640) * v.zoom, (v.y - 360) * v.zoom]);
+  }
+  // (x - cx) * zoom is affine in zoom along the whole glide (a straight line through the first and last samples)
+  const [p0, p1] = [pts[0], pts.at(-1)];
+  for (const p of pts) {
+    const k = (p[0] - p0[0]) / (p1[0] - p0[0]);
+    assert.ok(near(p[1], p0[1] + (p1[1] - p0[1]) * k, 1e-6) && near(p[2], p0[2] + (p1[2] - p0[2]) * k, 1e-6), `affine at zoom ${p[0]}`);
+  }
+  // pure: the same t gives the same view
+  assert.deepEqual(F.viewAt(B, ctxB, 1.2), F.viewAt(B, ctxB, 1.2));
+});
+
+test('validate (strict): a step:/point: target outside the shape at the row\'s settled framing warns', () => {
+  const stepped = { ...clip, steps: [{ name: 'mark', action: 'click', t: 0.1, box: { x: 40, y: 40, w: 20, h: 20 } }, { name: 'mid', action: 'click', t: 0.2, box: { x: 620, y: 340, w: 40, h: 40 } }] };
+  const rows = [{ at: 0, use: 'footage', src: 'demo', zoom: 4 }, { at: 6, use: 'footage', src: 'demo', zoom: 4 }];
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 1, target: 'step:mark' }, { at: 2, target: 'step:mid' }, { at: 3, target: 'point:0.1,0.9' }, { at: 6, x: 0, y: 0 }];
+  const r = v(rows, cur, { demo: stepped }, true);
+  assert.deepEqual(r.errors, []);
+  const off = r.warnings.filter((w) => /outside the shape/.test(w));
+  assert.deepEqual(off, ['footage at beat 0: step:mark is outside the shape at zoom 4', 'footage at beat 0: point:0.1,0.9 is outside the shape at zoom 4']);
+  assert.ok(!v(rows, cur, { demo: stepped }, false).warnings.some((w) => /outside the shape/.test(w)), 'strict only');
+  const whole = [{ at: 0, use: 'footage', src: 'demo' }, { at: 6, use: 'footage', src: 'demo' }];
+  assert.ok(!v(whole, cur, { demo: stepped }, true).warnings.some((w) => /outside the shape/.test(w)), 'zoom 1: every point is on the shape');
+});
+
+test('validate: zoom/focus errors are reported together with a missing clip', () => {
+  const row = { use: 'footage', src: 'gone', zoom: 0.5, focus: [2, 0] }, rows = [{ at: 0, ...row }, { at: 6, ...row }];
+  const e = v(rows).errors;
+  for (const want of ['footage: zoom must be 1 or more (1 shows the whole frame), got 0.5', 'footage: focus must be [x, y], two fractions of the frame from 0 to 1, got [2,0]', 'footage: no clip at footage/gone/clip.json'])
+    assert.ok(e.includes(want), `${want}\n in: ${e.join('\n')}`);
+});
+
+test('render: a close-up with no browser pulls back onto the browser window with no jump at the row change', async () => {
+  const close = "use: 'footage', src: 'demo', width: 1280, zoom: 3, focus: [0.5, 0.8]";
+  const dir = withClip(makeProject({ bars: 2,
+    states: `[{ at: 0, ${close} }, { at: 2, use: 'footage', src: 'demo', width: 1280, browser: 'example.com/sync' }, { at: END - 2, ${close} }]`,
+    cursor: '[{ at: 0, x: 0, y: 600, hide: true }, { at: END - 2, x: 0, y: 600, hide: true }]' }));
+  const s = await openScene(dir);
+  try {
+    // the clip's own area on screen, in the layer that is showing (row 0 before t0 = 1 s, row 1 from it)
+    const page = async (t) => { await s.seek(t); return s.page.evaluate((row) => {
+      const r = document.querySelector(`.c-footage[data-row="${row}"] .ft-page`).getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
+    }, t < 1 ? 0 : 1); };
+    let last = await page(1 - 4 / 60);
+    for (let i = -3; i <= 40; i++) {
+      const t = 1 + i / 60, r = await page(t);
+      const jump = Math.max(Math.abs(Math.log(r.w / last.w)), Math.abs(r.x - last.x) / last.w, Math.abs(r.y - last.y) / last.w);
+      // the glide itself moves up to ~13% of the width a frame at its fastest; the row change (i = 0) must not move it
+      assert.ok(jump < (i === 0 ? 0.01 : 0.25), `t ${t.toFixed(3)}: the clip jumps ${jump.toFixed(3)} (${JSON.stringify(last)} -> ${JSON.stringify(r)})`);
+      last = r;
+    }
+    // settled: the whole window fills the shape, its bar along the top
+    await s.seek(2.5);
+    const end = await s.page.evaluate(() => {
+      const sh = document.querySelector('#shape').getBoundingClientRect(), w = document.querySelector('.c-footage[data-row="1"] .ft-win').getBoundingClientRect();
+      return [w.left - sh.left, w.top - sh.top, w.width - sh.width, w.height - sh.height];
+    });
+    assert.ok(end.every((d) => Math.abs(d) < 1), `the window fills the shape: ${end}`);
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+});
