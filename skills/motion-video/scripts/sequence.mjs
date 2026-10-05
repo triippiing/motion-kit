@@ -28,18 +28,22 @@
 //            sync.mjs on chapter 1) is copied to every other chapter first, and the markers (song time) placed on any
 //            chapter's sync page are merged by name into every chapter's (a name with two times keeps chapter 1's,
 //            else the earlier chapter's, with a warning). A chapter whose sync changes keeps its old song.json as
-//            song.json.bak; one whose own grid differed is warned about (with none on chapter 1, it is removed). Then analyze_song.py runs on each chapter in order with its bars and fps: chapter 1
-//            --from-start, --start-bar N or the analyser's own pick; chapter k>1 --start-bar = chapter k-1's
+//            song.json.bak; one whose own grid differed is warned about (with none on chapter 1, it is removed). Then
+//            analyze_song.py runs on each chapter in order with its bars and fps: chapter 1 --from-start,
+//            --start-bar N or the analyser's own pick; chapter k>1 --start-bar = chapter k-1's
 //            loop.start_bar + bars, so the windows abut. Prints `name: bars A-B, m:ss.s-m:ss.s` per chapter. The
 //            analyser's `error:` is surfaced with the chapter's name (exit 2 when it exits 2).
 //   check    each chapter's MOTION-BRIEF.md (when there is one) through check_brief, not as a loop; then that every
-//            chapter is analysed with sequence.json's bars, starts where the previous one ends (within 1 ms), and has
-//            chapter 1's bpm (unless a tempo map is in sync: each loop's bpm is then its own mean beat) and fps, and
-//            the sequence's sync (chapter 1's grid, every chapter's markers, as analyse writes it). Errors exit 1.
+//            chapter is analysed on sequence.json's song (song.json's `source`) with sequence.json's bars (chapter 1
+//            with its from_start or start_bar, when it has one), starts where the previous one ends (within 1 ms),
+//            and has chapter 1's bpm (unless a tempo map is in sync: each loop's bpm is then its own mean beat) and
+//            fps, and the sequence's sync (chapter 1's grid, every chapter's markers, as analyse writes it). Errors
+//            exit 1. A chapter whose project.json lacks "loop": false is a warning.
 //   render [--preview] [--stage WxH]
-//            first checks that every chapter is analysed, starts where the previous one ends and shares chapter 1's
-//            fps and stage size (project.json's; --stage overrides them all), exit 2 otherwise; then renders each
-//            chapter whose render is stale (render.mjs; its .render.json stamp decides, as export does) and joins:
+//            first checks that every chapter is analysed on sequence.json's song (chapter 1 with its start), starts
+//            where the previous one ends and shares chapter 1's fps and stage size (project.json's; --stage overrides
+//            them all), exit 2 otherwise; then renders each chapter whose render is stale (render.mjs; its
+//            .render.json stamp decides, as export does) and joins:
 //            the chapter videos concatenated (stream copy), over ONE cut of the song from chapter 1's start for the
 //            whole length (analyze_song's clip writer: 10 ms fades at the very ends only), mixed with each chapter's
 //            sounds (window.SFX) at its offset, the mix then faded out over fade_out_sec. Writes SEQ/out/sequence.mp4
@@ -222,6 +226,29 @@ export function mergeSync(chapters) {
 
 const gridOf = (sync) => { const { markers: _m, ...g } = sync ?? {}; return g; };
 
+const RERUN = '(run sequence.mjs SEQ analyse)';
+// Why the chapter's song.json (with a loop) no longer matches sequence.json, or null: it was analysed on another song
+// (its `source`, the song's file name), or chapter 1's start in sequence.json (from_start or start_bar) is not the one
+// its loop was made with. With neither start on chapter 1 the analyser picked it, so any start is fine.
+function staleSong(seq, c, k, song) {
+  const want = path.basename(seq.song), L = song.loop;
+  if (typeof song.source === 'string' && song.source !== want) {
+    return `${c.name}: analysed on ${song.source}, sequence.json's song is ${want} ${RERUN}`;
+  }
+  if (k > 0) return null;
+  if (c.from_start && L.from_start !== true) {
+    return `${c.name}: song.json's loop was not made from the start, sequence.json's chapter 1 has "from_start" ${RERUN}`;
+  }
+  if (c.start_bar !== undefined && L.start_bar !== c.start_bar) {
+    return `${c.name}: song.json's loop starts at bar ${L.start_bar}, sequence.json's chapter 1 has "start_bar": ${c.start_bar} ${RERUN}`;
+  }
+  // the same bar, but a loop made from the start may begin on a pickup beat before it
+  if (c.start_bar !== undefined && L.from_start === true) {
+    return `${c.name}: song.json's loop was made from the start, sequence.json's chapter 1 has "start_bar": ${c.start_bar} ${RERUN}`;
+  }
+  return null;
+}
+
 // Lines the chapters' loop windows up back to back on the song, on chapter 1's grid (see the header). Returns
 // [{ name, start_bar, start_sec, duration_sec }] from each chapter's new song.json. `warn` gets each warning (a
 // chapter's grid replaced or removed, a marker clash). A chapter whose sync changes keeps its old song.json as
@@ -275,8 +302,16 @@ export async function checkSequence(seq, { frameCheck } = {}) {
   const errors = [], warnings = [];
   const { checkBrief } = await import('./check_brief.mjs');
   const songs = [];
-  for (const c of seq.chapters) {
+  for (const [k, c] of seq.chapters.entries()) {
     const { song, bad } = readSong(c.dir);
+    // chapters are not loops (render's motion blur would wrap into frame 0); a missing project.json loops too
+    try {
+      const proj = JSON.parse(readFileSync(path.join(c.dir, 'project.json'), 'utf8'));
+      if (proj?.loop !== false) warnings.push(`${c.name}: project.json has no "loop": false (chapters are not loops)`);
+    } catch (e) {
+      if (e.code === 'ENOENT') warnings.push(`${c.name}: project.json has no "loop": false (chapters are not loops)`);
+      else errors.push(`${c.name}: project.json is not valid JSON (${e.message})`);
+    }
     if (existsSync(path.join(c.dir, 'MOTION-BRIEF.md'))) {
       try {
         const r = await checkBrief(c.dir, { loop: false, ...(frameCheck ? { frameCheck } : {}) });
@@ -290,6 +325,8 @@ export async function checkSequence(seq, { frameCheck } = {}) {
       errors.push(`${c.name}: song.json has no loop window (run sequence.mjs SEQ analyse)`); songs.push(null); continue;
     }
     if (L.bars !== c.bars) errors.push(`${c.name}: song.json has ${L.bars} bars, sequence.json says ${c.bars} (run sequence.mjs SEQ analyse)`);
+    const stale = staleSong(seq, c, k, song);
+    if (stale) errors.push(stale);
     songs.push(song);
   }
   const [first] = seq.chapters, head = songs[0];
@@ -355,13 +392,15 @@ async function chapterRender(dir, song, { stage, preview, override }) {
 // windows abut. Throws UsageError naming the chapter.
 function preflight(seq, override) {
   const [first] = seq.chapters;
-  const out = seq.chapters.map((c) => {
+  const out = seq.chapters.map((c, k) => {
     const { song, bad } = readSong(c.dir);
     if (bad || !song) throw new UsageError(`${c.name}: ${bad ?? 'no song.json'} (run sequence.mjs SEQ analyse)`);
     const L = song.loop;
     if (!L || !Number.isFinite(L.start_sec) || !Number.isFinite(L.duration_sec) || !(L.frames > 0)) {
       throw new UsageError(`${c.name}: song.json has no loop window (run sequence.mjs SEQ analyse)`);
     }
+    const stale = staleSong(seq, c, k, song);
+    if (stale) throw new UsageError(stale);
     return { ...c, song, stage: chapterStage(c.dir, override) };
   });
   out.forEach((c, k) => {
@@ -487,10 +526,14 @@ function watchChapter(seq, argv) {
   const flags = [...(o.brief ? ['--brief'] : []), ...(o.port != null ? ['--port', o.port] : []), ...(o['no-open'] ? ['--no-open'] : [])];
   const child = spawn(process.execPath, [WATCH, c.dir, ...flags], { stdio: 'inherit' });
   for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { try { child.kill(sig); } catch { /* already gone */ } });
-  return new Promise((resolve) => child.on('exit', (code, signal) => {
-    process.exitCode = code ?? (signal === 'SIGINT' ? 130 : 143);
-    resolve();
-  }));
+  return new Promise((resolve) => {
+    // the child could not be started (no 'exit' follows)
+    child.on('error', (e) => { console.error(`error: ${e.message}`); process.exitCode = 1; resolve(); });
+    child.on('exit', (code, signal) => {
+      process.exitCode = code ?? (signal === 'SIGINT' ? 130 : 143);
+      resolve();
+    });
+  });
 }
 
 // The commands: `loads` = sequence.json is loaded (and checked) before `run(seqDir, argv, seq)`.

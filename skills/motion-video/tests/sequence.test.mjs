@@ -323,6 +323,64 @@ test('check: chapters with different bpm, sync or fps are errors', async () => {
   assert.match(r.stderr, /^error: b: no song\.json \(run sequence\.mjs SEQ analyse\)$/m);
 });
 
+const RERUN = '(run sequence.mjs SEQ analyse)';
+// sequence.json's song swapped for a copy of the click track under another name (the chapters were analysed on song.wav)
+function swapSequenceSong(d) {
+  const other = path.join(d, 'other.wav');
+  writeFileSync(other, readFileSync(song));
+  const f = path.join(d, 'sequence.json');
+  writeJson(f, { ...readJson(f), song: other });
+}
+const setFirst = (d, fn) => { const f = path.join(d, 'sequence.json'), j = readJson(f); j.chapters[0] = fn(j.chapters[0]); writeJson(f, j); };
+
+test('check: chapters analysed on another song than sequence.json\'s are errors naming each chapter', async () => {
+  const d = copyOfAnalysed();
+  swapSequenceSong(d);
+  const { errors } = await checkSequence(loadSequence(d), { frameCheck: noFrames });
+  assert.deepEqual(errors, ['intro', 'kit', 'end'].map((c) => `${c}: analysed on song.wav, sequence.json's song is other.wav ${RERUN}`));
+  const r = cli(d, 'check');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^error: kit: analysed on song\.wav, sequence\.json's song is other\.wav \(run sequence\.mjs SEQ analyse\)$/m);
+});
+
+test('check: chapter 1\'s start in sequence.json must be the one its song.json was made with', async () => {
+  const errs = async (d) => (await checkSequence(loadSequence(d), { frameCheck: noFrames })).errors;
+  const L = songOf(analysedSequence().dir, 'intro').loop;
+  // from_start in sequence.json, a loop not made from the start
+  const notFromStart = copyOfAnalysed();
+  editSong(notFromStart, 'intro', (s) => { const { from_start: _f, ...loop } = s.loop; return { ...s, loop }; });
+  assert.deepEqual(await errs(notFromStart), [`intro: song.json's loop was not made from the start, sequence.json's chapter 1 has "from_start" ${RERUN}`]);
+  // start_bar N in sequence.json, a loop at another bar (or made from the start)
+  const otherBar = copyOfAnalysed();
+  setFirst(otherBar, ({ from_start: _f, ...c }) => ({ ...c, start_bar: L.start_bar + 1 }));
+  assert.deepEqual(await errs(otherBar), [`intro: song.json's loop starts at bar ${L.start_bar}, sequence.json's chapter 1 has "start_bar": ${L.start_bar + 1} ${RERUN}`]);
+  const sameBar = copyOfAnalysed();
+  setFirst(sameBar, ({ from_start: _f, ...c }) => ({ ...c, start_bar: L.start_bar }));
+  assert.deepEqual(await errs(sameBar), [`intro: song.json's loop was made from the start, sequence.json's chapter 1 has "start_bar": ${L.start_bar} ${RERUN}`]);
+  const r = cli(otherBar, 'check');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^error: intro: song\.json's loop starts at bar \d+, sequence\.json's chapter 1 has "start_bar": \d+ \(run sequence\.mjs SEQ analyse\)$/m);
+  // neither (the analyser picks): any start passes
+  const neither = copyOfAnalysed();
+  setFirst(neither, ({ from_start: _f, ...c }) => c);
+  assert.deepEqual(await errs(neither), []);
+});
+
+test('check: a chapter whose project.json lacks "loop": false is warned about, not an error', async () => {
+  const d = copyOfAnalysed();
+  const pj = path.join(d, 'kit', 'project.json');
+  const { loop: _l, ...proj } = readJson(pj);
+  writeJson(pj, proj);
+  const { errors, warnings } = await checkSequence(loadSequence(d), { frameCheck: noFrames });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(warnings, ['kit: project.json has no "loop": false (chapters are not loops)']);
+  writeJson(pj, { ...proj, loop: true });
+  const r = cli(d, 'check');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^warning: kit: project\.json has no "loop": false \(chapters are not loops\)$/m);
+  assert.match(r.stdout, /sequence OK: 3 chapters/);
+});
+
 // a sequence whose chapters are bare directories (never analysed)
 function seqWithoutSong() {
   return seqDir({ song, chapters: [{ dir: 'b', bars: 2 }] }, ['b']);
@@ -346,6 +404,8 @@ test('mergeSync: grid from chapter 1, markers merged by name; a clash keeps chap
   const saved = { nudge_ms: 0, swing: 0.5, markers: [], checked_by_ear: '2026-10-02' };
   assert.deepEqual(mergeSync([ch('a', saved), ch('b', saved)]).sync, saved);
   assert.deepEqual(mergeSync([ch('a', saved), ch('b', undefined)]).sync, saved);
+  // chapter 1 with no sync, a later chapter's page saved with no markers: the sequence's sync is that empty list
+  assert.deepEqual(mergeSync([ch('a', undefined), ch('b', { markers: [] })]), { sync: { markers: [] }, warnings: [] });
 });
 
 test('check: chapters whose sync pages saved no markers (markers: []) pass', async () => {
@@ -566,6 +626,24 @@ test('render: chapters of different stage sizes or fps fail before anything is r
   editSong(gap, 'end', (s) => ({ ...s, loop: { ...s.loop, start_sec: s.loop.start_sec + 0.5 } }));
   await assert.rejects(renderSequence(loadSequence(gap), { preview: true }),
     (e) => e instanceof UsageError && /end starts 0\.500 s after kit ends \(run sequence\.mjs SEQ analyse\)/.test(e.message));
+  // analysed on another song, or chapter 1's start changed in sequence.json since: also before any render
+  const swapped = copyOfSmall();
+  swapSequenceSong(swapped);
+  await assert.rejects(renderSequence(loadSequence(swapped), { preview: true }),
+    (e) => e instanceof UsageError && e.message === `intro: analysed on song.wav, sequence.json's song is other.wav ${RERUN}`);
+  const sw = cli(swapped, 'render', '--preview');
+  assert.equal(sw.status, 2);
+  assert.match(sw.stderr, /^error: intro: analysed on song\.wav, sequence\.json's song is other\.wav \(run sequence\.mjs SEQ analyse\)$/m);
+  assert.doesNotMatch(sw.stderr, /\n\s+at /);
+  const moved = copyOfSmall();
+  const bar = songOf(moved, 'intro').loop.start_bar;
+  setFirst(moved, ({ from_start: _f, ...c }) => ({ ...c, start_bar: bar + 1 }));
+  await assert.rejects(renderSequence(loadSequence(moved), { preview: true }),
+    (e) => e instanceof UsageError && e.message === `intro: song.json's loop starts at bar ${bar}, sequence.json's chapter 1 has "start_bar": ${bar + 1} ${RERUN}`);
+  for (const d of [swapped, moved]) {
+    for (const c of ['intro', 'kit', 'end']) assert.equal(existsSync(path.join(d, c, 'out')), false, c);
+    assert.equal(existsSync(path.join(d, 'out')), false);
+  }
   const bare = cli(seqWithoutSong(), 'render');
   assert.equal(bare.status, 2);
   assert.match(bare.stderr, /^error: b: no song\.json \(run sequence\.mjs SEQ analyse\)/m);

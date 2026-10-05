@@ -506,13 +506,15 @@ node scripts/export.mjs SEQ --for linkedin,web   # SEQ/out/exports/
   comes back from the others on the next analyse: delete it from every chapter's song.json. A chapter whose sync
   changes keeps `song.json.bak`. Each chapter is then analysed with its bars, chapter k+1 at chapter k's
   `start_bar + bars`, and one line prints per chapter (`kit: bars 2-16, 0:04.9-0:37.9`).
-- **check**: errors (exit 1) for a brief's errors, a chapter not analysed or with other bars than sequence.json, a gap
-  or overlap between chapters (`end starts 0.500 s after kit ends`), or a bpm, fps or sync that differs from the
-  sequence's; fix by re-running `analyse`. Ends `sequence OK: N chapters, m:ss.s-m:ss.s`.
-- **render**: checks first (exit 2, nothing rendered) that every chapter is analysed, abuts, and has chapter 1's fps
-  and stage; renders only the chapters whose render is stale (`name: rendered|reused`); joins the videos over one
-  continuous cut of the song (no seam at the joins), with each chapter's UI sounds, the whole mix faded over
-  `fade_out_sec`. `--stage WxH` renders every chapter at that size into `SEQ/out/shapes/WxH/`.
+- **check**: errors (exit 1) for a brief's errors, a chapter not analysed or with other bars than sequence.json, one
+  analysed on another song than sequence.json's (`kit: analysed on A.mp3, sequence.json's song is B.mp3`), chapter 1
+  analysed with another start than its `from_start` / `start_bar`, a gap or overlap between chapters (`end starts
+  0.500 s after kit ends`), or a bpm, fps or sync that differs from the sequence's; fix by re-running `analyse`. A
+  chapter's project.json without `"loop": false` is a warning. Ends `sequence OK: N chapters, m:ss.s-m:ss.s`.
+- **render**: checks first (exit 2, nothing rendered) that every chapter is analysed (on sequence.json's song, chapter 1
+  with its start), abuts, and has chapter 1's fps and stage; renders only the chapters whose render is stale
+  (`name: rendered|reused`); joins the videos over one continuous cut of the song (no seam at the joins), with each
+  chapter's UI sounds, the whole mix faded over `fade_out_sec`. `--stage WxH` renders every chapter at that size into `SEQ/out/shapes/WxH/`.
 - **watch CHAPTER**: `watch.mjs SEQ/CHAPTER` with the same flags (see Watch); an unknown chapter is exit 2.
 - **export.mjs SEQ**: as for a project, from the joined full render of each size (the design size re-renders stale
   chapters into their own `out/video.mp4` and re-joins `SEQ/out/sequence.mp4`). Safe zones are checked on every

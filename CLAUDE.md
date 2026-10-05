@@ -341,12 +341,14 @@ The song path may be relative to SEQ, and is read in place.
   with its bars: chapter 1 `--from-start` / `--start-bar N`, chapter k+1 `--start-bar` = chapter k's `start_bar + bars`,
   so the windows abut exactly. Prints `kit: bars 2-16, 0:04.9-0:37.9` per chapter.
 - `check` runs check_brief on each chapter that has a MOTION-BRIEF.md (as a one-off, not a loop), then checks that
-  each chapter is analysed with sequence.json's bars, starts where the previous one ends (within 1 ms), and shares
+  each chapter is analysed on sequence.json's song (song.json's `source`) with sequence.json's bars (chapter 1 with
+  its `from_start` / `start_bar`, when it has one), starts where the previous one ends (within 1 ms), and shares
   chapter 1's bpm (unless a tempo map), fps and the sequence's sync (after a hand edit, `check` says to re-run
-  `analyse`). Lines start with the chapter's name; errors exit 1; `sequence OK: 4 chapters, 0:00.0-1:00.7`.
-- `render [--preview] [--stage WxH]` first checks every chapter is analysed, abuts and has chapter 1's fps and stage
-  (exit 2, nothing rendered, otherwise); renders each chapter whose render is stale (its `.render.json` stamp, as
-  export decides), printing `name: rendered|reused`; then joins the chapter videos (stream copy) over ONE cut of the
+  `analyse`); a project.json without `"loop": false` is a warning. Lines start with the chapter's name; errors exit
+  1; `sequence OK: 4 chapters, 0:00.0-1:00.7`.
+- `render [--preview] [--stage WxH]` first checks every chapter is analysed on sequence.json's song (chapter 1 with its
+  start), abuts and has chapter 1's fps and stage (exit 2, nothing rendered, otherwise); renders each chapter whose
+  render is stale (its `.render.json` stamp, as export decides), printing `name: rendered|reused`; then joins the chapter videos (stream copy) over ONE cut of the
   song from chapter 1's start to the last chapter's end (10 ms fades at the very ends only, so no seam at a join),
   mixed with each chapter's UI sounds at its offset, the whole mix faded out over `fade_out_sec`. Writes
   `SEQ/out/sequence.mp4`, or `SEQ/out/sequence-preview.mp4` with `--preview` (a preview never replaces the full
