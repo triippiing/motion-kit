@@ -111,6 +111,7 @@ Prop types: `string`, `number`, `boolean`, `string[]`, `number[]`, `object`, `ob
 | `theme`, `hex(role)` | the theme's colour roles, and a role to `[r, g, b]` |
 | `stage`, `loop_sec` | the stage size, and the loop length in seconds (null when the piece does not loop) |
 | `clips` | `{ src: clip.json object }` for the piece's footage clips (the page fetches each before `ready`; `{}` when there are none). `geometry` gets it too |
+| `shapeAt(t)` | the live shape's `{ w, h }` at `t` in design px: the engine's shape spring, exactly what `seek` lays the shape out at (pure). `geo` is the row's target; `shapeAt` is where the morph has got to, so content can stay pinned to the moving outline (footage's `crop` glides on it). Call it from `render` only, guarded (`ctx.shapeAt?.(t)`): validation's partial ctx has none, and it must not be called from `geometry`, `hotspot` or `endState`, which run before the shape's tracks exist |
 | `wait(promise)` | for media that must load before the frame is exact (footage registers each frame's `img.decode()`). `seek(t)` returns `Promise.all` of what was registered during that seek, and render, beat_stills and the frame check await it; the watch and sync pages do not. Never for timing: `render` must still be a pure function of `t`, and the promise should resolve, not reject (report a failure with `reportError`, which makes render exit 1) |
 
 ## A complete component to copy

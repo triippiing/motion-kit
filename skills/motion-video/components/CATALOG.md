@@ -648,7 +648,7 @@ Every row accepts these keys whatever its component (they are never component pr
 
 **Use when:** Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.
 
-**Motion:** The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape's centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window.
+**Motion:** The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape's centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape's own spring, the page pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and a row without crop (zoom, browser) counts as the region it shows.
 
 | Prop | Type | Default |
 |---|---|---|
@@ -660,6 +660,7 @@ Every row accepts these keys whatever its component (they are never component pr
 | `zoom` | `number` | `1` |
 | `focus` | `number[]` | `[0.5,0.5]` |
 | `browser` | `string` | `""` |
+| `crop` | `any` | `null` |
 
 **Hotspots:** `step:<name>`, `point:<x,y>`  
 **Sounds:** none

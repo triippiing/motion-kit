@@ -35,7 +35,12 @@
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
-//           prev, continues, settled, clips, wait }   settled: true for row 0, shown with its entrance long finished.
+//           prev, continues, settled, clips, wait, shapeAt }   settled: true for row 0, shown with its entrance long finished.
+//   shapeAt(t) -> { w, h }: the live shape's size at t in design px (the engine's SHAPE spring tracks, what seek lays
+//   #shape out at; pure). geo is the row's target; shapeAt is where the morph has got to, so a component can keep its
+//   content pinned to the moving outline. For render (and anything called from it) only: validation's partial ctx has
+//   none (call it as ctx.shapeAt?.(t)), and it must not be called while the scene is being built (geometry, hotspot,
+//   endState), before the tracks exist.
 //   clips: the createScene option (geometry gets it too, through the same base ctx).
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
 //   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
@@ -97,7 +102,9 @@ export function createScene(o) {
   // Pending work registered by renders (ctx.wait) during the current seek; a fresh list each seek.
   let pending = [];
   const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null, clips,
-    wait: (p) => { pending.push(p); } };
+    wait: (p) => { pending.push(p); },
+    // The live shape's size at t (the SHAPE w/h tracks below, read only once they exist: at seek, never while sizing).
+    shapeAt: (t) => ({ w: v(tracks.w, t), h: v(tracks.h, t) }) };
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {

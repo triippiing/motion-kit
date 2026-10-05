@@ -425,8 +425,8 @@ missing or unreadable video is `error: ...`, exit 2.
 - Props: `src` (the clip under `DIR/footage/`), `from` (seconds into the clip, default 0), `speed` (default 1),
   `fit` (`cover`, the default, crops; `contain` letterboxes), `width` (the shape's width in design px; default 0:
   the clip's aspect fitted inside the stage less a 10% margin on every side; the height follows the aspect), `zoom`
-  (1 or more, default 1), `focus` (`[x, y]`, fractions 0..1 of the frame, default `[0.5, 0.5]`) and `browser` (a URL,
-  default `''`: off). `src` is required (meta's `'demo'` default is for the catalog only) and must be a folder inside
+  (1 or more, default 1), `focus` (`[x, y]`, fractions 0..1 of the frame, default `[0.5, 0.5]`), `browser` (a URL,
+  default `''`: off) and `crop` (`[x, y, w, h]`, fractions of the frame, default `null`: off). `src` is required (meta's `'demo'` default is for the catalog only) and must be a folder inside
   `footage/`.
 - Zoom: the clip is scaled by `zoom` with `focus` at the shape's centre, clamped so the clip never leaves an empty
   edge (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src`
@@ -447,11 +447,24 @@ missing or unreadable video is `error: ...`, exit 2.
   row avoids both. A browser row's shape has the window's aspect (W x (H + bar)), so framing just
   the page needs `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides
   slightly.
+- Crop: `crop: [x, y, w, h]` (fractions 0..1 of the clip's frame, the same space as `focus`; not with `zoom` or
+  `focus` on the same row) shows just that rect of the frame. Without a row-level `w`/`h` the shape takes the crop's
+  aspect (`width`, or the stage fit less the 10% margin, and the height from the crop's aspect in clip pixels). The
+  rect is fitted (contain, centred) to the shape's live, morphing size and everything outside it is masked, so the
+  shape's own fill shows round it: a crop row straight after another component shows only the crop, letterboxed in
+  the fill, while the outline morphs. A continuation of the same `src` where either row has `crop` glides rect to
+  rect on the shape's own spring (per axis, how far the live width/height has got from the previous row's to this
+  row's), so the page stays pinned to the outline: a strip `[0.59, 0.52, 0.40, 0.06]` then `[0.59, 0.05, 0.40, 0.53]`
+  grows up out of the strip with the strip's bottom edge still on the shape's. A row without crop counts as the
+  region its settled framing shows (the window, bar included, for a `browser` row), so crop to zoom or browser and
+  back glide the same way. Reveal a page element by element: the strip alone, then grow it up, then down, then out
+  to the side, then end on `browser: '...'`. Rows with only zoom/focus glide as before. A crop with `browser` set shows
+  no bar (the crop is inside the clip's frame).
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.
 - Hotspots: `step:NAME`, the centre of the box the capture's named step acted on, mapped through `fit`, the browser
-  bar, the row's own settled zoom/focus and the shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up
+  bar, the row's own settled zoom/focus (or crop) and the shape; `point:X,Y`, fractions (0..1) of the frame. A press lines up
   with the captured click when it is at the row's time plus `(step t - from) / speed`: with the clip at beat 4 on a
   0.5 s beat and `pay` at 0.9 s, beat 5.8. A cursor row resolves to one fixed point, so on a row that glides in from
   another framing, aim and press after the glide has settled (0.6 beat after the row's beat).
@@ -463,11 +476,15 @@ missing or unreadable video is `error: ...`, exit 2.
   (`footage needs src`), a `src` with a `..` segment or an absolute path (`footage: src "SRC" must be a folder
   inside footage/ (no ".." segments, not an absolute path)`; no script reads it), a zoom under 1 (`footage: zoom must
   be 1 or more (1 shows the whole frame), got 0.5`) and a focus that is not two fractions (`footage: focus must be
-  [x, y], two fractions of the frame from 0 to 1, got [1.2,0.5]`) are errors in check_brief, watch and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
+  [x, y], two fractions of the frame from 0 to 1, got [1.2,0.5]`), a crop that is not four numbers (`footage: crop
+  must be [x, y, w, h], four fractions of the frame, got "wide"`), has a w or h of 0 or less (`footage: crop's w and
+  h must be more than 0, got [...]`) or leaves the frame (`footage: crop must lie inside the frame (x, y from 0; x + w
+  and y + h at most 1), got [...]`), and crop with zoom or focus on one row (`footage: crop and zoom/focus cannot
+  both be set on one row (crop frames the clip on its own)`) are errors in check_brief, watch and the page. An invalid clip is an error in check_brief and watch (the page, which cannot read it, only reports
   "no clip at"); zoom/focus errors are reported together with a missing clip. check_brief warns when a cursor's
   `step:` or `point:` target lands off the shape at the row's settled framing (zoomed past it):
-  `footage at beat 4: step:mark is outside the shape at zoom 4` (beat: the footage row's; aim at what the row shows,
-  or zoom less), and when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
+  `footage at beat 4: step:mark is outside the shape at zoom 4` (`... at crop [0.5,0.5,0.25,0.25]` on a crop row;
+  beat: the footage row's; aim at what the row shows, or zoom less), and when a row's window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`; fix it with
   a shorter row, `speed` or `from`. In a loop the last row repeats the first, so a footage first row usually holds a
   spent clip at the seam: that warning then ends `(at the loop seam: set from, or end on a non-footage row)`.
 - A frame that fails to load (a deleted JPEG) is a page error: `render.mjs` exits 1 with

@@ -359,7 +359,7 @@ Default 60 fps, the video's size capped at 1600 px wide (never scaled up; even d
 and no steps (aim the cursor with `point:X,Y`) and prints `footage: N frames, S s, WxH -> CLIPDIR`. A missing or
 unreadable video is `error: ...`, exit 2.
 
-**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0, zoom: 1, focus: [0.5, 0.5], browser: '' }`:
+**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0, zoom: 1, focus: [0.5, 0.5], browser: '', crop: null }`:
 
 - `src` names `DIR/footage/<src>/`; `from` is seconds into the clip (default 0), `speed` (default 1), `fit` `cover`
   (default; crops) or `contain` (letterboxes), `width` the shape's width in design px (default 0: the clip's aspect
@@ -390,19 +390,36 @@ unreadable video is `error: ...`, exit 2.
   zoom near 1, the clip steps up by about bar / H (zoom cannot go under 1). Setting the same `browser` on every row
   avoids both. A browser row's shape has the window's aspect (W x (H + bar)), so framing just the page needs
   `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides slightly.
+- `crop` (`[x, y, w, h]`, fractions 0..1 of the clip's frame, the space of `focus`; default `null`: off; not with
+  `zoom`/`focus` on the same row) shows just that rect. Without row-level `w`/`h` the shape takes the crop's aspect
+  (`width`, default the stage fit less the 10% margin; height = width x the crop's aspect in clip px). The rect is
+  contain-fitted, centred, to the LIVE shape (the engine's `ctx.shapeAt(t)`, its SHAPE spring's `w`/`h`) inside a
+  `.ft-mask` (overflow hidden): outside it the shape's fill shows, so the first row after a cut shows only the crop,
+  letterboxed, while the outline morphs. A continuation of the same `src` where either row has crop glides from the
+  previous row's settled rect to its own on the live shape's progress: per axis `u = (W(t) - W_prev) / (W_this -
+  W_prev)` (likewise H; an axis that moves under 1 design px takes the other's u; neither: u = 1 from t0), edges lerp
+  by u (past 1 on the overshoot) and the rect is clamped to the window, so the page stays pinned to the outline (a
+  strip `[0.59, 0.52, 0.40, 0.06]` into `[0.59, 0.05, 0.40, 0.53]` keeps its bottom edge on the shape's). A row
+  without crop counts as the region its settled framing shows (incl. the window's bar with `browser`), so crop to
+  zoom/browser and back glide the same way; rows with only zoom/focus keep their own glide and DOM. With `browser`
+  set, a crop row still shows no bar (the crop is inside the frame).
 - Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
-  browser bar, the row's own settled zoom/focus and the shape (time the press to the step: the row's beat time plus
+  browser bar, the row's own settled zoom/focus (or crop) and the shape (time the press to the step: the row's beat time plus
   `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves
   to one fixed point, so on a row that glides in from another framing, aim and press after the glide has settled
   (0.6 beat after the row's beat).
 - Checks: `footage: no clip at footage/SRC/clip.json` and a `step:` the clip does not have (the error lists its
   steps) are errors in check_brief, watch and the page, as are `footage needs src`, an unsafe `src`,
   `footage: zoom must be 1 or more (1 shows the whole frame), got 0.5` and `footage: focus must be [x, y], two
-  fractions of the frame from 0 to 1, got [1.2,0.5]` (a non-number `zoom` or `focus` is the usual prop type error); an invalid
+  fractions of the frame from 0 to 1, got [1.2,0.5]` (a non-number `zoom` or `focus` is the usual prop type error),
+  `footage: crop must be [x, y, w, h], four fractions of the frame, got ...` (crop is typed `any` so `null` can be its
+  default: its shape is checked here), `footage: crop's w and h must be more than 0, got ...`, `footage: crop must lie
+  inside the frame (x, y from 0; x + w and y + h at most 1), got ...` and `footage: crop and zoom/focus cannot both
+  be set on one row (crop frames the clip on its own)` (a row that has its own `zoom` or `focus` key); an invalid
   clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"); zoom/focus
   errors are reported together with a missing clip. check_brief also warns when a cursor's `step:` or `point:` target
   lands off the shape at the row's settled framing (zoomed past it): `footage at beat 4: step:mark is outside the
-  shape at zoom 4` (beat: the footage row's), and when a row's
+  shape at zoom 4` (`... at crop [x,y,w,h]` on a crop row, measured against the crop's fitted box), and when a row's
   window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
   repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
   `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it
