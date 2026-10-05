@@ -245,7 +245,7 @@ addEventListener('keydown', (e) => {
   fetch('/log', { method: 'POST', body: JSON.stringify({ key: e.key, shift: e.shiftKey, t: performance.now() - 1000 }) });
 });
 </script></body></html>`;
-async function keyServer() {
+async function keyServer(html = KEYS_PAGE) {
   const log = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST') {
@@ -255,7 +255,7 @@ async function keyServer() {
       return;
     }
     res.setHeader('content-type', 'text/html');
-    res.end(KEYS_PAGE);
+    res.end(html);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/keys.html`, log, close: () => server.close() };
@@ -393,3 +393,48 @@ test('a browser that is not installed exits 2 with the install command', () => {
   noTrace(r);
   assert.ok(r.stderr.startsWith(`error: playwright webkit is not installed: (cd ${SKILL} && npx playwright install webkit)`), r.stderr);
 });
+
+// The capture is silent: a page's Web Audio and media elements make no sound (headless WebKit on macOS plays page audio
+// through the speakers). The fixture starts an oscillator into its AudioContext's destination and plays a tone in an
+// <audio> on a click, then reports what it sees and what the capture's mute hook (window.__mkMute, read with the real
+// getters) says actually reaches the output.
+const WAV = (() => {   // 0.5 s of a 440 Hz tone, 8 kHz 16-bit mono
+  const n = 4000, b = Buffer.alloc(44 + 2 * n);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + 2 * n, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(8000, 24); b.writeUInt32LE(16000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(2 * n, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(12000 * Math.sin((2 * Math.PI * 440 * i) / 8000)), 44 + 2 * i);
+  return b.toString('base64');
+})();
+const SOUND_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>body { margin: 0; } #go { position: absolute; left: 20px; top: 20px; width: 100px; height: 40px; }</style></head>
+<body><button id="go">go</button><audio id="a" src="data:audio/wav;base64,${WAV}" loop></audio><script>
+document.getElementById('go').addEventListener('click', async () => {
+  const ctx = new AudioContext(), osc = ctx.createOscillator();
+  const back = osc.connect(ctx.destination);
+  osc.start();
+  const a = document.getElementById('a');
+  a.volume = 0.8;
+  const played = await a.play().then(() => true, (e) => String(e));
+  await ctx.resume().catch(() => {});
+  fetch('/log', { method: 'POST', body: JSON.stringify({
+    page: { chained: back === ctx.destination, isDestination: ctx.destination instanceof AudioDestinationNode, muted: a.muted, volume: a.volume, played },
+    out: window.__mkMute ? window.__mkMute.state() : null }) });
+});
+</script></body></html>`;
+
+for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromium', chromium, false], ['chromium', chromium, true]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}${realtime ? ' --realtime' : ''}: the capture is silent (Web Audio into a zero gain, media muted), the page none the wiser`, { skip }, async () => {
+    const srv = await keyServer(SOUND_PAGE), dir = path.join(TMP, name, realtime ? 'sound-rt' : 'sound');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`sound-${name}-${realtime}`, [{ click: '#go', move: 0.1 }, { wait: 0.3 }]), '--out', dir,
+        '--fps', '10', '--size', '320x240', '--browser', name, ...(realtime ? ['--realtime'] : []));
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(srv.log.length, 1, JSON.stringify(srv.log));
+      const { page, out } = srv.log[0];
+      assert.deepEqual(page, { chained: true, isDestination: true, muted: false, volume: 0.8, played: true }, 'page logic unchanged');
+      assert.ok(out, 'the mute hook is in the page');
+      assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], `the oscillator reaches the output through a zero gain: ${JSON.stringify(out)}`);
+      assert.deepEqual(out.media, [{ muted: true, volume: 0 }]);
+    } finally { srv.close(); }
+  });
+}

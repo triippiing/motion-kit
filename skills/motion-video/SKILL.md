@@ -356,7 +356,10 @@ its own directory on 127.0.0.1 (relative assets load); `http(s)://` and `file://
 `--size 1280x800`, `--fps 60`, `--scale 1` (device pixels per CSS pixel, up to 4; `--scale 2` for retina-sharp
 stepped frames; the frame size must come out even), WebKit for stepped capture and Chromium with `--realtime`.
 CLIPDIR must be new, empty or an existing clip (its frames are replaced); a failed run leaves it as it was. It prints
-`capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> DIR/footage/checkout`.
+`capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> DIR/footage/checkout`. Capture is silent, stepped and
+`--realtime`: the page's Web Audio plays into a gain of 0 and its `<audio>`/`<video>` are muted at volume 0 (the page
+still reads back its own destination, `muted` and `volume`), as headless WebKit on macOS otherwise plays page sound
+through the speakers.
 
 The steps file is a JSON list, run in order:
 

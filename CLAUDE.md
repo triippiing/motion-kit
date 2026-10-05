@@ -309,6 +309,11 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   stepped frames; the frame size must come out even). The browser is WebKit (Safari's engine) for stepped capture
   and Chromium for `--realtime`. CLIPDIR must be new, empty or an existing clip (its frames are replaced); frames go to
   a temp directory beside it first, so a failed run leaves it as it was. At most 99999 frames.
+- Silent, stepped and `--realtime` (headless WebKit on macOS plays page audio through the speakers): an init script
+  (`muteScript`) routes every AudioContext connection to its destination through a gain of 0 and keeps every
+  `<audio>`/`<video>` really muted at volume 0, while the page reads back its own destination, `muted` and `volume`
+  (an OfflineAudioContext is left alone); Chromium also gets `--mute-audio`. `window.__mkMute.state()` reports what
+  reaches the output (capture.test.mjs checks it in both browsers).
 - The steps file is a JSON list: `{ "wait": SEC }`, `{ "click": SEL }`, `{ "hover": SEL }`,
   `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer), `{ "scroll": PX, "in": SEL }`
   or `{ "press": KEY }` (a Playwright key name pressed into whatever has focus, modifiers joined with `+`: `"m"`,
