@@ -22,7 +22,7 @@ motion-kit stands on other people's work. Thank you to all of them.
   asset was copied from anywhere.
 - **Jesse Vincent, [Superpowers](https://github.com/obra/superpowers)** (MIT): the Claude Code skills
   workflow used to design, plan, build and review this kit (brainstorming, writing plans,
-  subagent-driven development, code review). `docs/superpowers/` holds the resulting spec and plan.
+  subagent-driven development, code review).
 
 ## Music in the demos
 
