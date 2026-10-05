@@ -10,8 +10,14 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
 | a launch / non-looping video | full flow, not a loop: after scaffolding, add `"loop": false` to `DIR/project.json` (check_brief.mjs and the page read it). Longer than one loop (an intro, product chapters, an end card): plan it in chapters (see Long pieces: chapters below) |
 | animation inside a real app | hand to motion-ui |
 | re-time or re-render an existing project | motion-video directly |
+| a video of something that exists (a repo, a release, a pull request) with no STORY.md yet | hand to motion-story; it comes back with an approved `STORY.md` |
+| an approved `STORY.md` | full flow below, with STORY.md as the request (see Questions) |
 
 ## Questions (one per message, multiple choice where possible; skip any already answered)
+An approved `STORY.md` (motion-story) is a ready-made request: it answers question 1 (its title and story kind are
+the goal) and question 5 (its hook, moments and end card, each with a component and its words). Skip those, keep its
+words and numbers exactly, and ask questions 2 to 4 as usual. A theme still comes from the product's stylesheet (3)
+when the user has one. A STORY.md with chapters is planned as a sequence (Long pieces: chapters).
 1. Goal and audience.
 2. Where will you post it? Multiple choice, more than one answer allowed (each group's presets and limits are in `~/.claude/skills/motion-video/presets.json`):
 

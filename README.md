@@ -4,7 +4,7 @@
 
 <p align="center"><sub>The launch video, made with motion-kit itself (silent here). Music in the full video: "Tease Me" prod. by LoopGod (<a href="https://www.instagram.com/loopgodmusic/">@loopgodmusic</a>), used under licence.</sub></p>
 
-Three [Claude Code](https://claude.com/claude-code) skills that turn any project's UI into
+Four [Claude Code](https://claude.com/claude-code) skills that turn any project's UI into
 beat-synced motion videos and springy in-app motion, all in code. No After Effects,
 Remotion or Lottie: every video frame is a pure function of time, so the same page renders
 the same loop every time and re-times to any song.
@@ -22,6 +22,7 @@ Docs with the demo videos: <https://triippiing.github.io/Wiki/claude/motion-kit.
 | `motion-design` | Planning a promo or reel: questions, song measurement, a checked `MOTION-BRIEF.md` built from library components, then an approval stop before any code | "Make a promo video for my app to ~/Music/song.mp3" |
 | `motion-video` | Building and rendering: song analysis, the `seek(t)` page, contact sheet, seam check, MP4, and ready-to-post exports | "Render it" / "Export it for Reels and X" |
 | `motion-ui` | Live product UI: indicators, toggles, drags, interruptible transitions, following the project's own motion rules | "Make this tab indicator springier" |
+| `motion-story` | A video from something that already exists: a repo's intro, a release or a pull request, read into facts and drafted as a `STORY.md` you approve before motion-design plans it | "Make a video of this repo" / "A clip of the latest release" |
 
 ## Install (macOS)
 
@@ -63,6 +64,9 @@ into this repo, per its terms. Skip it with `./install.sh --no-transitions`.
 Open Claude Code in the cloned folder, or just give it this repo's URL: `CLAUDE.md` explains
 the whole project (pipeline, page contract, rules, code map, tests). Once installed, the skills
 trigger on their own in any project, e.g. "make a 15 second promo of this app to ~/Music/song.mp3".
+To start from a repo instead of a blank brief, say "make a video of this repo" (or "of the latest release");
+`motion-story` reads it with `node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo . --intro --out facts.json`
+and drafts a `STORY.md` for your approval before planning.
 
 ## Using it by hand
 
@@ -139,6 +143,7 @@ shared/springs.js        closed-form damped springs (spring, track, live, fromSe
 skills/motion-design/    planning skill + direction and state-plan references
 skills/motion-video/     scripts, seek(t) template, component library, tests
 skills/motion-ui/        in-app motion skill + tested patterns
+skills/motion-story/     story skill: a repo (intro, release, pr) -> facts -> STORY.md, + tests
 demos/                   01 reference sequence, 02 finance-app promo, 03 dock pill capture
 CLAUDE.md                the project guide for Claude (and people): start here
 CREDITS.md               everyone and everything this builds on
