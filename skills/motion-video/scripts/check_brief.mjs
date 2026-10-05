@@ -10,7 +10,8 @@
 // the same frame check then measures each preset's safe zones, each issue a warning, and a commercial track (a
 // **Song:** or **Music:** line calling it commercial) with public presets is a warning too.
 // Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
-// is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js).
+// is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js);
+// likewise hide and footage rows (a copy before them), and footage rows when index.html has no loadClips().
 // A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -45,6 +46,9 @@ const readJson = (dir, name) => {
   const text = readFileSync(path.join(dir, name), 'utf8');
   try { return JSON.parse(text); } catch (e) { throw new Error(`${name} is not valid JSON (${e.message})`); }
 };
+
+// A project file's text, or null when it cannot be read.
+const readText = (dir, name) => { try { return readFileSync(path.join(dir, name), 'utf8'); } catch { return null; } };
 
 // The project's theme roles from theme.json, else the house roles. A theme.json that parses but is not an object is
 // a ThemeError (a brief error), not a crash.
@@ -152,6 +156,9 @@ export async function checkBrief(dir, opts = {}) {
   const OLD_FOOTAGE = Array.isArray(states) && states.some((r) => r?.use === 'footage')
     && existsSync(path.join(dir, 'components', 'index.js')) && !existsSync(path.join(dir, 'components', 'media', 'footage.js'));
   if (OLD_FOOTAGE) errors.push("the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)");
+  // And an index.html from before footage (no loadClips(), the template's clip fetch): its page never reads the clips.
+  if (Array.isArray(states) && states.some((r) => r?.use === 'footage') && !/\bloadClips\b/.test(readText(dir, 'index.html') ?? 'loadClips'))
+    errors.push("the project's index.html predates footage; copy loadClips() and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)");
   // Footage rows are checked against the project's clips (footage/<src>/clip.json). One that is there but invalid is
   // its own error, so validate's "no clip at" for it is dropped.
   const footage = await projectClips(dir, states);

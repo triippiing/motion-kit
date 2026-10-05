@@ -5,6 +5,7 @@
 // (watch, sync, ?play) show it as soon as it decodes. A decode that fails keeps the last good frame and is raised with
 // reportError (a page error: render.mjs exits 1 on it), while ctx.wait still sees its promise resolve.
 // The page fetches each used clip's clip.json before ready (ctx.clips[src]); validation receives the same as data.
+// A row must set src itself (meta's 'demo' default is for the catalog only), to a folder inside footage/ (safeSrc).
 export const meta = {
   name: 'footage', group: 'media',
   useWhen: 'Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.',
@@ -126,12 +127,20 @@ export function hotspot(name, p, geo, ctx) {
   return { x: (x - W / 2) * k, y: (y - H / 2) * k };
 }
 
+// Whether src names a folder inside footage/: not absolute (/x, \\x, C:x) and no ".." segment (/ or \\ separated).
+// tables.mjs (the Node side) applies the same test before it reads a clip.
+export const safeSrc = (src) => typeof src === 'string' && !/^([\\/]|[A-Za-z]:)/.test(src) && !src.split(/[\\/]/).includes('..');
+
 // Validation (validate.js), with the clips as data: info = { clips, strict, at (the row's beat, for messages), row,
 // beatT (null: no timing, so no hold check), t1 (seconds; Infinity when unknown), continues, prev, seam (the last row
-// of a looping piece) }. No clips
+// of a looping piece) }. A row without its own src, or an unsafe one, is an error even then; otherwise no clips
 // (undefined): nothing to check against.
 export function check(p, info) {
   const errors = [], warnings = [];
+  // src must be the row's own (meta's 'demo' default is only for the catalog), and a folder inside footage/.
+  const own = info.row && typeof info.row === 'object' ? info.row.src : p.src;
+  if (typeof own !== 'string' || !own) return { errors: ['footage needs src'], warnings };
+  if (!safeSrc(own)) return { errors: [`footage: src ${JSON.stringify(own)} must be a folder inside footage/ (no ".." segments, not an absolute path)`], warnings };
   if (info.clips === undefined) return { errors, warnings };
   const clip = info.clips[p.src];
   if (!clip) { errors.push(`footage: no clip at footage/${p.src}/clip.json`); return { errors, warnings }; }

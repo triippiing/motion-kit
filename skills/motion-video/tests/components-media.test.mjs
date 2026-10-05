@@ -137,6 +137,26 @@ test('validate (strict): a row longer than the clip left warns that it holds its
   assert.ok(!v(fits, undefined, { checkout: clip }, true).warnings.some((x) => /checkout holds/.test(x) && /beat 0\)/.test(x)), 'a clip that lasts the row is fine');
 });
 
+test('validate: a footage row must set src itself (no silent demo), with or without clips', () => {
+  const cur = [{ at: 0, x: 0, y: 0 }, { at: 6, x: 0, y: 0 }];
+  const rows = [{ at: 0, use: 'footage' }, { at: 6, use: 'footage' }];
+  const e = v(rows).errors;
+  assert.deepEqual(e, ['footage needs src'], e.join('\n'));
+  assert.deepEqual(validate({ states: rows, cursor: cur, registry, song }).errors, ['footage needs src'], 'no clips (no project): still an error');
+  assert.deepEqual(v([{ at: 0, use: 'footage', src: '' }, { at: 6, use: 'footage', src: '' }]).errors, ['footage needs src']);
+});
+
+test('validate: a src with ".." segments or an absolute path is an error (Node never reads outside footage/)', () => {
+  for (const src of ['../outside', 'a/../../b', '..', '/etc/x', 'a\\..\\b', 'C:\\x']) {
+    const rows = [{ at: 0, use: 'footage', src }, { at: 6, use: 'footage', src }];
+    const want = `footage: src ${JSON.stringify(src)} must be a folder inside footage/ (no ".." segments, not an absolute path)`;
+    assert.deepEqual(v(rows).errors, [want], src);
+    assert.deepEqual(validate({ states: rows, cursor: [{ at: 0, x: 0, y: 0 }, { at: 6, x: 0, y: 0 }], registry, song }).errors, [want], `${src} without clips`);
+  }
+  assert.deepEqual(v([{ at: 0, use: 'footage', src: 'demo' }, { at: 6, use: 'footage', src: 'demo' }], undefined, { demo: clip }).errors, []);
+  assert.ok(!v([{ at: 0, use: 'footage', src: 'a..b/c' }, { at: 6, use: 'footage', src: 'a..b/c' }]).errors.some((x) => /must be a folder/.test(x)), '".." inside a name is fine');
+});
+
 // ---- in a real page: frame-exact, whatever the seek order
 
 // A 1280x720 shape on the 1440 stage at zoom 1 sits at (80, 360): the clip's pixels 1:1. The cursor is hidden.
@@ -263,6 +283,32 @@ test('check_brief: a project whose components/ copy predates footage is told to 
   writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief("[{ at: 0, use: 'footage', src: 'demo' }, { at: END - 2, use: 'footage', src: 'demo' }]", STILL));
   const r = await checkBrief(dir, { frameCheck: noFrames });
   assert.deepEqual(r.errors, ["the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)"]);
+});
+
+test('check_brief: a src outside footage/ is never read (the validator names it)', async () => {
+  const dir = withClip(makeProject({ bars: 2 }));
+  cpSync(CLIP, path.join(dir, 'outside'), { recursive: true });   // a valid clip at DIR/outside, reached by ../outside
+  writeFileSync(path.join(dir, 'outside', 'clip.json'), '{ nope');   // read it and it would be a "not valid JSON" error
+  const { projectClips } = await import('../scripts/tables.mjs');
+  assert.deepEqual(await projectClips(dir, [{ at: 0, use: 'footage', src: '../outside' }]), { clips: {}, errors: [] });
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief("[{ at: 0, use: 'footage', src: '../outside' }, { at: END - 2, use: 'footage', src: '../outside' }]", STILL));
+  const r = await checkBrief(dir, { frameCheck: noFrames });
+  assert.deepEqual(r.errors, ['footage: src "../outside" must be a folder inside footage/ (no ".." segments, not an absolute path)']);
+});
+
+test('check_brief: a project whose index.html predates footage (no loadClips) is told to copy it from the template', async () => {
+  const dir = withClip(makeProject({ bars: 2 }));
+  const page = path.join(dir, 'index.html');
+  // an index.html from before footage: no loadClips(), no CLIPS
+  writeFileSync(page, readFileSync(page, 'utf8').replace(/\n\/\/ Each footage row's clip\.json[\s\S]*?\n}\n/, '\n')
+    .replace('  CLIPS = await loadClips();\n', '').replace(', clips: CLIPS', ''));
+  assert.doesNotMatch(readFileSync(page, 'utf8'), /loadClips/);
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief("[{ at: 0, use: 'footage', src: 'demo' }, { at: END - 2, use: 'footage', src: 'demo' }]", STILL));
+  const r = await checkBrief(dir, { frameCheck: noFrames });
+  assert.deepEqual(r.errors, ["the project's index.html predates footage; copy loadClips() and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)"]);
+  // no footage row: an older page is fine
+  writeFileSync(path.join(dir, 'MOTION-BRIEF.md'), brief("[{ at: 0, use: 'check' }, { at: END - 2, use: 'check' }]", STILL));
+  assert.deepEqual((await checkBrief(dir, { frameCheck: noFrames })).errors, []);
 });
 
 test('watch: a footage row whose clip is missing is held back with the error', async () => {

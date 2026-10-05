@@ -70,8 +70,7 @@ export function readClip(dir) {
 
 // Validate clip against the frames already in dir, then write dir/clip.json (via a temp file, renamed).
 export function writeClip(dir, clip) {
-  validate(dir, clip);
-  mkdirSync(dir, { recursive: true });
+  validate(dir, clip);   // it lists dir's frames, so dir exists
   const file = path.join(dir, 'clip.json'), tmp = `${file}.tmp-${process.pid}`;
   try { writeFileSync(tmp, `${JSON.stringify(clip, null, 2)}\n`); renameSync(tmp, file); } catch (e) { rmSync(tmp, { force: true }); throw e; }
   return clip;

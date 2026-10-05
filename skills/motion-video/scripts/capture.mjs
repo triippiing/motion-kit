@@ -30,7 +30,8 @@
 //   as window.__pwClock.builtins: a Playwright internal, tested with the pinned playwright 1.63.0), then the
 //   screenshot (JPEG quality 90, caret hidden: it blinks on a real timer). Measured: WebKit's screenshots already
 //   matched with no wait; Chromium's first frame differed with zero or one tick and matched from two on, so two in
-//   both. Headless WebKit runs requestAnimationFrame at 30 Hz, so a WebKit frame costs ~70 ms, Chromium ~50 ms.
+//   both. Headless WebKit runs requestAnimationFrame at 30 Hz, so a WebKit frame costs ~70 ms, Chromium ~50 ms. A
+//   paint wait that takes over 2 s (that requestAnimationFrame never calling back) fails the capture (exit 1).
 // Limits: a page's own Web Animation that it pauses and replays later is not re-synced; wheel scrolling is applied
 // at once (no smooth scrolling), in both browsers; video and audio elements play on the real clock; only the main
 // frame's animations are synced (an <iframe>'s run on the real clock).
@@ -106,6 +107,17 @@ async function syncAndPaint(now) {
   window.__mkSync(now);
   const raf = window.__pwClock.builtins.requestAnimationFrame;
   await new Promise((resolve) => raf(() => raf(resolve)));
+}
+
+// syncAndPaint in the page, raced against PAINT_MS of real time on the Node side: a builtin requestAnimationFrame that
+// never calls back (a Playwright change) is a runtime error (exit 1), not a capture that hangs.
+const PAINT_MS = 2000;
+async function paint(page, now) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('paint wait timed out (Playwright internals changed? capture.mjs is tested with playwright 1.63.0)')), PAINT_MS);
+  });
+  try { await Promise.race([page.evaluate(syncAndPaint, now), late]); } finally { clearTimeout(timer); }
 }
 
 // What to open: { url, source, file } (file: the local file to serve, or null for an http(s) URL).
@@ -202,7 +214,7 @@ async function recordStepped({ instance, url, errors, tmp, out, plan, fps, size,
     const now = TICKS0 + Math.round((i * 1000) / fps);
     if (now > ticks) { await page.clock.runFor(now - ticks); ticks = now; }
     await runner.frame(i);
-    await page.evaluate(syncAndPaint, now);
+    await paint(page, now);
     await page.screenshot({ path: framePath(tmp, i + 1), type: 'jpeg', quality: 90, caret: 'hide' });
   }
   await instance.close();

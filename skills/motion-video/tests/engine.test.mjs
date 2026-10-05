@@ -294,17 +294,22 @@ test('seek returns a resolved promise when no component registers pending work; 
 
 test('seek waits for the promises a render registers with ctx.wait, per seek call', async () => {
   const s = make([{ at: 0, use: 'w' }, { at: 4, use: 'a' }, { at: 12, use: 'w' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]);
-  let release; waitOn = new Promise((r) => { release = r; });
-  const order = [];
-  const p = s.seek(1).then(() => order.push('seek'));
-  await new Promise((r) => setTimeout(r, 20));
-  assert.deepEqual(order, [], 'still waiting on the registered promise');
-  order.push('release'); release();
-  await p;
-  assert.deepEqual(order, ['release', 'seek']);
-  // The pending list is made afresh each seek: nothing registered now, so it resolves at once.
-  waitOn = null;
-  let done = false; s.seek(1).then(() => { done = true; });
-  await null; await null;
-  assert.ok(done);
+  try {
+    let release; waitOn = new Promise((r) => { release = r; });
+    const order = [];
+    const p = s.seek(1).then(() => order.push('seek'));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(order, [], 'still waiting on the registered promise');
+    order.push('release'); release();
+    await p;
+    assert.deepEqual(order, ['release', 'seek']);
+    // The pending list is made afresh each seek: a seek that registered a promise that never settles does not hold
+    // up the next seek, which registers nothing and so resolves at once.
+    waitOn = new Promise(() => {});
+    s.seek(1);
+    waitOn = null;
+    let done = false; s.seek(1).then(() => { done = true; });
+    await null; await null;
+    assert.ok(done, 'the second seek waits only on its own promises');
+  } finally { waitOn = null; }
 });

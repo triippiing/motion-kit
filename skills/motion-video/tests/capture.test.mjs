@@ -69,7 +69,9 @@ function captureAsync(...args) {   // for the timing test: a spawnSync timeout w
     let stdout = '', stderr = '';
     p.stdout.on('data', (d) => { stdout += d; });
     p.stderr.on('data', (d) => { stderr += d; });
-    p.on('close', (status) => resolve({ status, stdout, stderr }));
+    // A capture that hangs is killed after 60 s (status null), so its test fails instead of never ending.
+    const kill = setTimeout(() => p.kill('SIGKILL'), 60000);
+    p.on('close', (status) => { clearTimeout(kill); resolve({ status, stdout, stderr }); });
   });
 }
 const noTrace = (r) => { assert.match(r.stderr, /^error: /); assert.doesNotMatch(r.stderr, /\n\s+at |Error:.*\n.*node:/); };
@@ -185,6 +187,18 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
     assert.equal(r.status, 1, r.stderr);
     assert.match(r.stderr, /^error: step 2 \(click "#missing"\): no element matches/);
     assert.doesNotMatch(r.stderr, /\n\s+at /);
+  });
+
+  test(`${name}: a paint wait that never ends exits 1 within 10 s, naming the Playwright internals`, { skip }, async () => {
+    // The page swaps Playwright's kept real requestAnimationFrame for one that never calls back.
+    const stall = path.join(SITE, 'stall.html');
+    writeFileSync(stall, '<!doctype html><body><script>window.__pwClock.builtins.requestAnimationFrame = () => 0;</script></body>');
+    const t0 = Date.now();
+    const r = await captureAsync(stall, '--steps', stepsFile(`stall-${name}`, [{ wait: 0.1 }]), '--out', path.join(TMP, name, 'stall'), '--size', '320x240', '--fps', '10', '--browser', name);
+    assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
+    assert.equal(r.status, 1, r.stderr);
+    assert.equal(r.stderr, 'error: paint wait timed out (Playwright internals changed? capture.mjs is tested with playwright 1.63.0)\n');
+    assert.ok(!readdirSync(path.join(TMP, name)).includes('stall'), 'no clip directory is left behind');
   });
 
   test(`${name}: --realtime records the fixture on the real clock into a valid realtime clip`, { skip }, async () => {
