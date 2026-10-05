@@ -151,7 +151,7 @@ export function rectAt(p, ctx, t) {
   const bar = barHeight(clip, rectBrowser(p, ctx));
   const x0 = Math.max(0, lerp(from.x, to.x, ux)), x1 = Math.min(clip.width, lerp(from.x + from.w, to.x + to.w, ux));
   const y0 = Math.max(-bar, lerp(from.y, to.y, uy)), y1 = Math.min(clip.height, lerp(from.y + from.h, to.y + to.h, uy));
-  return { x: x0, y: y0, w: Math.max(1e-6, x1 - x0), h: Math.max(1e-6, y1 - y0) };
+  return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };   // never 0 wide (placeRect divides by it)
 }
 
 // Where the clip starts for this row: a continuation of the same src carries on from the previous row's end

@@ -436,8 +436,8 @@ missing or unreadable video is `error: ...`, exit 2.
   glides from the previous row's framing to its own from its beat, on a no-overshoot spring that settles in 0.6 beat
   (the content zooms about one fixed point, so an off-centre pull-back never bends at the edge); row 0 shows its own. A pull-back from a close-up to the whole screen:
   `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3, 0.7] }`, then `{ at: 2, use: 'footage', src: 'app' }`.
-  The frame is laid out at its zoomed size (no scaling transform), so it stays sharp. Zoom 1 with the default focus
-  and no browser is the plain footage, unchanged.
+  The frame is laid out at its zoomed size (no scaling transform), so it stays sharp. Zoom 1 with the default focus,
+  no browser and no crop is the plain footage, unchanged.
 - Browser: `browser: 'example.com/sync'` draws a plain window around the clip (a `surface` title bar `max(4% of the
   clip's height, its width / 32)` clip px tall, three `muted` dots, the URL as real text in a centred rounded field;
   a URL longer than half the window is cut with `…`). The window is part of the zoomed content: zoom 1 fits the whole
@@ -462,7 +462,7 @@ missing or unreadable video is `error: ...`, exit 2.
   region its settled framing shows (the window, bar included, for a `browser` row), so crop to zoom or browser and
   back glide the same way. Reveal a page element by element: the strip alone, then grow it up, then down, then out
   to the side, then end on `browser: '...'`. Rows with only zoom/focus glide as before. A crop with `browser` set shows
-  no bar (the crop is inside the clip's frame).
+  no bar (the crop is inside the clip's frame), and `fit` does not apply (the rect is always contain-fitted).
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.

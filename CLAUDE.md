@@ -381,8 +381,8 @@ unreadable video is `error: ...`, exit 2.
   from where the previous row's framing ended to its own, released at its beat on a no-overshoot spring that settles
   in 0.6 beat (zoom eases geometrically and the content zooms about one fixed point, so an off-centre pull-back never
   bends at the clamp; row 0 shows its own). The frame is laid out at its zoomed size (no scaling transform, no
-  `will-change`), so it stays sharp. A row with zoom 1, the default focus and no browser (and not gliding from one
-  that had them) is the plain footage, DOM and pixels as before.
+  `will-change`), so it stays sharp. A row with zoom 1, the default focus, no browser and no crop (and not gliding
+  from one that had them) is the plain footage, DOM and pixels as before.
 - `browser` (a URL, default `''`: off) draws the clip inside a plain window: a title bar (`max(4% of the clip's
   height, its width / 32)` clip px) in `surface`, three `muted` dots and the URL as real text in a centred rounded
   field (a URL too long for half the window's width is cut with `…`). The window is part of the zoomed content:
@@ -407,7 +407,8 @@ unreadable video is `error: ...`, exit 2.
   strip `[0.59, 0.52, 0.40, 0.06]` into `[0.59, 0.05, 0.40, 0.53]` keeps its bottom edge on the shape's). A row
   without crop counts as the region its settled framing shows (incl. the window's bar with `browser`), so crop to
   zoom/browser and back glide the same way; rows with only zoom/focus keep their own glide and DOM. With `browser`
-  set, a crop row still shows no bar (the crop is inside the frame).
+  set, a crop row still shows no bar (the crop is inside the frame). `fit` does not apply to a crop row (its rect is
+  always contain-fitted).
 - Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
   browser bar, the row's own settled zoom/focus (or crop) and the shape (time the press to the step: the row's beat time plus
   `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves
