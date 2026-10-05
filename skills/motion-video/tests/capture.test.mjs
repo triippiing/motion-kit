@@ -6,12 +6,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import http from 'node:http';
 import { accessSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
-import { FFMPEG } from '../scripts/render.mjs';
+import { FFMPEG, UsageError } from '../scripts/render.mjs';
 import { framePath, readClip } from '../scripts/clip.mjs';
 import { calibrate, isCalibration } from '../scripts/capture.mjs';
+import { checkKeys } from '../scripts/capture_steps.mjs';
 import { tempDir } from './tmp.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -230,6 +232,77 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
   });
 }
 
+// ---- press steps: a page that logs each (non-modifier) keydown with its clock time (performance.now() - 1000 is clip time in a
+// stepped capture: capture.mjs loads the page at 1000) to the test's own server, and widens a bar per key.
+const KEYS_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin: 0; background: #fff; }
+#field { position: absolute; left: 20px; top: 20px; width: 100px; height: 30px; box-sizing: border-box; }
+#bar { position: absolute; left: 0; top: 100px; width: 10px; height: 40px; background: rgb(0, 0, 255); }
+</style></head><body><input id="field"><div id="bar"></div><script>
+let n = 0;
+addEventListener('keydown', (e) => {
+  if (['Shift', 'Alt', 'Control', 'Meta'].includes(e.key)) return;   // a modifier's own keydown (Shift+ArrowLeft sends two)
+  document.getElementById('bar').style.width = (10 + 20 * ++n) + 'px';
+  fetch('/log', { method: 'POST', body: JSON.stringify({ key: e.key, shift: e.shiftKey, t: performance.now() - 1000 }) });
+});
+</script></body></html>`;
+async function keyServer(html = KEYS_PAGE, files = {}) {   // files: { '/path': { type, body } } served beside the page
+  const log = [];
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (d) => { body += d; });
+      req.on('end', () => { log.push(JSON.parse(body)); res.end('ok'); });
+      return;
+    }
+    const f = files[req.url];
+    res.setHeader('content-type', f ? f.type : 'text/html');
+    res.end(f ? f.body : html);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${server.address().port}/keys.html`, log, close: () => server.close() };
+}
+// At 30 fps: the click arrives at 0.6 s (frame index 18), then ArrowRight x3 every 0.1 s (18, 21, 24), Shift+ArrowLeft
+// at 0.9 s (27), a 0.2 s wait and the 0.5 s hold: 1.7 s, 51 frames.
+const KEY_STEPS = [{ click: '#field', move: 0.1 }, { press: 'ArrowRight', repeat: 3, every: 0.1, name: 'nudge' }, { press: 'Shift+ArrowLeft', name: 'back' }, { wait: 0.2 }];
+
+for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}: press steps land on their frames, repeats spaced exactly (stepped)`, { skip }, async () => {
+    const srv = await keyServer(), dir = path.join(TMP, name, 'keys');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`keys-${name}`, KEY_STEPS), '--out', dir, '--fps', String(FPS), '--size', '320x240', '--browser', name);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(srv.log.map((e) => [e.key, e.shift, e.t]), [['ArrowRight', false, 600], ['ArrowRight', false, 700], ['ArrowRight', false, 800], ['ArrowLeft', true, 900]]);
+      const clip = readClip(dir);
+      assert.equal(clip.frames, Math.round(1.7 * FPS));
+      const [nudge, back] = clip.steps;
+      assert.deepEqual([nudge.name, nudge.action, back.name, back.action], ['nudge', 'press', 'back', 'press']);
+      assert.ok(Math.abs(nudge.t - 0.6) < 1e-9 && Math.abs(back.t - 0.9) < 1e-9, `t ${nudge.t}, ${back.t}`);
+      // the box of a press is the focused element's (the input the click focused)
+      for (const [k, want] of Object.entries({ x: 20, y: 20, w: 100, h: 30 })) assert.ok(Math.abs(nudge.box[k] - want) <= 1, `box.${k} ${nudge.box[k]}`);
+      // the bar grows 20 px on each press's own frame: frame n is clip time (n - 1) / fps
+      const blue = (n, x) => rgbAt(framePath(dir, n), x, 120)[2] - rgbAt(framePath(dir, n), x, 120)[0] > 150;
+      for (const [i, x] of [[18, 25], [21, 45], [24, 65], [27, 85]]) {
+        assert.ok(!blue(i, x) && blue(i + 1, x), `the press at frame index ${i} shows on frame ${i + 1}, not before (x ${x})`);
+      }
+    } finally { srv.close(); }
+  });
+}
+
+test('chromium --realtime: press steps run on the wall clock, spaced about every', { skip: installed(chromium) ? false : 'playwright chromium is not installed' }, async () => {
+  const srv = await keyServer(), dir = path.join(TMP, 'realtime-keys');
+  try {
+    const r = await captureAsync(srv.url, '--steps', stepsFile('keys-rt', KEY_STEPS), '--out', dir, '--fps', String(FPS), '--size', '320x240', '--realtime');
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(srv.log.map((e) => e.key), ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowLeft']);
+    const gaps = srv.log.slice(1).map((e, i) => e.t - srv.log[i].t);
+    assert.ok(gaps.every((g) => Math.abs(g - 100) < 60), `gaps ${gaps.map((g) => g.toFixed(0))} ms`);
+    const nudge = readClip(dir).steps.find((s) => s.name === 'nudge');
+    assert.ok(Math.abs(nudge.t - 0.6) <= 0.25, `nudge.t ${nudge.t}`);
+  } finally { srv.close(); }
+});
+
 test('--realtime without --browser records in chromium', { skip: installed(chromium) ? false : 'playwright chromium is not installed' }, async () => {
   const dir = path.join(TMP, 'realtime-default');
   const r = await captureAsync(APP, '--steps', stepsFile('short', [{ wait: 0.2 }]), '--out', dir, '--fps', '10', '--size', '320x240', '--realtime');
@@ -292,6 +365,17 @@ test('bad input exits 2 with error: and no traceback', () => {
     [['file:///no/such/app.html', '--steps', STEPS_FILE, '--out', o], /no such file/],
     [[path.join(TMP, 'missing.html'), '--steps', STEPS_FILE, '--out', o], /missing\.html/],
     [[APP, '--steps', STEPS_FILE, '--out', busy], /not empty/],
+    [[APP, '--steps', bad('nokey', '[{"press": ""}]'), '--out', o], /step 1: "press" must be a key name/],
+    [[APP, '--steps', bad('numkey', '[{"press": 5}]'), '--out', o], /step 1: "press" must be a key name/],
+    [[APP, '--steps', bad('rep0', '[{"press": "m", "repeat": 0}]'), '--out', o], /step 1: "repeat" must be a whole number from 1 to 200, got 0/],
+    [[APP, '--steps', bad('rep201', '[{"press": "m", "repeat": 201}]'), '--out', o], /"repeat" must be a whole number from 1 to 200, got 201/],
+    [[APP, '--steps', bad('repfrac', '[{"press": "m", "repeat": 1.5}]'), '--out', o], /"repeat" must be a whole number/],
+    [[APP, '--steps', bad('every0', '[{"press": "m", "every": 0}]'), '--out', o], /step 1: "every" must be a number of seconds > 0, got 0/],
+    [[APP, '--steps', bad('everyneg', '[{"press": "m", "every": -0.1}]'), '--out', o], /"every" must be a number of seconds > 0/],
+    [[APP, '--steps', bad('pressmove', '[{"press": "m", "move": 0.2}]'), '--out', o], /step 1: "move" does not go with press/],
+    [[APP, '--steps', bad('clickrep', '[{"click": "#btn", "repeat": 2}]'), '--out', o], /step 1: "repeat" does not go with click/],
+    [[APP, '--steps', bad('badkey', '[{"wait": 0.1}, {"press": "Foo"}]'), '--out', o, '--size', '320x240', '--fps', '10'], /step 2 \(press "Foo"\): Playwright does not know the key/],
+    [[APP, '--steps', bad('badkey-rt', '[{"press": "Shift+Nope"}]'), '--out', o, '--size', '320x240', '--fps', '10', '--realtime'], /step 1 \(press "Shift\+Nope"\): Playwright does not know the key/],
   ];
   for (const [args, msg] of cases) {
     const r = capture(...args);
@@ -310,4 +394,107 @@ test('a browser that is not installed exits 2 with the install command', () => {
   assert.equal(r.status, 2, r.stderr);
   noTrace(r);
   assert.ok(r.stderr.startsWith(`error: playwright webkit is not installed: (cd ${SKILL} && npx playwright install webkit)`), r.stderr);
+});
+
+// The capture is silent: a page's Web Audio and media elements make no sound (headless WebKit on macOS plays page audio
+// through the speakers). The fixture starts an oscillator into its AudioContext's destination and plays a tone in an
+// <audio> on a click, then reports what it sees and what the capture's mute hook (window.__mkMute, read with the real
+// getters) says actually reaches the output.
+const WAV = (() => {   // 0.5 s of a 440 Hz tone, 8 kHz 16-bit mono
+  const n = 4000, b = Buffer.alloc(44 + 2 * n);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + 2 * n, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(8000, 24); b.writeUInt32LE(16000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(2 * n, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(12000 * Math.sin((2 * Math.PI * 440 * i) / 8000)), 44 + 2 * i);
+  return b.toString('base64');
+})();
+const SOUND_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>body { margin: 0; } #go { position: absolute; left: 20px; top: 20px; width: 100px; height: 40px; }</style></head>
+<body><button id="go">go</button><audio id="a" src="data:audio/wav;base64,${WAV}" loop></audio><script>
+document.getElementById('go').addEventListener('click', async () => {
+  const ctx = new AudioContext(), osc = ctx.createOscillator();
+  const back = osc.connect(ctx.destination);
+  osc.start();
+  const a = document.getElementById('a');
+  a.volume = 0.8;
+  const played = await a.play().then(() => true, (e) => String(e));
+  await ctx.resume().catch(() => {});
+  fetch('/log', { method: 'POST', body: JSON.stringify({
+    page: { chained: back === ctx.destination, isDestination: ctx.destination instanceof AudioDestinationNode, muted: a.muted, volume: a.volume, played },
+    out: window.__mkMute ? window.__mkMute.state() : null }) });
+});
+</script></body></html>`;
+
+for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromium', chromium, false], ['chromium', chromium, true]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}${realtime ? ' --realtime' : ''}: the capture is silent (Web Audio into a zero gain, media muted), the page none the wiser`, { skip }, async () => {
+    const srv = await keyServer(SOUND_PAGE), dir = path.join(TMP, name, realtime ? 'sound-rt' : 'sound');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`sound-${name}-${realtime}`, [{ click: '#go', move: 0.1 }, { wait: 0.3 }]), '--out', dir,
+        '--fps', '10', '--size', '320x240', '--browser', name, ...(realtime ? ['--realtime'] : []));
+      assert.equal(r.status, 0, r.stderr);
+      assert.equal(srv.log.length, 1, JSON.stringify(srv.log));
+      const { page, out } = srv.log[0];
+      assert.deepEqual(page, { chained: true, isDestination: true, muted: false, volume: 0.8, played: true }, 'page logic unchanged');
+      assert.ok(out, 'the mute hook is in the page');
+      assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], `the oscillator reaches the output through a zero gain: ${JSON.stringify(out)}`);
+      assert.deepEqual(out.media, [{ muted: true, volume: 0 }]);
+    } finally { srv.close(); }
+  });
+}
+
+// Media the window's listeners cannot see is silenced too: a detached new Audio(url) and an autoplaying <audio> in a
+// shadow root. An element the page feeds to createMediaElementSource is exempt (its own muted/volume stay real), so an
+// AnalyserNode on it sees the signal; its output still reaches the speakers only through the zero gain.
+const ANALYSER_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>body { margin: 0; } #go { position: absolute; left: 20px; top: 20px; width: 100px; height: 40px; }</style></head>
+<body><button id="go">go</button><div id="host"></div><script>
+document.getElementById('go').addEventListener('click', async () => {
+  const ctx = new AudioContext(), fed = new Audio('/tone.wav');
+  fed.loop = true;
+  const an = ctx.createAnalyser();
+  ctx.createMediaElementSource(fed).connect(an);
+  fed.volume = 0.7;   // an exempt element's own setters are the real ones
+  an.connect(ctx.destination);
+  const loose = new Audio('/tone.wav');
+  loose.loop = true;
+  document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<audio src="/tone.wav" autoplay loop></audio>';
+  const played = await Promise.all([fed.play(), loose.play()]).then(() => true, (e) => String(e));
+  await ctx.resume().catch(() => {});
+  const buf = new Uint8Array(an.fftSize);
+  let peak = 0, n = 0;   // a log per timeupdate: the test reads the last
+  fed.addEventListener('timeupdate', () => {   // media time is real time: the capture's fake clock does not drive it
+    an.getByteTimeDomainData(buf);
+    peak = Math.max(peak, ...buf.map((b) => Math.abs(b - 128)));
+    fetch('/log', { method: 'POST', body: JSON.stringify({ n: n++, played, peak, out: window.__mkMute ? window.__mkMute.state() : null }) });
+  });
+});
+</script></body></html>`;
+
+for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromium', chromium, false], ['chromium', chromium, true]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}${realtime ? ' --realtime' : ''}: detached and shadow-root media are muted; a createMediaElementSource element is not (its analyser sees the signal)`, { skip }, async () => {
+    const srv = await keyServer(ANALYSER_PAGE, { '/tone.wav': { type: 'audio/wav', body: Buffer.from(WAV, 'base64') } });
+    const dir = path.join(TMP, name, realtime ? 'analyser-rt' : 'analyser');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`analyser-${name}-${realtime}`, [{ click: '#go', move: 0.1 }, { wait: 2 }]), '--out', dir,
+        '--fps', '10', '--size', '320x240', '--browser', name, ...(realtime ? ['--realtime'] : []));
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(srv.log.length >= 2, JSON.stringify(srv.log));
+      const { played, peak, out } = srv.log.reduce((a, b) => (b.n > a.n ? b : a));
+      assert.equal(played, true);
+      // headless WebKit's analyser reads a media element source as silence even with no capture hooks: Chromium only
+      if (name === 'chromium') assert.ok(peak > 20, `the analyser sees the tone: peak ${peak}`);
+      assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], JSON.stringify(out));
+      assert.deepEqual(out.media, [{ muted: true, volume: 0 }, { muted: true, volume: 0 }], `the detached and the shadow-root element: ${JSON.stringify(out)}`);
+      assert.deepEqual(out.exempt, [{ muted: false, volume: 0.7 }], JSON.stringify(out));
+    } finally { srv.close(); }
+  });
+}
+
+test('checkKeys: only Playwright\'s unknown-key error is bad usage; any other failure is rethrown as it is', async () => {
+  const browser = (fail) => ({ newContext: async () => ({ newPage: async () => ({ keyboard: { press: async () => { throw fail; } } }), close: async () => {} }) });
+  const steps = [{ action: 'press', key: 'Foo', label: 'step 1 (press "Foo")' }];
+  await assert.rejects(checkKeys(browser(new Error('keyboard.press: Unknown key: "Foo"')), steps),
+    (e) => e instanceof UsageError && /^step 1 \(press "Foo"\): Playwright does not know the key \(Unknown key: "Foo"\)/.test(e.message));
+  const crash = new Error('Target page, context or browser has been closed');
+  await assert.rejects(checkKeys(browser(crash), steps), (e) => e === crash && !(e instanceof UsageError));
+  await checkKeys(browser(new Error('never pressed')), [{ action: 'click', sel: '#a' }]);
 });

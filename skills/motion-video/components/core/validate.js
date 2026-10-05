@@ -253,7 +253,8 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
         const before = rows[i - 1], nextAt = states[i + 1]?.at ?? END;
         const continues = i > 0 && before.comp === comp;
         r.info = { clips, strict, at: B(row), row, beatT: beatT ?? null, t1: beatT && nextAt != null ? beatT(nextAt) : Infinity, continues,
-          seam: loop && i > 0 && i === states.length - 1,
+          seam: loop && i > 0 && i === states.length - 1, geo: r.geo, next: states[i + 1] ?? null,
+          beat_sec: song?.beat_sec ?? null, settle_sec: song?.rules?.spring?.settle_sec ?? (song?.beat_sec ? 0.6 * song.beat_sec : null),
           prev: continues && before.info && beatT ? (comp.endState ? comp.endState(before.props, before.info) : before.props) : null };
         const res = comp.check(r.props, r.info);
         errors.push(...res.errors); warnings.push(...res.warnings);
@@ -367,8 +368,10 @@ export function validate({ states: S, cursor: Cu, registry, song, theme, loop = 
       const d = hit?.dups?.find((k) => hit.comp.meta.hotspots.some((h) => h.includes(':<') && c.target === h.slice(0, h.indexOf(':<') + 1) + k));
       if (d !== undefined) errors.push(`cursor target "${c.target}" at beat ${B(c)} names a duplicate label of ${hit.row.use}; it reaches the first "${d}" only`);
       // A target the row's component can tell is wrong for its data (a step the footage's clip does not have).
-      const why = hit && !hit.bad && hit.comp.checkTarget?.(c.target, hit.props, { clips });
-      if (why) errors.push(`cursor target "${c.target}" at beat ${B(c)}: ${why}`);
+      // A string is an error; { warning } (strict only: the target is there but off the shape) is a warning as written.
+      const why = hit && !hit.bad && hit.comp.checkTarget?.(c.target, hit.props, { clips, strict, row: hit.row, at: B(hit.row) });
+      if (typeof why === 'string' && why) errors.push(`cursor target "${c.target}" at beat ${B(c)}: ${why}`);
+      else if (why?.warning && strict) warnings.push(why.warning);
       // An unknown component is already reported above; a hotspot error on it would only mislead.
       if (cands.some(unknown) || hit) return;
       const named = cands.filter((r) => r.comp && matchHotspot(r.comp.meta.hotspots, c.target));

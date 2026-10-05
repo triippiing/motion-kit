@@ -69,7 +69,7 @@ export function hotspot(name, props, geo, ctx) { return { x, y } /* offset from 
 export function sfx(props, ctx) { return [{ beat, file, gain }]; }   // optional: its own sounds
 export function endState(props, ctx) { return { ...props, ... }; }   // optional: props after the presses
 export function check(props, info) { return { errors: [], warnings: [] }; }  // optional: rules needing data beyond the row
-export function checkTarget(name, props, { clips }) { return null; }  // optional: why a cursor target cannot be right, or null
+export function checkTarget(name, props, { clips, strict, row, at }) { return null; }  // optional: why a cursor target cannot be right (or { warning }), or null
 ```
 
 `check` and `checkTarget` are for rules that need data the row does not hold (today only `footage`, whose clip's
@@ -83,9 +83,11 @@ length and step names live in `footage/<src>/clip.json`). The validator (the pag
   row's end in seconds (`Infinity` when unknown); `continues` and `prev` are as in `ctx`; `seam` is true for the last
   row of a looping piece (it repeats the first), so a message can say what to do at the seam (footage adds `(at the
   loop seam: set from, or end on a non-footage row)` to its hold warning).
-- `checkTarget(name, props, { clips })` runs for each cursor row aimed at one of your hotspots on this row; return
-  a reason string when the target cannot be right for that data (footage: a `step:` the clip never named), else
-  null. It is reported as an error, `cursor target "step:pay" at beat 5.8: <your reason>`.
+- `checkTarget(name, props, { clips, strict, row, at })` runs for each cursor row aimed at one of your hotspots on
+  this row (`row` is that row, `at` its beat); return a reason string when the target cannot be right for that data
+  (footage: a `step:` the clip never named), else null. It is reported as an error, `cursor target "step:pay" at
+  beat 5.8: <your reason>`. Return `{ warning: '...' }` instead for a target that is there but doubtful (footage: one
+  zoomed off the shape); it is reported as written, under `strict` only.
 - In validation that same `info` is the `ctx` `endState` gets: a partial one (`clips`, `beatT`, `row`, `t1`,
   `continues`, `prev` only), so anything `check`, `checkTarget` or `endState` reads must be among those.
 
@@ -109,6 +111,7 @@ Prop types: `string`, `number`, `boolean`, `string[]`, `number[]`, `object`, `ob
 | `theme`, `hex(role)` | the theme's colour roles, and a role to `[r, g, b]` |
 | `stage`, `loop_sec` | the stage size, and the loop length in seconds (null when the piece does not loop) |
 | `clips` | `{ src: clip.json object }` for the piece's footage clips (the page fetches each before `ready`; `{}` when there are none). `geometry` gets it too |
+| `shapeAt(t)` | the live shape's `{ w, h }` at `t` in design px: the engine's shape spring, exactly what `seek` lays the shape out at (pure). `geo` is the row's target; `shapeAt` is where the morph has got to, so content can stay pinned to the moving outline (footage's `crop` glides on it). Call it from `render` only, guarded (`ctx.shapeAt?.(t)`): validation's partial ctx has none, and it must not be called from `geometry`, `hotspot` or `endState`, which run before the shape's tracks exist |
 | `wait(promise)` | for media that must load before the frame is exact (footage registers each frame's `img.decode()`). `seek(t)` returns `Promise.all` of what was registered during that seek, and render, beat_stills and the frame check await it; the watch and sync pages do not. Never for timing: `render` must still be a pure function of `t`, and the promise should resolve, not reject (report a failure with `reportError`, which makes render exit 1) |
 
 ## A complete component to copy
@@ -309,7 +312,8 @@ viewer must read (body copy, labels, values). Icons come from
 Springs only, through `ctx.Springs` and the helpers; position and size springs have zeta 1.
 Text stays inside the shape: check_brief's frame check reports words that run past it or are cut off.
 An element meant to sit outside the shape, like a tooltip above its point, can carry `data-overhang` so the
-frame check does not report it: an opt-in hook for your component (no built-in component uses it today). `#shape`
+frame check does not report it: an opt-in hook for your component (footage sets it on its browser URL while a zoom
+crops it, and always on a crop row with `browser`, whose bar sits above the crop). `#shape`
 still clips its overflow, so the element is cut off at the shape's edge all the same.
 
 ### 10. Props, class names and copy

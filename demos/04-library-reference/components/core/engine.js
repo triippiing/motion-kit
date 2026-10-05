@@ -24,17 +24,24 @@
 //   hotspot is also called with ctx = {} (validation, and choosing which row a cursor row aims at, happen
 //   before any row has a ctx): whether it returns null must not depend on ctx, and any ctx read is guarded
 //   (ctx?.continues). A cursor row aims at the first candidate row on which its hotspot resolves.
-//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips }) -> reason | null:
-//   rules that need data beyond the row (footage's clip), run by validate. info = { clips, strict, at (the row's
+//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips, strict, row, at }) ->
+//   reason | { warning } | null: rules that need data beyond the row (footage's clip), run by validate (a reason is
+//   an error; a { warning } is reported as written, strict only; row and at are the aimed-at row and its beat). info = { clips, strict, at (the row's
 //   beat, for messages), row, beatT (null when the caller gave none), t1 (seconds; Infinity when unknown), continues,
-//   prev, seam (the last row of a loop) }; clips is undefined when the caller has none (no project), and then there is
-//   nothing to check against. In validation this info is also the ctx endState gets: a partial ctx (clips, beatT,
-//   row, t1, continues, prev only), so anything check, checkTarget or endState reads must be among those.
+//   prev, seam (the last row of a loop), geo (the row's shape), next (the next states() row as written, or null),
+//   beat_sec and settle_sec (the house spring's settle; null without a song) }; clips is undefined when the caller has
+//   none (no project), and then there is nothing to check against. In validation this info is also the ctx endState
+//   gets: a partial ctx (those fields only), so anything check, checkTarget or endState reads must be among those.
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
-//           prev, continues, settled, clips, wait }   settled: true for row 0, shown with its entrance long finished.
+//           prev, continues, settled, clips, wait, shapeAt }   settled: true for row 0, shown with its entrance long finished.
+//   shapeAt(t) -> { w, h }: the live shape's size at t in design px (the engine's SHAPE spring tracks, what seek lays
+//   #shape out at; pure). geo is the row's target; shapeAt is where the morph has got to, so a component can keep its
+//   content pinned to the moving outline. For render (and anything called from it) only: validation's partial ctx has
+//   none (call it as ctx.shapeAt?.(t)), and it must not be called while the scene is being built (geometry, hotspot,
+//   endState), before the tracks exist.
 //   clips: the createScene option (geometry gets it too, through the same base ctx).
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
 //   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
@@ -96,7 +103,9 @@ export function createScene(o) {
   // Pending work registered by renders (ctx.wait) during the current seek; a fresh list each seek.
   let pending = [];
   const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null, clips,
-    wait: (p) => { pending.push(p); } };
+    wait: (p) => { pending.push(p); },
+    // The live shape's size at t (the SHAPE w/h tracks below, read only once they exist: at seek, never while sizing).
+    shapeAt: (t) => ({ w: v(tracks.w, t), h: v(tracks.h, t) }) };
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {

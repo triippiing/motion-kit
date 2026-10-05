@@ -270,7 +270,8 @@ The contract in brief (the full one is the header of `components/core/engine.js`
 example, edge cases), `geometry` (the shape's size and colours), `mount` (build DOM once), `render`
 (a pure function of `t`), `hotspot` (where the cursor lands), and optionally `sfx` and `endState` (the
 props after its presses, which the next row of the same component starts from as `ctx.prev`), and `check` /
-`checkTarget` (rules that need data beyond the row, such as footage's clip). Row 0 is
+`checkTarget` (rules that need data beyond the row, such as footage's clip; checkTarget returns an error reason, or
+`{ warning }` under check_brief). Row 0 is
 shown settled so the loop seam matches; hover comes from `ctx.targets`; anything periodic takes its
 period from `loopPeriod`. A cursor row with `hide: true` fades the cursor out from its beat (it keeps moving, and
 `inspect(t).cursor.opacity` reports it); the next row without it fades it back in; a hidden row cannot press.
@@ -308,15 +309,32 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   stepped frames; the frame size must come out even). The browser is WebKit (Safari's engine) for stepped capture
   and Chromium for `--realtime`. CLIPDIR must be new, empty or an existing clip (its frames are replaced); frames go to
   a temp directory beside it first, so a failed run leaves it as it was. At most 99999 frames.
+- Always silent, stepped and `--realtime` (no flag turns it off; headless WebKit on macOS plays page audio through the
+  speakers): an init script (`muteScript`) routes every AudioContext connection to its destination through a gain of
+  0 and really mutes, at volume 0, each `<audio>`/`<video>` the page plays, loads, gives a `src`/`srcObject`/`autoplay`
+  or makes with `new Audio()`, or that starts loading in the document or a shadow root made by `attachShadow`, while
+  the page reads back its own destination, `muted` and `volume` (an OfflineAudioContext is left alone). Forcing the
+  mute fires `volumechange` on those elements. Not seen: a detached element given `src`/`autoplay` only by attribute
+  and never played by script, or media in a declarative shadow root (Chromium's `--mute-audio` still covers those).
+  An element passed to `createMediaElementSource` keeps its real `muted`/`volume` (its sound goes only through the
+  graph, into the zero gain), so an AnalyserNode on it sees the signal. `window.__mkMute.state()` reports what
+  reaches the output (`contexts`, `media`, `exempt`; capture.test.mjs checks it in both browsers; headless WebKit's
+  analyser reads a media element source as silence even without the hook, so the analyser check is Chromium's).
 - The steps file is a JSON list: `{ "wait": SEC }`, `{ "click": SEL }`, `{ "hover": SEL }`,
-  `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer) or `{ "scroll": PX, "in": SEL }`,
-  each optionally with a unique `"name"` (a named step lands in clip.json with its `t` and `box`). Selectors are
+  `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer), `{ "scroll": PX, "in": SEL }`
+  or `{ "press": KEY }` (a Playwright key name pressed into whatever has focus, modifiers joined with `+`: `"m"`,
+  `"Enter"`, `"ArrowRight"`, `"Alt+ArrowRight"`, `"Shift+ArrowLeft"`; `"repeat": N` times, default 1, 1 to 200,
+  `"every": SEC` apart, default 0.1; the step lasts repeat x every, the pointer stays put, and a named press's `box`
+  is the focused element's, or the viewport's when nothing is focused), each optionally with a unique `"name"` (a named step lands in clip.json with its `t` and `box`). Selectors are
   Playwright selectors (CSS); several matches use the first. The pointer starts at the viewport's centre and moves to
   a target's centre over `"move"` seconds (default 0.4, ease-in-out); `type` clicks to focus, then types `"cps"`
-  characters a second (default 12); a scroll turns the wheel over 0.3 s. A 0.5 s hold comes before the first step and
+  characters a second (default 12); a scroll turns the wheel over 0.3 s. Stepped, each key press lands on its own
+  frame of the fake clock; `--realtime` presses on the wall clock. A 0.5 s hold comes before the first step and
   after the last; steps run back to back, laid out on frames up front.
-- Prints `capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> CLIPDIR`. Bad input (unknown key, unreadable or
-  invalid steps file, a selector Playwright cannot parse, checked before the first frame) is `error: ...`, exit 2. A
+- Prints `capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> CLIPDIR`. Bad input (an unknown step key, an unreadable or
+  invalid steps file, a `repeat` or `every` out of range, a selector Playwright cannot parse or a `press` key name it
+  does not know, these two checked before the first frame: `error: step 2 (press "Foo"): Playwright does not know the
+  key ...`) is `error: ...`, exit 2. A
   selector that matches nothing is exit 1 naming the step: `error: step 2 (click "#pay"): no element matches (waited 5 s)`
   (also exit 1: not visible, or its centre outside the viewport: scroll to it first). A page that throws gets
   `warning: the page threw N error(s) during the capture; the first: ...`.
@@ -352,7 +370,7 @@ Default 60 fps, the video's size capped at 1600 px wide (never scaled up; even d
 and no steps (aim the cursor with `point:X,Y`) and prints `footage: N frames, S s, WxH -> CLIPDIR`. A missing or
 unreadable video is `error: ...`, exit 2.
 
-**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0 }`:
+**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0, zoom: 1, focus: [0.5, 0.5], browser: '', crop: null }`:
 
 - `src` names `DIR/footage/<src>/`; `from` is seconds into the clip (default 0), `speed` (default 1), `fit` `cover`
   (default; crops) or `contain` (letterboxes), `width` the shape's width in design px (default 0: the clip's aspect
@@ -363,12 +381,77 @@ unreadable video is `error: ...`, exit 2.
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the same
   `src`) carries on from where the clip had got to unless it sets `from`, while the shape morphs.
-- Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit` and
-  the shape (time the press to the step: the row's beat time plus `(t - from) / speed` of the step's `t`), and
-  `point:X,Y` at fractions (0..1) of the frame.
+- `zoom` (1 or more, default 1) scales the clip about `focus` (`[x, y]`, fractions 0..1 of the frame, default
+  `[0.5, 0.5]`): focus is the frame point shown at the shape's centre, clamped so the clip never leaves an empty edge
+  (with `contain`, a letterboxed axis stays centred until the zoom fills it). A continuation of the same `src` glides
+  from where the previous row's framing ended to its own, released at its beat on a no-overshoot spring that settles
+  in 0.6 beat (zoom eases geometrically and the content zooms about one fixed point, so an off-centre pull-back never
+  bends at the clamp; row 0 shows its own). The frame is laid out at its zoomed size (no scaling transform, no
+  `will-change`), so it stays sharp. A row with zoom 1, the default focus, no browser and no crop (and not gliding
+  from one that had them) is the plain footage, DOM and pixels as before.
+- `browser` (a URL, default `''`: off) draws the clip inside a plain window: a title bar (`max(4% of the clip's
+  height, its width / 32)` clip px) in `surface`, three `muted` dots and the URL as real text in a centred rounded
+  field (a URL too long for half the window's width is cut with `…`). The window is part of the zoomed content:
+  zoom 1 fits the whole window (the shape takes the window's aspect), and focus is still a fraction of the clip's
+  own frame, so a high zoom on the page puts the bar off the shape. While the zoom crops the URL's field it carries
+  `data-overhang` (the frame check measures it only when it is in view; a crop row with `browser` always sets it,
+  as its bar sits above the crop). A continuation that turns `browser` on or
+  off glides too, so a pull-back can end on the window: `{ at: 0, use: 'footage', src: 'app', zoom: 4, focus: [0.3,
+  0.7] }`, then `{ at: 2, use: 'footage', src: 'app', browser: 'example.com/app' }`. Turning it on, the clip stays
+  exactly where it was on screen at the row change; turning it off, the bar goes there and, under `cover` from a
+  zoom near 1, the clip steps up by about bar / H (zoom cannot go under 1). Setting the same `browser` on every row
+  avoids both. A browser row's shape has the window's aspect (W x (H + bar)), so framing just the page needs
+  `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides slightly.
+- `crop` (`[x, y, w, h]`, fractions 0..1 of the clip's frame, the space of `focus`; default `null`: off; not with
+  `zoom`/`focus` on the same row) shows just that rect. Without row-level `w`/`h` the shape takes the crop's aspect
+  (`width`, default the stage fit less the 10% margin; height = width x crop h / crop w, both in clip px, i.e.
+  width x (h x clip height) / (w x clip width)). A first row (not continuing the same `src`, e.g. after a cut) is
+  contain-fitted, centred, to the LIVE shape (the engine's `ctx.shapeAt(t)`, its SHAPE spring's `w`/`h`) inside a
+  `.ft-mask` (overflow hidden): outside it the shape's fill shows, so it shows only the crop, letterboxed, while the
+  outline morphs from the other component. A continuation of the same `src` where either row has crop glides from
+  the previous row's SETTLED rect to its own on the live shape's progress: per axis `u = (W(t) - W_prev) / (W_this -
+  W_prev)` (likewise H; an axis that moves under 1 design px takes the other's u), edges lerp by u (past 1 on the
+  overshoot) and the rect is clamped to the window; the lerped rect is cover-fitted to the live shape (the mask
+  overhangs on one axis and `#shape` clips it), so no fill band shows mid-glide. When both rows show the clip at the
+  same scale (same `width`, so the rect and the shape keep one aspect) cover is contain and the page stays exactly
+  pinned to the outline (a strip `[0.59, 0.52, 0.40, 0.06]` into `[0.59, 0.05, 0.40, 0.53]` keeps its bottom edge on
+  the shape's); when the scale changes the content eases in or out while the edges sweep. Share `width` across a crop
+  chain for exact pinning. If neither axis changes (one shape: a crop into zoom 1 of the crop's own aspect, or into a
+  smaller crop of the same aspect), u is the time spring zoom/focus glides use (0.6 beat, no overshoot), so it glides
+  like a zoom; only two crop rows of the same size cut (u = 1 from t0: the new rect shows from the row's beat). The
+  glide starts from the previous row's settled rect, so a row shorter than its glide (its own glide unfinished at its
+  end) makes the content jump at its successor's beat: a crop glide that moves the shape rides the shape's spring,
+  `song.rules.spring.settle_sec` (0.6 beat by default), one that keeps the shape and a zoom/focus glide take a fixed
+  0.6 beat. check_brief warns `footage at beat 4 is shorter than its glide (0.3 s): the next row starts from where it
+  settles` when the next row is the same `src` and either row lays out by rect (a zoom/focus row followed by another
+  carries the view it really ended on, so no jump and no warning). A row without crop counts as the region its
+  settled framing shows (incl. the window's bar with `browser`), so crop to zoom/browser and back glide the same way;
+  rows with only zoom/focus keep their own glide and DOM. With `browser` set, a crop row still shows no bar (the crop
+  is inside the frame). `fit` does not apply to a crop row (contain after a cut, cover in a glide). A row without
+  crop gliding from one with it is cover-fitted too, except `fit: 'contain'` with its own `w`/`h` off the frame's
+  aspect (its settled region is the whole window, letterboxed): it eases from cover to contain over 0.6 beat, so once
+  settled it shows what its hotspots map. Row-level `w`/`h` off the crop's aspect on a crop row: a first row shows
+  the crop contain-fitted with fill bands and steps to cover at its successor's beat when that row glides from it; a
+  continuation stays cover, so its settled hotspots (mapped contain) are off. Give crop rows no `w`/`h`, or `w`/`h` at
+  the crop's aspect.
+- Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
+  browser bar, the row's own settled zoom/focus (or crop) and the shape (time the press to the step: the row's beat time plus
+  `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves
+  to one fixed point, so on a row that glides in from another framing, aim and press after the glide has settled
+  (0.6 beat after the row's beat; a crop glide that moves the shape: `song.rules.spring.settle_sec`, 0.6 beat by
+  default).
 - Checks: `footage: no clip at footage/SRC/clip.json` and a `step:` the clip does not have (the error lists its
-  steps) are errors in check_brief, watch and the page, as are `footage needs src` and an unsafe `src`; an invalid
-  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"). check_brief also warns when a row's
+  steps) are errors in check_brief, watch and the page, as are `footage needs src`, an unsafe `src`,
+  `footage: zoom must be 1 or more (1 shows the whole frame), got 0.5` and `footage: focus must be [x, y], two
+  fractions of the frame from 0 to 1, got [1.2,0.5]` (a non-number `zoom` or `focus` is the usual prop type error),
+  `footage: crop must be [x, y, w, h], four fractions of the frame, got ...` (crop is typed `any` so `null` can be its
+  default: its shape is checked here), `footage: crop's w and h must be more than 0, got ...`, `footage: crop must lie
+  inside the frame (x, y from 0; x + w and y + h at most 1), got ...` and `footage: crop and zoom/focus cannot both
+  be set on one row (crop frames the clip on its own)` (a row that has its own `zoom` or `focus` key); an invalid
+  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"); zoom/focus
+  errors are reported together with a missing clip. check_brief also warns when a cursor's `step:` or `point:` target
+  lands off the shape at the row's settled framing (zoomed past it): `footage at beat 4: step:mark is outside the
+  shape at zoom 4` (`... at crop [x,y,w,h]` on a crop row, measured against the crop's fitted box), and when a row's
   window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
   repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
   `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it
@@ -520,9 +603,10 @@ node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro 
   their own enter/exit timing; one stroke width; banned: gradients, glows, particles, bouncy easing, dead beats.
   No `will-change` under the camera (blurry text).
 - **Text stays inside the shape:** the frame check measures the words' own line boxes. An element meant to sit
-  outside the shape (a tooltip above its point) can carry `data-overhang`, an opt-in hook for component authors (no
-  built-in component uses it today); it only silences the frame check: `#shape` clips its overflow, so the element is
-  still cut off at the shape's edge.
+  outside the shape (a tooltip above its point) can carry `data-overhang`, an opt-in hook for component authors
+  (footage sets it on its browser URL while a zoom crops it, and always on a crop row with `browser`: the bar sits
+  above the crop); it only silences the frame check: `#shape` clips
+  its overflow, so the element is still cut off at the shape's edge.
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and

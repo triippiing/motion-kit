@@ -9,8 +9,9 @@
 // --scale (device pixels per CSS pixel, default 1; 2 for retina-sharp stepped frames), plays the steps
 // (capture_steps.mjs has the format) and writes one JPEG per frame at --fps (default 60) plus clip.json (mode
 // "stepped", browser, source, the named steps' t and box) into CLIPDIR, which must be new, empty, or an existing clip
-// (its frames are replaced). Clips are git-ignored (footage/), like renders. Frames go to a temp directory beside
-// CLIPDIR first, so a failed run leaves it as it was.
+// (its frames are replaced). A press step's key name is tried first in a throwaway context (checkKeys), so an
+// unknown key is exit 2 before the first frame. Clips are git-ignored (footage/), like renders. Frames go to a temp
+// directory beside CLIPDIR first, so a failed run leaves it as it was.
 //
 // Stepped capture runs the page on a fake clock, so the same page and steps give the same frames on every run:
 // - Playwright's page.clock fakes Date, performance.now, timers and requestAnimationFrame, installed paused before
@@ -39,9 +40,9 @@
 // --realtime is for an app that will not step (a fake clock breaks it, or it animates in ways the sync cannot reach):
 // no fake clock and no animation sync, and Chromium unless --browser says otherwise. Playwright records the context
 // (recordVideo) while the same planned steps run on the real clock: the StepRunner is called for frame i at the
-// absolute deadline zero + i / fps, so pointer moves, keys and wheel turns keep their eased timing. A late frame just
-// runs late, and the frames after it run back to back until they catch up, so motion right after a stall is
-// compressed. The context is closed to flush the video and ffmpeg cuts the clip's frames from it (clip.mjs
+// absolute deadline zero + i / fps, so pointer moves, typed keys, key presses and wheel turns keep their timing. A
+// late frame just runs late, and the frames after it run back to back until they catch up, so motion right after a
+// stall is compressed. The context is closed to flush the video and ffmpeg cuts the clip's frames from it (clip.mjs
 // extractFrames), mode "realtime". Clip zero is when the page has loaded (and its fonts) and the selectors are
 // checked; a named step's t is the real time of its action since then, so frame round(t * fps) + 1 shows it,
 // approximately. Measured with playwright 1.63.0 on macOS:
@@ -60,6 +61,15 @@
 //   (contentArea) and cropped out, the named steps' boxes are mapped into it, and a warning says so. Chromium gives
 //   sharp, true-colour realtime footage, hence the default.
 // Realtime frames also differ from run to run, and nothing waits for the page's animations.
+//
+// Both are always silent (no flag turns it off; headless WebKit on macOS plays page audio through the speakers):
+// muteScript, an init script in every document of the capture's context, routes each AudioContext's connections to
+// its destination through a gain of 0 and really mutes, at volume 0, each <audio>/<video> the page plays, loads,
+// gives a src/srcObject/autoplay, makes with new Audio(), or that starts loading in the document or a shadow root,
+// while the page still reads back its own destination, muted and volume (window.__mkMute.state() reports what really
+// reaches the output, for the tests). Forcing mute fires volumechange on those elements. An element the page feeds to
+// createMediaElementSource keeps its real muted/volume (it plays only through the graph, into the zero gain), so an
+// AnalyserNode on it sees the signal. Chromium also runs with --mute-audio.
 import { chromium, webkit } from 'playwright';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -70,7 +80,7 @@ import path from 'node:path';
 import { FFMPEG, UsageError, serve } from './render.mjs';
 import { isMain } from './is_main.mjs';
 import { MAX_FRAMES, checkClipDir, extractFrames, framePath, prepareClipDir, writeClip } from './clip.mjs';
-import { StepRunner, checkSteps, planSteps } from './capture_steps.mjs';
+import { StepRunner, checkKeys, checkSteps, planSteps } from './capture_steps.mjs';
 
 const USAGE = 'usage: capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromium] [--size WxH] [--fps N] [--scale N] [--realtime]';
 const SKILL = path.resolve(import.meta.dirname, '..');
@@ -100,6 +110,97 @@ function syncScript() {
       if (start !== null) a.currentTime = (now - start) * a.playbackRate;
     }
   };
+}
+
+// Runs in every document before its own scripts: silence the page without changing what it sees. Web Audio: a
+// connect() to an AudioContext's own destination goes to a gain of 0 in front of it instead (and disconnect() from
+// it, from that gain); connect still returns the destination, and destination is the real node. An
+// OfflineAudioContext (no speakers) is left alone. Media: the first time a page touches an element's muted, volume,
+// src, srcObject or autoplay, calls play() or load(), makes it with new Audio(), or the element starts loading or
+// playing (listened for on window and in each shadow root attachShadow makes: media events are not composed), it is
+// muted at volume 0 with the real setters (which fires volumechange); the page's own muted/volume are kept and read
+// back. Not seen: a detached element given src or autoplay only by attribute (setAttribute, parsed HTML) and never
+// played by script, or one in a declarative shadow root (<template shadowrootmode>); Chromium's --mute-audio still
+// covers those. An element passed to
+// createMediaElementSource (or new MediaElementAudioSourceNode) is exempt: its page values are restored with the real
+// setters. window.__mkMute.state(): { contexts: [{ gain, routed }], media: [{ muted, volume }], exempt: [{ muted,
+// volume }] }, read with the real getters.
+function muteScript() {
+  const contexts = [], media = new Set();
+  const AC = window.AudioContext, AN = window.AudioNode, BAC = window.BaseAudioContext ?? AC;
+  if (AC && AN) {
+    const dest = Object.getOwnPropertyDescriptor(BAC.prototype, 'destination').get, gain = BAC.prototype.createGain;
+    const { connect, disconnect } = AN.prototype, sinks = new WeakMap();
+    const isOut = (node, target) => node.context instanceof AC && target != null && target === dest.call(node.context);
+    const sinkOf = (ctx) => {
+      let s = sinks.get(ctx);
+      if (!s) {
+        const g = gain.call(ctx);
+        g.gain.value = 0;
+        connect.call(g, dest.call(ctx));
+        s = { g, routed: 0 };
+        sinks.set(ctx, s); contexts.push(s);
+      }
+      return s;
+    };
+    AN.prototype.connect = function (target, ...rest) {
+      if (!isOut(this, target)) return connect.call(this, target, ...rest);
+      const s = sinkOf(this.context);
+      connect.call(this, s.g, rest[0] ?? 0);
+      s.routed++;
+      return target;
+    };
+    AN.prototype.disconnect = function (target, ...rest) {
+      if (!isOut(this, target)) return disconnect.call(this, target, ...rest);
+      return disconnect.call(this, sinkOf(this.context).g, ...rest);
+    };
+  }
+  const M = window.HTMLMediaElement?.prototype;
+  const mutedD = M && Object.getOwnPropertyDescriptor(M, 'muted'), volD = M && Object.getOwnPropertyDescriptor(M, 'volume');
+  const own = new WeakMap(), exempt = new Set();   // the page's muted and volume; elements fed to Web Audio
+  const silence = (el) => {
+    if (!(el instanceof HTMLMediaElement) || exempt.has(el)) return;
+    if (!own.has(el)) own.set(el, { muted: mutedD.get.call(el), volume: volD.get.call(el) });
+    if (!mutedD.get.call(el)) mutedD.set.call(el, true);
+    if (volD.get.call(el) !== 0) volD.set.call(el, 0);
+    media.add(el);
+  };
+  if (M) {
+    Object.defineProperty(M, 'muted', { configurable: true, enumerable: mutedD.enumerable,
+      get() { return own.has(this) ? own.get(this).muted : mutedD.get.call(this); },
+      set(v) { if (exempt.has(this)) return mutedD.set.call(this, v); silence(this); own.get(this).muted = !!v; } });
+    Object.defineProperty(M, 'volume', { configurable: true, enumerable: volD.enumerable,
+      get() { return own.has(this) ? own.get(this).volume : volD.get.call(this); },
+      set(v) { volD.set.call(this, v); if (exempt.has(this)) return; const now = volD.get.call(this); silence(this); own.get(this).volume = now; } });   // the real setter checks v
+    const play = M.play, load = M.load;
+    M.play = function (...a) { silence(this); return play.apply(this, a); };
+    M.load = function (...a) { silence(this); return load.apply(this, a); };
+    for (const name of ['src', 'srcObject', 'autoplay']) {   // a detached element: its events never reach window
+      const d = Object.getOwnPropertyDescriptor(M, name);
+      if (d?.set) Object.defineProperty(M, name, { ...d, set(v) { silence(this); d.set.call(this, v); } });
+    }
+    if (window.Audio) window.Audio = new Proxy(window.Audio, { construct(T, a, nt) { const el = Reflect.construct(T, a, nt); silence(el); return el; } });
+    const listen = (root) => { for (const type of ['loadstart', 'play', 'playing']) root.addEventListener(type, (e) => silence(e.target), true); };
+    listen(window);
+    const attach = Element.prototype.attachShadow;   // media events are not composed: listen in each shadow root too
+    if (attach) Element.prototype.attachShadow = function (...a) { const root = attach.apply(this, a); listen(root); return root; };
+    // An element fed to Web Audio plays only through its graph (to the zero gain, above): keep its own muted and
+    // volume real, so an AnalyserNode on it sees the signal.
+    const free = (el) => {
+      if (!(el instanceof HTMLMediaElement)) return;
+      exempt.add(el); media.delete(el);
+      const o = own.get(el);
+      if (o) { mutedD.set.call(el, o.muted); volD.set.call(el, o.volume); own.delete(el); }
+    };
+    const cmes = AC?.prototype.createMediaElementSource;
+    if (cmes) AC.prototype.createMediaElementSource = function (el) { free(el); return cmes.call(this, el); };
+    if (window.MediaElementAudioSourceNode) window.MediaElementAudioSourceNode = new Proxy(window.MediaElementAudioSourceNode,
+      { construct(T, a, nt) { free(a[1]?.mediaElement); return Reflect.construct(T, a, nt); } });
+  }
+  Object.defineProperty(window, '__mkMute', { value: { state: () => ({
+    contexts: contexts.map((s) => ({ gain: s.g.gain.value, routed: s.routed })),
+    media: [...media].map((el) => ({ muted: mutedD.get.call(el), volume: volD.get.call(el) })),
+    exempt: [...exempt].map((el) => ({ muted: mutedD.get.call(el), volume: volD.get.call(el) })) }) } });
 }
 
 // Sync the animations to `now`, then wait two real animation frames for the paint (see the header).
@@ -168,7 +269,8 @@ export async function capture(target, steps, { out, browser, size = [1280, 800],
     tmp = await mkdtemp(path.join(parent, `.${path.basename(out)}.tmp-`));
     if (file) served = await serve(path.dirname(file));
     const url = remote ?? served.url + encodeURIComponent(path.basename(file));
-    instance = await type.launch();
+    instance = await type.launch(browser === 'chromium' ? { args: ['--mute-audio'] } : {});   // and muteScript, in both
+    await checkKeys(instance, plan.steps);
     const job = { instance, url, errors, tmp, out, plan, fps, size, scale, browser, frame: [width, height] };
     const got = await (realtime ? recordRealtime(job) : recordStepped(job));
     instance = null;
@@ -190,6 +292,7 @@ export async function capture(target, steps, { out, browser, size = [1280, 800],
 // { record: the named steps, frames, width, height }.
 async function recordStepped({ instance, url, errors, tmp, out, plan, fps, size, scale, frame }) {
   const context = await instance.newContext({ viewport: { width: size[0], height: size[1] }, deviceScaleFactor: scale });
+  await context.addInitScript(muteScript);
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(e));
   await page.clock.install({ time: 0 });
@@ -232,6 +335,7 @@ async function recordRealtime({ instance, url, errors, tmp, out, plan, fps, size
   const created = Date.now();
   const context = await instance.newContext({ viewport: { width: size[0], height: size[1] }, deviceScaleFactor: scale,
     recordVideo: { dir: tmp, size: { width: size[0], height: size[1] } } });   // screencasts are CSS pixels, so this is all
+  await context.addInitScript(muteScript);
   const page = await context.newPage();
   page.on('pageerror', (e) => errors.push(e));
   await page.goto(`data:text/html,<body style="margin:0;background:${encodeURIComponent(CAL_BLUE)}"></body>`);

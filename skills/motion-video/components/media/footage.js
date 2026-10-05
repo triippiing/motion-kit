@@ -6,16 +6,31 @@
 // reportError (a page error: render.mjs exits 1 on it), while ctx.wait still sees its promise resolve.
 // The page fetches each used clip's clip.json before ready (ctx.clips[src]); validation receives the same as data.
 // A row must set src itself (meta's 'demo' default is for the catalog only), to a folder inside footage/ (safeSrc).
+// zoom/focus: the clip scaled by zoom with focus (fractions of the frame) at the shape's centre, clamped so no empty
+// edge shows; a continuation of the same src glides there from the previous row's framing (across a browser toggle
+// too). browser: a drawn window (title bar with three dots and the URL) around the clip, part of the zoomed content.
+// A row with neither (and not gliding from one that had them) builds exactly the DOM it always did.
+// crop [x, y, w, h]: a rect of the clip's frame (fractions, like focus) that the shape shows, fitted to the LIVE
+// shape (ctx.shapeAt) and masked to the rect. A first row (after a cut) is contain-fitted, so the shape's fill shows
+// round it while the outline morphs. A continuation where either row has crop glides rect to rect on the live shape's
+// own progress (rectAt; on the 0.6 beat time spring when the shape keeps its size, a cut for two crops of one size),
+// cover-fitted (no fill band when the content scale changes; rectFit); at one scale (same width) the page stays
+// exactly pinned to the outline. A row without crop counts as the region its settled framing shows.
+import { landed, prog, textW } from '../core/helpers.js';
+
 export const meta = {
   name: 'footage', group: 'media',
   useWhen: 'Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.',
-  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs.',
-  props: { src: ['string', 'demo'], from: ['number', 0], speed: ['number', 1], fit: ['enum:cover|contain', 'cover'], width: ['number', 0] },
+  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape\'s centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape\'s own spring, filling the shape: with the same `width` on both rows the page stays exactly pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and when the scale changes the content eases in or out while the edges sweep (share `width` across a crop chain for exact pinning); when the shape keeps its size (a crop into zoom 1 of its own aspect) the rect glides on the 0.6 beat zoom spring instead. Two crops of one size cut. A row without crop (zoom, browser) counts as the region it shows; with `fit: \'contain\'` and its own w/h it eases from cover to contain over the glide. A crop glide that moves the shape lasts the house spring\'s settle (song.rules.spring.settle_sec, 0.6 beat by default), any other glide 0.6 beat: a row shorter than that makes the next row jump (check_brief warns).',
+  props: { src: ['string', 'demo'], from: ['number', 0], speed: ['number', 1], fit: ['enum:cover|contain', 'cover'], width: ['number', 0],
+    zoom: ['number', 1], focus: ['number[]', [0.5, 0.5]], browser: ['string', ''], crop: ['any', null] },
   hotspots: ['step:<name>', 'point:<x,y>'],
   hotspotExample: { 'step:<name>': 'step:Pay', 'point:<x,y>': 'point:0.5,0.5' },
   sounds: [],
   example: "{ at: 0, use: 'footage', src: 'demo' }",
-  edgeCases: [{ src: 'demo', from: 1, speed: 0.5 }, { src: 'demo', fit: 'contain', w: 900, h: 900 }],
+  edgeCases: [{ src: 'demo', from: 1, speed: 0.5 }, { src: 'demo', fit: 'contain', w: 900, h: 900 }, { src: 'demo', zoom: 3, focus: [0.25, 0.75] },
+    { src: 'demo', browser: 'example.com/sync' }, { src: 'demo', browser: 'example.com/sync', zoom: 2.5, focus: [0.5, 0] },
+    { src: 'demo', crop: [0.25, 0.5, 0.5, 0.25] }],
 };
 
 // width 0: fit the clip's aspect inside the stage (in design px) less MARGIN on every side. FALLBACK is the aspect
@@ -24,12 +39,129 @@ const MARGIN = 0.1, R = 32, CACHE = 8;
 const FALLBACK = { width: 1600, height: 900 };
 
 export function geometry(p, ctx = {}) {
-  const c = ctx.clips?.[p.src] ?? FALLBACK;
+  const clip = ctx.clips?.[p.src] ?? FALLBACK, win = windowSize(clip, p.browser), crop = cropOf(p);
+  const c = crop ? { width: crop[2] * clip.width, height: crop[3] * clip.height } : { width: win.W, height: win.H };
   const stage = ctx.stage ?? { width: 1440, height: 1440 };
   const K = Math.max(1, Math.min(stage.width, stage.height) / 1440);
   const bw = (stage.width / K) * (1 - 2 * MARGIN), bh = (stage.height / K) * (1 - 2 * MARGIN);
   const w = p.width > 0 ? p.width : Math.min(bw, (bh * c.width) / c.height);
   return { w: Math.round(w), h: Math.round((w * c.height) / c.width), r: R, fill: 'ink', ink: 'surface' };
+}
+
+// ---- zoom, focus and the window. Window space is in clip px: the clip is W x H, with the title bar (browser set)
+// `bar` px tall above it, so the window is W x (H + bar) and the clip's own y is shifted down by bar.
+export const barHeight = (clip, browser) => (browser ? Math.round(Math.max(0.04 * clip.height, clip.width / 32)) : 0);
+export function windowSize(clip, browser) {
+  const bar = barHeight(clip, browser);
+  return { W: clip.width, H: clip.height + bar, bar };
+}
+const fitScale = (fit, geo, win) => (fit === 'contain' ? Math.min : Math.max)(geo.w / win.W, geo.h / win.H);
+// Invalid values (check reports them) fall back to the defaults here, so hotspot and render never throw on them.
+const zoomOf = (p) => (typeof p.zoom === 'number' && p.zoom >= 1 && Number.isFinite(p.zoom) ? p.zoom : 1);
+const goodFocus = (f) => Array.isArray(f) && f.length === 2 && f.every((x) => typeof x === 'number' && x >= 0 && x <= 1);
+const focusOf = (p) => (goodFocus(p.focus) ? p.focus : [0.5, 0.5]);
+// Whether a row uses any of it: a row that does not (and does not glide from one that did) is the plain old footage.
+const framed = (p) => !!p && (p.zoom !== 1 || !Array.isArray(p.focus) || p.focus[0] !== 0.5 || p.focus[1] !== 0.5 || !!p.browser);
+// crop: four finite numbers, w and h over 0, inside the frame; anything else (check reports it) is no crop.
+const num = (x) => typeof x === 'number' && Number.isFinite(x);
+const cropShape = (c) => Array.isArray(c) && c.length === 4 && c.every(num);
+const cropInside = (c) => c[0] >= 0 && c[1] >= 0 && c[0] + c[2] <= 1 + 1e-9 && c[1] + c[3] <= 1 + 1e-9;
+const cropOf = (p) => (p && cropShape(p.crop) && p.crop[2] > 0 && p.crop[3] > 0 && cropInside(p.crop) ? p.crop : null);
+const glidesFrom = (p, ctx) => (ctx?.continues && ctx.prev?.src === p.src ? ctx.prev : null);
+
+// A view { zoom, x, y }: (x, y) is the window point at the shape's centre. Clamped so the window covers the shape
+// on every axis it can (a letterboxed axis, contain, stays centred), and zoom is never under 1.
+export function clampView(v, geo, win, fit) {
+  const zoom = Math.max(1, v.zoom), s = fitScale(fit, geo, win) * zoom;
+  const c = (x, size, view) => (view >= size ? size / 2 : Math.min(size - view / 2, Math.max(view / 2, x)));
+  return { zoom, x: c(v.x, win.W, geo.w / s), y: c(v.y, win.H, geo.h / s) };
+}
+
+// The row's own framing once settled: focus (fractions of the clip's frame) at the centre, clamped.
+export function settledView(p, geo, clip) {
+  const win = windowSize(clip, p.browser), [fx, fy] = focusOf(p);
+  return clampView({ zoom: zoomOf(p), x: fx * clip.width, y: win.bar + fy * clip.height }, geo, win, p.fit);
+}
+
+// The previous row's end view in this row's window space. The window spaces differ by the bar (the clip's own y is
+// shifted down by it) and the fit scale: zoom is a multiple of the fit of the live shape, which at t0 is still the
+// previous row's (_geo; the morph starts there), so the clip shows at the same screen scale on both sides of t0.
+function carried(prev, p, ctx, clip, win) {
+  const pgeo = prev._geo ?? geometry(prev, ctx), pwin = windowSize(clip, prev.browser), v = prev._view ?? settledView(prev, pgeo, clip);
+  const zoom = Math.max(1, (v.zoom * fitScale(prev.fit, pgeo, pwin)) / fitScale(p.fit, pgeo, win));
+  return { zoom, x: v.x, y: v.y + win.bar - pwin.bar };
+}
+
+// The view at t: a continuation of the same src (with or without the browser it had) glides from where the previous
+// row ended (endState's _view, carried into this window) to this row's own on one no-overshoot spring released at t0
+// (0.6 beat, the house settle). Zoom moves geometrically (an even pull-back); the centre's offset from the window's
+// middle times zoom (its screen offset) moves in step with the zoom, so the content zooms about one fixed point and
+// an off-centre pull-back never bends against the clamp (applied after, for the letterboxed axis). Otherwise this
+// row's own view.
+const SETTLE = 0.6;
+export function viewAt(p, ctx, t) {
+  const clip = ctx.clips?.[p.src] ?? FALLBACK, geo = ctx.geo ?? geometry(p, ctx), win = windowSize(clip, p.browser);
+  const to = settledView(p, geo, clip), prev = glidesFrom(p, ctx);
+  if (!prev || !ctx.Springs || !(t < Infinity)) return to;
+  const k = prog(ctx, t, ctx.t0, SETTLE, 1);
+  if (k >= 1) return to;
+  const from = carried(prev, p, ctx, clip, win);
+  const zoom = Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * k);
+  const u = Math.abs(to.zoom - from.zoom) > 1e-9 ? (zoom - from.zoom) / (to.zoom - from.zoom) : k;
+  const at = (a, b, mid) => mid + ((a - mid) * from.zoom + ((b - mid) * to.zoom - (a - mid) * from.zoom) * u) / zoom;
+  return clampView({ zoom, x: at(from.x, to.x, win.W / 2), y: at(from.y, to.y, win.H / 2) }, geo, win, p.fit);
+}
+
+// The window's box in shape px (from the shape's top-left) for view v: what render lays out, for the tests.
+export function contentBox(v, geo, win, fit) {
+  const scale = fitScale(fit, geo, win) * v.zoom;
+  return { left: geo.w / 2 - v.x * scale, top: geo.h / 2 - v.y * scale, width: win.W * scale, height: win.H * scale, scale };
+}
+
+// ---- crop rects. A rect { x, y, w, h } is in clip px of the frame; the title bar, when the window has one, is above
+// y 0 (at -bar..0), so a rect means the same region whichever window space a row has.
+// The row's own rect once settled: its crop, or (no crop) the region its settled framing shows, inside the window.
+export function settledRect(p, geo, clip) {
+  const crop = cropOf(p);
+  if (crop) return { x: crop[0] * clip.width, y: crop[1] * clip.height, w: crop[2] * clip.width, h: crop[3] * clip.height };
+  const win = windowSize(clip, p.browser), v = settledView(p, geo, clip), s = fitScale(p.fit, geo, win) * v.zoom;
+  const x0 = Math.max(0, v.x - geo.w / (2 * s)), x1 = Math.min(win.W, v.x + geo.w / (2 * s));
+  const y0 = Math.max(0, v.y - geo.h / (2 * s)), y1 = Math.min(win.H, v.y + geo.h / (2 * s));
+  return { x: x0, y: y0 - win.bar, w: x1 - x0, h: y1 - y0 };
+}
+
+// Whether a row lays out by rect: it has crop, or it continues (same src) a row that had. Every other row is the
+// zoom/focus framing above, unchanged.
+export const usesRect = (p, ctx) => !!cropOf(p) || !!cropOf(glidesFrom(p, ctx));
+// The window a rect row draws: its own browser, else (gliding) the continued row's, so a glide from a window keeps
+// its bar in view until the rect leaves it.
+const rectBrowser = (p, ctx) => p.browser || glidesFrom(p, ctx)?.browser || '';
+
+// The rect at t. A continuation (same src, either row with crop) glides from the previous row's settled rect to
+// this row's, driven by the live shape (ctx.shapeAt) so the page stays pinned to the outline: per axis, u is how far
+// the shape's size has got from the previous row's geometry to this row's (an axis that does not change, by under
+// 1 design px, takes the other's u). Neither axis moving (one shape: a crop into zoom 1 of its own aspect, a crop
+// into a smaller crop of the same aspect), u is the time spring viewAt uses (0.6 beat, no overshoot), so it glides
+// like a zoom; only two crops of one size (rectCut) have nothing to glide but a slide, and cut (u = 1 from t0).
+// Edges lerp by u (past 1 on the shape spring's overshoot), then the rect is clamped to the window. Otherwise, or
+// without shapeAt (validation), this row's own rect.
+const sameSize = (a, b) => Math.abs(a.w - b.w) < 1e-6 && Math.abs(a.h - b.h) < 1e-6;
+const rectCut = (p, prev, from, to) => !!cropOf(p) && !!cropOf(prev) && sameSize(from, to);
+const shapeMoves = (geo, pgeo) => Math.abs(geo.w - pgeo.w) >= 1 || Math.abs(geo.h - pgeo.h) >= 1;
+export function rectAt(p, ctx, t) {
+  const clip = ctx.clips?.[p.src] ?? FALLBACK, geo = ctx.geo ?? geometry(p, ctx), to = settledRect(p, geo, clip);
+  const prev = glidesFrom(p, ctx);
+  if (!prev || !usesRect(p, ctx) || typeof ctx.shapeAt !== 'function' || !(t < Infinity)) return to;
+  const pgeo = prev._geo ?? geometry(prev, ctx), from = prev._rect ?? settledRect(prev, pgeo, clip), live = ctx.shapeAt(t);
+  const prog1 = (a) => (Math.abs(geo[a] - pgeo[a]) >= 1 ? (live[a] - pgeo[a]) / (geo[a] - pgeo[a]) : null);
+  const px = prog1('w'), py = prog1('h');
+  const u0 = px ?? py ?? (rectCut(p, prev, from, to) || !ctx.Springs ? 1 : prog(ctx, t, ctx.t0, SETTLE, 1));
+  const ux = px ?? u0, uy = py ?? u0;
+  const lerp = (a, b, u) => a + (b - a) * u;
+  const bar = barHeight(clip, rectBrowser(p, ctx));
+  const x0 = Math.max(0, lerp(from.x, to.x, ux)), x1 = Math.min(clip.width, lerp(from.x + from.w, to.x + to.w, ux));
+  const y0 = Math.max(-bar, lerp(from.y, to.y, uy)), y1 = Math.min(clip.height, lerp(from.y + from.h, to.y + to.h, uy));
+  return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };   // never 0 wide (placeRect divides by it)
 }
 
 // Where the clip starts for this row: a continuation of the same src carries on from the previous row's end
@@ -54,8 +186,13 @@ export const frameIndex = (clip, clipT) => Math.min(clip.frames, Math.max(1, Mat
 // The page's URL of frame n of clip src (its own 5-digit pad: clip.mjs's framePath is Node-only).
 export const framePath = (src, n) => `footage/${src.split('/').map(encodeURIComponent).join('/')}/frame-${String(n).padStart(5, '0')}.jpg`;
 
+// _view: the framing the row ends on (a continuation glides from it); validation's partial ctx has no Springs, so
+// there it is the settled view. _geo: the row's shape, which a continuation's morph starts from.
+// _rect: the rect a continuation with crop glides from (the row's settled one).
 export function endState(p, ctx) {
-  return { ...p, _clipEnd: clipTime(p, ctx, ctx.t1 ?? Infinity) };
+  const geo = ctx.geo ?? geometry(p, ctx);
+  return { ...p, _clipEnd: clipTime(p, ctx, ctx.t1 ?? Infinity), _view: viewAt(p, ctx, ctx.t1 ?? Infinity), _geo: geo,
+    _rect: settledRect(p, geo, ctx.clips?.[p.src] ?? FALLBACK) };
 }
 
 // One <img> per frame, always made the same way, so the layer serialises the same whatever was cached.
@@ -69,14 +206,142 @@ function frameImg(fit, src) {
 
 const state = new WeakMap();
 
-export function mount(root, p) {
-  const img = root.appendChild(frameImg(p.fit));
-  state.set(root, { img, want: 0, loading: new Map(), cache: new Map() });
+// The window's parts, in clip px of the window (n * --s is n clip px on screen; see render). Only with browser.
+function barParts(win, url) {
+  const B = win.bar, font = Math.round(0.5 * B), pad = 0.6 * B, max = 0.5 * win.W - 2 * pad;
+  let text = url;   // cut a long URL (by the kit's width estimate) rather than let the field clip it
+  while (text.length > 1 && textW(text, font, 400) > max) text = text.slice(0, -2) + '…';
+  const field = Math.max(0.3 * win.W, Math.min(0.5 * win.W, textW(text, font, 400) + 2 * pad));
+  return { B, font, field, fieldH: 0.7 * B, dot: 0.26 * B, text };
+}
+const S = (n) => `calc(var(--s) * ${+n.toFixed(4)})`;
+
+export function mount(root, p, ctx) {
+  const clip = ctx?.clips?.[p.src];
+  if (clip && usesRect(p, ctx)) return mountWindow(root, p, ctx, clip, rectBrowser(p, ctx), true);
+  if (!clip || !(framed(p) || framed(glidesFrom(p, ctx)))) {
+    const img = root.appendChild(frameImg(p.fit));
+    state.set(root, { img, want: 0, loading: new Map(), cache: new Map() });
+    return;
+  }
+  mountWindow(root, p, ctx, clip, p.browser, false);
+}
+
+// .ft-view is the layer's size and a size container, so the window is laid out against the live shape (cq units)
+// even while it morphs. .ft-win is the window at its zoomed size: no transform scales it, so frames stay sharp. A
+// rect row puts it inside .ft-mask (the rect's box, overflow hidden): outside the rect nothing is drawn.
+function mountWindow(root, p, ctx, clip, browser, rect) {
+  const win = windowSize(clip, browser), pct = (n) => `${+((n / win.H) * 100).toFixed(4)}%`;
+  const view = root.appendChild(document.createElement('div'));
+  view.className = 'ft-view';
+  Object.assign(view.style, { position: 'absolute', inset: '0', containerType: 'size' });
+  let mask = null;
+  if (rect) {
+    mask = view.appendChild(document.createElement('div'));
+    mask.className = 'ft-mask';
+    Object.assign(mask.style, { position: 'absolute', overflow: 'hidden' });
+  }
+  const box = (mask ?? view).appendChild(document.createElement('div'));
+  box.className = 'ft-win';
+  box.style.position = 'absolute';
+  const page = box.appendChild(document.createElement('div'));
+  page.className = 'ft-page';
+  Object.assign(page.style, { position: 'absolute', left: '0', width: '100%', top: pct(win.bar), height: pct(clip.height) });
+  const img = page.appendChild(frameImg(p.fit));
+  let url = null, parts = null;
+  if (win.bar) {
+    parts = barParts(win, browser);
+    const bar = box.appendChild(document.createElement('div'));
+    bar.className = 'ft-bar';
+    Object.assign(bar.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: pct(win.bar), background: 'var(--surface)' });
+    for (let i = 0; i < 3; i++) {
+      const d = bar.appendChild(document.createElement('span'));
+      d.className = 'ft-dot';
+      Object.assign(d.style, { position: 'absolute', top: S((parts.B - parts.dot) / 2), left: S(0.8 * parts.B + i * 1.7 * parts.dot),
+        width: S(parts.dot), height: S(parts.dot), borderRadius: '50%', background: 'var(--muted)' });
+    }
+    const field = bar.appendChild(document.createElement('div'));
+    field.className = 'ft-url';
+    Object.assign(field.style, { position: 'absolute', left: S((win.W - parts.field) / 2), top: S((parts.B - parts.fieldH) / 2), width: S(parts.field),
+      height: S(parts.fieldH), borderRadius: S(parts.fieldH / 2), background: 'color-mix(in srgb, var(--muted) 16%, var(--surface))',
+      display: 'grid', placeItems: 'center' });
+    url = field.appendChild(document.createElement('span'));
+    url.className = 'ft-url-text';
+    Object.assign(url.style, { font: `400 ${S(parts.font)} var(--font)`, lineHeight: '1', color: 'var(--ink)', whiteSpace: 'nowrap' });
+    url.textContent = parts.text;
+  }
+  state.set(root, { img, want: 0, loading: new Map(), cache: new Map(), box, mask, url, parts, win, clip });
+}
+
+// The window's place for this frame. --s is screen px per window px: the fit scale of the live shape (cq units of
+// .ft-view) times zoom. The centre comes from viewAt (clamped against the row's geometry); CSS clamps it again
+// against the live shape, so a morph between rows never shows an empty edge either.
+function place(st, p, ctx, t) {
+  if (st.mask) { placeRect(st, p, ctx, t); return; }
+  const { box, win, url, parts } = st, v = viewAt(p, ctx, t), f = (n) => +n.toFixed(4);
+  const fn = p.fit === 'contain' ? 'min' : 'max';
+  const s = `calc(${fn}(100cqw / ${win.W}, 100cqh / ${win.H}) * ${f(v.zoom)})`;
+  const axis = (cq, size, at) => {
+    const d = `(100${cq} - var(--s) * ${size})`;
+    return `clamp(min(${d}, ${d} / 2), 50${cq} - var(--s) * ${f(at)}, max(0px, ${d} / 2))`;
+  };
+  box.style.setProperty('--s', s);
+  Object.assign(box.style, { width: `calc(var(--s) * ${win.W})`, height: `calc(var(--s) * ${win.H})`, left: axis('cqw', win.W, v.x), top: axis('cqh', win.H, v.y) });
+  if (url) {
+    // The URL is measured by the frame check while its field is in view; zoomed past it, the shape crops it on
+    // purpose (like the rest of the page), so it is marked data-overhang.
+    const geo = ctx.geo ?? geometry(p, ctx), sc = fitScale(p.fit, geo, win) * v.zoom;
+    const hw = geo.w / (2 * sc), hh = geo.h / (2 * sc), x0 = (win.W - parts.field) / 2, y0 = (parts.B - parts.fieldH) / 2;
+    const inside = x0 >= v.x - hw - 0.5 && x0 + parts.field <= v.x + hw + 0.5 && y0 >= v.y - hh - 0.5 && y0 + parts.fieldH <= v.y + hh + 0.5;
+    if (inside) url.removeAttribute('data-overhang'); else url.setAttribute('data-overhang', '');
+  }
+}
+
+// How a rect row fits its rect to the live shape: 1 contain, 0 cover, between them a blend of the two scales. The
+// first row after a cut is contain (the shape's fill round the rect masks the outline's morph from another
+// component). A glide (rectAt's continuation) is cover: its lerped rect's aspect lags the live shape's when the
+// content scale changes, and contain would leave fill bands. Settled, a glide row's region has its shape's aspect
+// (a crop on its crop's shape, a framing on its own) and the two are one, except a row without crop, fit 'contain',
+// whose own w/h are off the frame's aspect: its settled region is the whole window, letterboxed. That row eases from
+// cover to contain on the time spring (0.6 beat; landed, so exactly contain from then on): no step at the settle,
+// and once settled it shows what its hotspot maps. (A crop row with its own w/h off the crop's aspect stays cover.)
+export function rectFit(p, ctx, t) {
+  if (!(glidesFrom(p, ctx) && typeof ctx.shapeAt === 'function' && t < Infinity)) return 1;
+  if (cropOf(p) || p.fit !== 'contain' || !ctx.Springs) return 0;
+  const geo = ctx.geo ?? geometry(p, ctx), R = settledRect(p, geo, ctx.clips?.[p.src] ?? FALLBACK);
+  if (Math.abs((geo.h * R.w) / R.h - geo.w) < 1) return 0;   // the shape's aspect (geometry rounds to whole px)
+  return landed(prog(ctx, t, ctx.t0, SETTLE, 1));
+}
+
+// A rect row: --s (screen px per clip px) fits the rect to the live shape (rectFit); .ft-mask is the rect's box,
+// centred; the window sits in it so the rect's corner is at the mask's. Under cover the mask overhangs the shape on
+// one axis and #shape clips it.
+function placeRect(st, p, ctx, t) {
+  const { box, mask, win, url, parts } = st, R = rectAt(p, ctx, t), f = (n) => +n.toFixed(4);
+  const g = rectFit(p, ctx, t), a = `100cqw / ${f(R.w)}`, b = `100cqh / ${f(R.h)}`;
+  mask.style.setProperty('--s', g === 1 ? `min(${a}, ${b})` : g === 0 ? `max(${a}, ${b})` : `calc(max(${a}, ${b}) * ${f(1 - g)} + min(${a}, ${b}) * ${f(g)})`);
+  Object.assign(mask.style, { left: `calc(50cqw - var(--s) * ${f(R.w / 2)})`, top: `calc(50cqh - var(--s) * ${f(R.h / 2)})`,
+    width: `calc(var(--s) * ${f(R.w)})`, height: `calc(var(--s) * ${f(R.h)})` });
+  Object.assign(box.style, { left: `calc(var(--s) * ${f(-R.x)})`, top: `calc(var(--s) * ${f(-(R.y + win.bar))})`,
+    width: `calc(var(--s) * ${win.W})`, height: `calc(var(--s) * ${win.H})` });
+  if (url) {
+    // the region in view, in rect space: R itself (contain), or else the live shape's box at the scale, centred on R
+    let V = R;
+    if (g < 1) {
+      const live = ctx.shapeAt(t), sx = live.w / R.w, sy = live.h / R.h, s = Math.max(sx, sy) * (1 - g) + Math.min(sx, sy) * g;
+      const vw = Math.min(R.w, live.w / s), vh = Math.min(R.h, live.h / s);
+      V = { x: R.x + (R.w - vw) / 2, y: R.y + (R.h - vh) / 2, w: vw, h: vh };
+    }
+    const x0 = (win.W - parts.field) / 2, y0 = (parts.B - parts.fieldH) / 2 - win.bar;   // the field in rect space
+    const inside = x0 >= V.x - 0.5 && x0 + parts.field <= V.x + V.w + 0.5 && y0 >= V.y - 0.5 && y0 + parts.fieldH <= V.y + V.h + 0.5;
+    if (inside) url.removeAttribute('data-overhang'); else url.setAttribute('data-overhang', '');
+  }
 }
 
 export function render(root, p, ctx, t) {
   const clip = ctx.clips?.[p.src], st = state.get(root);
   if (!clip || !st) return;
+  if (st.box) place(st, p, ctx, t);
   const n = frameIndex(clip, clipTime(p, ctx, t));
   if (n === st.want) {
     // Same frame as the last seek: wait on it again if it is still loading (an earlier seek nobody awaited).
@@ -84,7 +349,7 @@ export function render(root, p, ctx, t) {
     return;
   }
   st.want = n;
-  const show = (img) => { if (st.img !== img) { root.replaceChild(img, st.img); st.img = img; } };
+  const show = (img) => { if (st.img !== img) { st.img.parentNode.replaceChild(img, st.img); st.img = img; } };
   const hit = st.cache.get(n);
   if (hit) {
     st.cache.delete(n); st.cache.set(n, hit);   // most recently used last
@@ -109,8 +374,12 @@ export function render(root, p, ctx, t) {
 }
 
 // step:NAME aims at the centre of the box the capture clicked; point:X,Y at fractions of the frame. Clip pixels map
-// through fit (cover crops, contain letterboxes) to the shape, as offsets from its centre. Without the clip
-// (validation asks with ctx = {}) a step resolves at the centre: whether it exists is checkTarget's call.
+// through fit (cover crops, contain letterboxes), the browser bar and the row's own SETTLED zoom/focus (or its crop,
+// contain-fitted) to the shape, as offsets from its centre. The engine resolves a cursor row to one fixed point (hotspot has no t), so on a row
+// that glides in from another framing, aim and press once the glide has settled (0.6 beat after the row's beat; a
+// crop glide that moves the shape: song.rules.spring.settle_sec, 0.6 beat by default).
+// Without the clip (validation asks with ctx = {}) a step resolves at the centre: whether it exists is
+// checkTarget's call.
 export function hotspot(name, p, geo, ctx) {
   const clip = ctx?.clips?.[p.src], W = clip?.width ?? FALLBACK.width, H = clip?.height ?? FALLBACK.height;
   let x, y;
@@ -123,8 +392,14 @@ export function hotspot(name, p, geo, ctx) {
     if (m.length !== 2 || !m.every((v) => Number.isFinite(v) && v >= 0 && v <= 1)) return null;
     x = m[0] * W; y = m[1] * H;
   } else return null;
-  const k = (p.fit === 'contain' ? Math.min : Math.max)(geo.w / W, geo.h / H);
-  return { x: (x - W / 2) * k, y: (y - H / 2) * k };
+  const c = { width: W, height: H };
+  if (cropOf(p)) {
+    const R = settledRect(p, geo, c), k = Math.min(geo.w / R.w, geo.h / R.h);
+    return { x: (x - R.x - R.w / 2) * k, y: (y - R.y - R.h / 2) * k };
+  }
+  const win = windowSize(c, p.browser), v = settledView(p, geo, c);
+  const k = fitScale(p.fit, geo, win) * v.zoom;
+  return { x: (x - v.x) * k, y: (y + win.bar - v.y) * k };
 }
 
 // Whether src names a folder inside footage/: not absolute (/x, \\x, C:x) and no ".." segment (/ or \\ separated).
@@ -141,6 +416,20 @@ export function check(p, info) {
   const own = info.row && typeof info.row === 'object' ? info.row.src : p.src;
   if (typeof own !== 'string' || !own) return { errors: ['footage needs src'], warnings };
   if (!safeSrc(own)) return { errors: [`footage: src ${JSON.stringify(own)} must be a folder inside footage/ (no ".." segments, not an absolute path)`], warnings };
+  // zoom and focus need no clip: checked with or without one (their types are validate's).
+  if (typeof p.zoom === 'number' && !(p.zoom >= 1)) errors.push(`footage: zoom must be 1 or more (1 shows the whole frame), got ${p.zoom}`);
+  if (Array.isArray(p.focus) && p.focus.every((x) => typeof x === 'number') && !goodFocus(p.focus))
+    errors.push(`footage: focus must be [x, y], two fractions of the frame from 0 to 1, got ${JSON.stringify(p.focus)}`);
+  // crop (typed 'any' so null can be its default): checked here, with or without a clip.
+  if (p.crop !== null && p.crop !== undefined) {
+    const c = p.crop, got = JSON.stringify(c);
+    if (!cropShape(c)) errors.push(`footage: crop must be [x, y, w, h], four fractions of the frame, got ${got}`);
+    else if (!(c[2] > 0 && c[3] > 0)) errors.push(`footage: crop's w and h must be more than 0, got ${got}`);
+    else if (!cropInside(c)) errors.push(`footage: crop must lie inside the frame (x, y from 0; x + w and y + h at most 1), got ${got}`);
+    const row = info.row && typeof info.row === 'object' ? info.row : null;
+    const zf = row ? Object.hasOwn(row, 'zoom') || Object.hasOwn(row, 'focus') : framed({ ...p, browser: '' });
+    if (zf) errors.push('footage: crop and zoom/focus cannot both be set on one row (crop frames the clip on its own)');
+  }
   if (info.clips === undefined) return { errors, warnings };
   const clip = info.clips[p.src];
   if (!clip) { errors.push(`footage: no clip at footage/${p.src}/clip.json`); return { errors, warnings }; }
@@ -150,14 +439,45 @@ export function check(p, info) {
     const seam = info.seam ? ' (at the loop seam: set from, or end on a non-footage row)' : '';
     if (hold >= 0.05) warnings.push(`${p.src} holds its last frame for ${+hold.toFixed(1)} s (footage at beat ${info.at})${seam}`);
   }
+  const sec = info.strict && info.beatT && Number.isFinite(info.t1) ? glideSec(p, info, clip) : null;
+  if (sec && info.t1 - info.beatT(info.row.at) < sec - 1e-9)
+    warnings.push(`footage at beat ${info.at} is shorter than its glide (${+sec.toFixed(2)} s): the next row starts from where it settles`);
   return { errors, warnings };
 }
 
-// A cursor target on this row that cannot be right for its clip (a step the capture never named): the reason, else null.
-export function checkTarget(name, p, { clips } = {}) {
+// How long this row's glide takes (seconds) when the next row starts from where it settles, else null. The next row
+// (the same src) starts from this row's SETTLED rect (endState's _rect) when it lays out by rect, or, after a row that
+// lays out by rect, from a view that row never showed; only a zoom/focus row followed by another carries the view it
+// really ended on (_view), so cutting its glide short is no jump. A rect glide that moves the shape rides the shape's
+// spring (settle_sec); one that does not, and a zoom glide, take 0.6 beat; two crops of one size cut (no glide).
+function glideSec(p, info, clip) {
+  const prev = glidesFrom(p, info), nx = info.next;
+  if (!prev || !info.beat_sec || !nx || nx.use !== info.row?.use || nx.src !== p.src) return null;
+  if (!usesRect(p, info) && !cropOf(nx)) return null;
+  if (!usesRect(p, info)) return framed(p) || framed(prev) ? SETTLE * info.beat_sec : null;
+  const geo = info.geo ?? geometry(p, info), pgeo = prev._geo ?? geometry(prev, info);
+  const from = prev._rect ?? settledRect(prev, pgeo, clip), to = settledRect(p, geo, clip);
+  if (shapeMoves(geo, pgeo)) return info.settle_sec ?? SETTLE * info.beat_sec;
+  if (rectCut(p, prev, from, to) || ['x', 'y', 'w', 'h'].every((k) => Math.abs(from[k] - to[k]) < 1e-6)) return null;
+  return SETTLE * info.beat_sec;
+}
+
+// A cursor target on this row that cannot be right for its clip (a step the capture never named): the reason (an
+// error). Strict only: one that lands off the shape at the row's settled framing (zoomed past it): { warning }. The
+// shape is the row's real one (the clip's aspect, the row's w/h), not validation's clip-less guess. Else null.
+export function checkTarget(name, p, { clips, strict, row, at } = {}) {
   const clip = clips?.[p.src];
-  if (!clip || !name.startsWith('step:')) return null;
-  const want = name.slice(5), names = clip.steps.map((s) => s.name);
-  if (names.includes(want)) return null;
-  return `the clip footage/${p.src} has no step "${want}" (${names.length ? `steps: ${names.join(', ')}` : 'it has no steps: only capture.mjs names them; aim with point:X,Y'})`;
+  if (!clip) return null;
+  if (name.startsWith('step:')) {
+    const want = name.slice(5), names = clip.steps.map((s) => s.name);
+    if (!names.includes(want)) return `the clip footage/${p.src} has no step "${want}" (${names.length ? `steps: ${names.join(', ')}` : 'it has no steps: only capture.mjs names them; aim with point:X,Y'})`;
+  }
+  if (!strict) return null;
+  const g = geometry(p, { clips }), geo = { w: row?.w ?? g.w, h: row?.h ?? g.h }, h = hotspot(name, p, geo, { clips });
+  // with crop, the shape shows the rect contain-fitted: a letterboxed band is the shape's fill, not the clip
+  const crop = cropOf(p), R = crop && settledRect(p, geo, clip), k = crop && Math.min(geo.w / R.w, geo.h / R.h);
+  const hw = crop ? (R.w * k) / 2 : geo.w / 2, hh = crop ? (R.h * k) / 2 : geo.h / 2;
+  if (h && (Math.abs(h.x) > hw + 1e-6 || Math.abs(h.y) > hh + 1e-6))
+    return { warning: `footage at beat ${at}: ${name} is outside the shape at ${crop ? `crop ${JSON.stringify(crop)}` : `zoom ${zoomOf(p)}`}` };
+  return null;
 }

@@ -313,3 +313,22 @@ test('seek waits for the promises a render registers with ctx.wait, per seek cal
     assert.ok(done, 'the second seek waits only on its own promises');
   } finally { waitOn = null; }
 });
+
+test('ctx.shapeAt(t): the live shape size seek lays out (the SHAPE w/h tracks), pure in t', () => {
+  const tall = { ...box('tall'), geometry: () => ({ w: 300, h: 600, r: 20, fill: 'surface', ink: 'ink' }) };
+  const dom = fakeDom();
+  const s = make([{ at: 0, use: 'a' }, { at: 4, use: 'tall' }, { at: 12, use: 'a' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }],
+    { dom, registry: { ...registry, tall } });
+  const ctx = s.rows[1].ctx;
+  assert.equal(typeof ctx.shapeAt, 'function');
+  assert.equal(s.rows[0].ctx.shapeAt, ctx.shapeAt, 'one function for every row');
+  for (const t of [0, 2.1, 2.2, 2.4, 3.5, 7]) {
+    s.seek(t);
+    const { w, h } = ctx.shapeAt(t);
+    assert.equal(dom.shape.style.width, `${w}px`); assert.equal(dom.shape.style.height, `${h}px`);
+  }
+  assert.deepEqual(ctx.shapeAt(0), { w: 200, h: 100 });
+  const mid = ctx.shapeAt(2.2);
+  assert.ok(mid.w > 200 && mid.w < 320 && mid.h > 100 && mid.h < 600, JSON.stringify(mid));
+  s.seek(5); assert.deepEqual(ctx.shapeAt(2.2), mid, 'pure: whatever was seeked before');
+});
