@@ -67,6 +67,8 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
 9  node $S/render.mjs DIR --preview, then node $S/render.mjs DIR -> out/video.mp4 (60 fps, 4-subframe tmix blur, audio + UI sounds)
 10 node $S/export.mjs DIR --for reels,x,discord,web [--silent]
      -> out/exports/<preset>.<ext> + manifest.json, one native render per shape in out/shapes/<W>x<H>/video.mp4
+   Longer than one loop (intro, chapters, end card)? Each chapter is a project like the above, played back to back on
+   one song by node $S/sequence.mjs SEQ init|analyse|check|render|watch; export.mjs SEQ (see Sequences)
 ```
 
 Scripts are in `<clone>/skills/motion-video/scripts/`; after `install.sh` the same files are at
@@ -295,12 +297,72 @@ new_project.sh ~/promo song.mp3 --bars 28 --size 3840x2160 --states 40   # 28 ba
   use stays small. Measure your own with `render.mjs DIR --from 0 --to 5` and scale up; iterate with
   `--preview` (half size, 1 subframe) and `beat_stills.mjs`, and do the full render once.
 - **Plan in chapters.** A minute is ~110 beats and up to ~55 states. Plan 3 or 4 sections that each
-  return to a resting state, rather than one unbroken chain.
+  return to a resting state, rather than one unbroken chain; past one loop, make each section its own project and
+  play them back to back on the song as a sequence (see Sequences).
 - **Not a loop?** Add `"loop": false` to `DIR/project.json`: the page then accepts a last row that
   differs from the first, `check_brief.mjs` checks the brief as a one-off, and `render.mjs` clamps the
   motion-blur subframes to the piece instead of wrapping them (so the end card never ghosts into frame 0).
   `render.mjs --serve` with `?play` still loops playback. The seam check in
   `beat_stills.mjs` assumes the last frame equals the first; for a one-off its failure can be ignored.
+
+## Sequences
+
+A piece longer than one loop (a launch video: intro, product chapters, end card) is built as **chapters**: separate
+ordinary projects, each with its own brief and tables, played back to back on ONE song. One song per sequence; the
+chapters are joined with no transition of their own (the shape's motion is the transition).
+`node $S/sequence.mjs SEQ <command>` (bad usage: `error: ...`, exit 2):
+
+```json
+{
+  "song": "/path/to/song.mp3",
+  "chapters": [
+    { "dir": "intro", "bars": 2, "from_start": true },
+    { "dir": "kit", "bars": 15 },
+    { "dir": "end", "bars": 2 }
+  ],
+  "fade_out_sec": 2.0
+}
+```
+
+`SEQ/sequence.json`: `dir` is relative to SEQ (any name but `out`, which holds the sequence's renders), `bars` the
+chapter's length; chapter 1 starts with the song (`from_start`) or at `"start_bar": N` (or where the analyser picks),
+and every later chapter starts where the previous one ends (giving one a start is an error). Each chapter is a
+`new_project.sh` project with `"loop": false` in its project.json (chapters are not loops; they may end on a hold).
+The song path may be relative to SEQ, and is read in place.
+
+- `init --song PATH NAME... [--bars N]` makes sequence.json (N bars each, default 4; chapter 1 `from_start`) and one
+  project per name with `"loop": false`. Then edit the bars in sequence.json.
+- `analyse` lines the windows up on chapter 1's grid: chapter 1's `sync` grid (nudge, tempo, meter, swing, pickup;
+  set by ear with `sync.mjs` on **chapter 1**) is copied to every chapter, and markers are merged by name across the
+  chapters into every chapter's song.json (place a marker on the chapter whose window holds it). A name with two times
+  keeps chapter 1's (else the earlier chapter's) and warns, so **move a marker on chapter 1**. To **remove** one,
+  delete it from every chapter's song.json before analysing: a name still on any chapter comes back everywhere. A
+  chapter whose sync changes keeps its old song.json as `song.json.bak`. Then analyze_song.py runs on each chapter
+  with its bars: chapter 1 `--from-start` / `--start-bar N`, chapter k+1 `--start-bar` = chapter k's `start_bar + bars`,
+  so the windows abut exactly. Prints `kit: bars 2-16, 0:04.9-0:37.9` per chapter.
+- `check` runs check_brief on each chapter that has a MOTION-BRIEF.md (as a one-off, not a loop), then checks that
+  each chapter is analysed with sequence.json's bars, starts where the previous one ends (within 1 ms), and shares
+  chapter 1's bpm (unless a tempo map), fps and the sequence's sync (after a hand edit, `check` says to re-run
+  `analyse`). Lines start with the chapter's name; errors exit 1; `sequence OK: 4 chapters, 0:00.0-1:00.7`.
+- `render [--preview] [--stage WxH]` first checks every chapter is analysed, abuts and has chapter 1's fps and stage
+  (exit 2, nothing rendered, otherwise); renders each chapter whose render is stale (its `.render.json` stamp, as
+  export decides), printing `name: rendered|reused`; then joins the chapter videos (stream copy) over ONE cut of the
+  song from chapter 1's start to the last chapter's end (10 ms fades at the very ends only, so no seam at a join),
+  mixed with each chapter's UI sounds at its offset, the whole mix faded out over `fade_out_sec`. Writes
+  `SEQ/out/sequence.mp4`, or `SEQ/out/sequence-preview.mp4` with `--preview` (a preview never replaces the full
+  join), under `SEQ/out/shapes/WxH/` with `--stage`, each with a stamp listing the chapters' stamps.
+- `watch CHAPTER [--brief] [--port N] [--no-open]` is `watch.mjs SEQ/CHAPTER` (see Watching), for editing one
+  chapter at a time; Ctrl+C stops it. An unknown chapter is exit 2.
+- `export.mjs SEQ --for ...` exports the joined sequence through the presets (sizes, caps, loudness, GIF, poster at
+  chapter 1's beat 1.5): one full `renderSequence` per render size (chapters reused by their own stamps). The design
+  size has no stage override, so it re-renders any stale chapter into its own `out/video.mp4` and re-joins
+  `SEQ/out/sequence.mp4`; other sizes go to `SEQ/out/shapes/WxH/`. Safe zones are checked on every chapter at each
+  shape (warnings prefixed with the chapter's name); a commercial track on any chapter warns for the whole piece.
+  Files go to `SEQ/out/exports/`; the manifest adds `"sequence": { "chapters": [...] }` and each render's
+  `chapters: [{ name, reused }]`. `--guides` renders each chapter's guides previews.
+
+The flow: `init`, set the grid by ear with `sync.mjs SEQ/<chapter 1>`, `analyse`, one brief per chapter (planner),
+`check` before the approval gate, build each chapter with `watch`, `render --preview`, then `export.mjs SEQ`.
 
 ## Rules that matter (the tests enforce most of them)
 
@@ -370,7 +432,9 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   markerNames, projectMarkerNames; used by check_brief, render, swap_song, sync,
                                   watch), swap_song.mjs (a new song on a project: backup, clear sync, re-analyse,
                                   names to place; then the sync page), watch.mjs (the live preview's server:
-                                  GET /__watch, /__watch/events (SSE), /__watch/status; reuses serve())
+                                  GET /__watch, /__watch/events (SSE), /__watch/status; reuses serve()),
+                                  sequence.mjs (chapters on one song: sequence.json, init, analyse, check, render
+                                  (renderSequence: the join over one song cut), watch; export.mjs takes a SEQ)
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
                                   suggestions, nudge, tap tempo, meter, swing, markers, to place, Save); tested by
                                   tests/sync-page.test.mjs

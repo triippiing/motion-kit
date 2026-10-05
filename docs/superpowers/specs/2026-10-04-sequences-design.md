@@ -57,7 +57,11 @@ In a sequence directory (SEQ):
 - **`init NAME...`** — scaffold: creates SEQ/sequence.json (song from `--song PATH`, chapters from the names, bars from
   `--bars N` each, default 4) and runs `new_project.sh` for each chapter.
 - **`analyse`** — the grid is chapter 1's: if chapter 1's song.json has a `sync` section (set by ear with `sync.mjs` on
-  chapter 1), it is copied to every other chapter first. Then each chapter is analysed with `analyze_song.py SONG --out
+  chapter 1), its grid fields (everything but markers) are copied to every other chapter first. Markers (song time)
+  are merged by name across every chapter's sync and written to all of them: a name at two times keeps chapter 1's
+  (else the earlier chapter's) and warns, so a marker is moved on chapter 1; a name deleted on one chapter but still on
+  another comes back, so a marker is removed from every chapter's song.json. A markers list (even an empty one, which
+  the sync page always saves) is kept. A chapter whose sync changes keeps its old song.json as `song.json.bak`. Then each chapter is analysed with `analyze_song.py SONG --out
   DIR --bars N` and its start: chapter 1 `--from-start` or `--start-bar`; chapter k>1 `--start-bar` = chapter k−1's
   `loop.start_bar + bars` (bars counted on the same grid, so the windows abut exactly). Prints one line per chapter
   (`kit: bars 2-16, 0:04.9-0:37.9`).
@@ -67,9 +71,13 @@ In a sequence directory (SEQ):
 - **`render [--preview]`** — renders each chapter whose render is stale (render.mjs, its `.render.json` stamp decides),
   then joins: video = the chapter videos concatenated (same size and fps; checked); audio = ONE cut of the song from
   chapter 1's start to the last chapter's end (analyze_song's clip writer logic: same fades at the ends, plus the
-  sequence's `fade_out_sec`), mixed with each chapter's UI sounds at their offsets — no seams at the joins. Output
-  SEQ/out/sequence.mp4 with a stamp listing the chapter stamps.
-- **`watch CHAPTER`** — shorthand for `watch.mjs SEQ/CHAPTER` (C2a), for editing one chapter at a time.
+  sequence's `fade_out_sec`, applied to the whole mix), mixed with each chapter's UI sounds at their offsets — no seams
+  at the joins. Output SEQ/out/sequence.mp4 (SEQ/out/sequence-preview.mp4 with `--preview`, so a preview never
+  replaces the full join; under SEQ/out/shapes/WxH/ with `--stage WxH`) with a stamp listing the chapter stamps.
+  `renderSequence` resolves `{ file, chapters: [{ name, reused }] }`.
+- **`watch CHAPTER [--brief] [--port N] [--no-open]`** — shorthand for `watch.mjs SEQ/CHAPTER` (C2a) with the same
+  flags, for editing one chapter at a time; Ctrl+C is passed on and it exits with watch.mjs's code. An unknown
+  chapter is exit 2.
 
 The last chapter of the launch video holds on its end card; chapters may end on a hold (not a loop), which
 `"loop": false` already allows.
@@ -79,7 +87,9 @@ The last chapter of the launch video holds on its end card; chapters may end on 
 `export.mjs SEQ --for ...` accepts a sequence directory (detected by sequence.json): for each preset shape it renders
 every chapter at that shape (render.mjs's stage override, as today per project) and joins them as `render` does, then
 runs the existing encode path (size caps, loudness, safe zones on each chapter's frames, GIF, manifest). The manifest
-records the chapters. Reuse rules follow export's existing stamp logic per chapter.
+records the chapters. Reuse rules follow export's existing stamp logic per chapter. The design size is rendered
+without a stage override, so it re-renders stale chapters into their own out/video.mp4 and re-joins
+SEQ/out/sequence.mp4 (a full render, never the preview).
 
 ## 4. Docs
 

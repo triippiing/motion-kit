@@ -7,7 +7,7 @@ Sections are extension points: later sub-projects add rows to Questions and Asse
 | Request looks like | Route |
 |---|---|
 | a looping social promo | full flow below |
-| a launch / non-looping video | full flow, not a loop: after scaffolding, add `"loop": false` to `DIR/project.json` (check_brief.mjs and the page read it); intro and end cards are hand-built until sub-project D |
+| a launch / non-looping video | full flow, not a loop: after scaffolding, add `"loop": false` to `DIR/project.json` (check_brief.mjs and the page read it). Longer than one loop (an intro, product chapters, an end card): plan it in chapters (see Long pieces: chapters below) |
 | animation inside a real app | hand to motion-ui |
 | re-time or re-render an existing project | motion-video directly |
 
@@ -77,6 +77,23 @@ Write the understanding back (goal, destinations and the design shape with the r
 - Vertical cursor rest: the template's rest point `x: 240, y: 280` sits inside the Reels, TikTok and Shorts bottom and right zones on a vertical stage. On a vertical piece rest the cursor nearer the centre, for example `x: 140, y: 100` (checked clean on all three with the template's own rows, including its closest zoom). Cursor `x`/`y` are design px from the centre and grow with the camera zoom (up to 2.4x on a small component), so keep a rest within about -190 to 150 across and -280 to 100 down; `check_brief.mjs` has the final word.
 - Cursor visibility: hide the cursor (`hide: true`) where it is not doing anything; show it for presses, drags and typing.
 
+## Long pieces: chapters
+A piece longer than one loop, or one with an intro and an end card, is planned as chapters on one
+song: a sequence (the Sequences section of `motion-video/SKILL.md`). One song for the whole piece; chapters play back
+to back with no transition of their own.
+- Split the length into 3 or 4 chapters that each start and end at rest (intro, one per feature, end card); say each
+  chapter's bars and seconds, and that they add up to the length.
+- Scaffold them together: `node $S/sequence.mjs SEQ init --song SONG intro kit end --bars 4`, then set each chapter's
+  `bars` in `SEQ/sequence.json` (chapter 1 starts with the song, `"from_start": true`, or give it `"start_bar": N`;
+  later chapters start where the previous one ends). Each chapter is an ordinary project with `"loop": false`.
+- Sync on chapter 1 only (`node $S/sync.mjs SEQ/intro`, the Sync questions above): its grid is the sequence's. A moment
+  is marked on the chapter whose window holds it. Then `node $S/sequence.mjs SEQ analyse` lines the windows up and
+  prints each chapter's bars and times; re-read each chapter's song.json for its budget and markers.
+- One MOTION-BRIEF.md per chapter (in its own directory), written as below; `node $S/sequence.mjs SEQ watch CHAPTER
+  --brief` previews one while drafting it.
+- Before the gate, `node $S/sequence.mjs SEQ check` must pass: every brief (as a one-off), and the chapters abutting on
+  one grid. Show all the briefs together for one approval.
+
 ## MOTION-BRIEF.md (write into the project)
 Sections, in order: `## Request` (classification), `## Decisions` (platform, size, length in seconds and bars, theme, song and window, one-line reasons; the destinations as one line of preset names, e.g. `**Exports:** reels, x, discord, web`; the sync check as one line, `**Sync:** checked by ear 2026-10-01; markers: drop, vocal` from `sync.checked_by_ear` and the in-loop markers, or `**Sync:** not checked (confidence 0.39)`), `## Moments` (moment → component → props), `## Beat table` (readable table: #, bar.beat, t, component, what changes, sound; then ONE ```js block with `const states = () => [...]` and `const cursor = () => [...]`, using `use:` and `target:`; a row on a marked moment uses `at: 'drop'`, optionally with `offset` in beats: the action lands on the marker (`{ at: 'drop', target: 'button', press: true }`), its result follows (`{ at: 'drop', offset: 0.5, use: 'check' }`), and a lead such as `offset: -0.5` is only for the approach row (the cursor gliding in); any row can also take the row-level keys `fill`, `ink` (a theme role or `#rrggbb`), `w`/`h`/`r`, `shake: true` and `badge: <n>`, listed at the top of `components/CATALOG.md`). A drag is three rows: down, move, up (`press: 'down'`, then a row that moves the cursor, then `press: 'up'` at that same position; a move written on the 'up' row starts only after the release). Format and a worked example: `references/state-plan.md`.
 While drafting the beat table, `node $S/watch.mjs DIR --brief` (in the background; give the user the URL it prints, `watching: http://127.0.0.1:PORT/__watch`) shows the brief's tables live with the song: each save of MOTION-BRIEF.md reloads the animation without stopping the music, check_brief re-runs and its result shows in the terminal and the page's corner panel, and a table that does not run keeps the last good frame with the error shown (the Watch section of `motion-video/SKILL.md`). Stop it before the gate.
@@ -85,4 +102,4 @@ check_brief now always opens Chromium for the frame check (a few seconds).
 A justification is one line in Decisions naming the warning and why it is accepted, e.g. `**Accepted:** commercial-track warning, exports are --silent` or `**Accepted:** cursor in the Reels bottom zone at beat 12, it passes under the caption for one beat`. check_brief still prints an accepted warning; the line is for the reader and the approval.
 
 ## Gate
-Show the brief. Build nothing until the user approves or asks for changes. On approval hand to motion-video, which builds, renders and ends with `node $S/export.mjs DIR --for PRESETS` (the brief's Exports line, comma-separated with no spaces), with `--silent` when the Audio decision says so, or the two calls above when only some presets keep the audio.
+Show the brief (a sequence: every chapter's brief, after `sequence.mjs SEQ check` passes). Build nothing until the user approves or asks for changes. On approval hand to motion-video, which builds, renders and ends with `node $S/export.mjs DIR --for PRESETS` (the brief's Exports line, comma-separated with no spaces), with `--silent` when the Audio decision says so, or the two calls above when only some presets keep the audio. A sequence ends with `node $S/export.mjs SEQ --for PRESETS` (the joined piece).
