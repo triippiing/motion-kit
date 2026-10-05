@@ -179,6 +179,23 @@ test('trailers never reach the facts: a trailers-only body gives no subtitle, a 
   for (const s of [JSON.stringify(pr), JSON.stringify(rel), JSON.stringify(f)]) assert.doesNotMatch(s, /Signed-off-by|Co-Authored-By|Reviewed-by/i);
 });
 
+test('an area prefix (motion-story:, area-name:, a/b:) that is no conventional type is a scope: stripped, tag other', async () => {
+  assert.deepEqual(groupCommits(['motion-story: read a repo', 'sequence: render chapters', 'ui/tabs: slide', 'feat(x): one',
+    'docs: guide', 'Fix: Not an area', 'Area: kept', 'no prefix']), [
+    { label: 'one', tag: 'feature' }, { label: 'guide', tag: 'docs' },
+    { label: 'read a repo', tag: 'other' }, { label: 'render chapters', tag: 'other' }, { label: 'slide', tag: 'other' },
+    { label: 'Not an area', tag: 'fix' }, { label: 'Area: kept', tag: 'other' }, { label: 'no prefix', tag: 'other' },
+  ].sort((a, b) => ['feature', 'fix', 'docs', 'other'].indexOf(a.tag) - ['feature', 'fix', 'docs', 'other'].indexOf(b.tag)));
+  const r = makeRepo();
+  r.commit('init', { file: 'README.md', text: '# x\n' });
+  r.git(['checkout', '-q', '-b', 'topic']);
+  r.commit('motion-story: read a repo from its URL');
+  r.commit('sequence: render chapters');
+  const f = await readRepo(r.dir, { story: 'pr', pr: 'topic' });
+  assert.equal(f.title, 'read a repo from its URL');
+  assert.deepEqual(f.items, [{ label: 'read a repo from its URL', tag: 'other' }, { label: 'render chapters', tag: 'other' }]);
+});
+
 test('same run twice -> byte-identical facts', () => {
   for (const args of [[], ['--release', 'latest'], ['--pr', 'feature-branch']]) {
     const a = path.join(out, 'twice-a.json'), b = path.join(out, 'twice-b.json');

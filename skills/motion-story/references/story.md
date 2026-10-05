@@ -23,7 +23,8 @@ triippiing/motion-kit (button)
 ```
 
 - `# Story: NAME`: the facts' `title` (a release's is the repo name and the tag, `motion-kit v1.4`; a pull request's
-  is its title; a local branch's is its oldest commit's subject, conventional prefix stripped).
+  is its title; a local branch's is its oldest commit's subject; a `feat:` or an area prefix such as `sequence:` is
+  stripped from either).
 - `**Source:**` the facts' `source.command` exactly as written in the file, then ` -> ` and the facts file's name.
   It is how the facts are re-created later, so never retype or tidy it.
 - `**Story:**` the facts' `source.story`: `intro`, `release` or `pr`.

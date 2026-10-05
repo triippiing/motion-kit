@@ -486,7 +486,8 @@ node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro 
   tag (a non-version tag: the tag created before it; over a URL, the API's listed order, as GitHub does not promise
   creation order), and over a URL a GitHub release body with bullets takes precedence; `--release latest` is the
   highest version tag that is not a pre-release. `--pr N` needs a URL, `--pr BRANCH` a local clone (its title: the
-  oldest commit's subject, prefix stripped). Bad input exits 2, a read failure 1.
+  oldest commit's subject, its `feat:` or area prefix such as `sequence:` stripped). Bad input exits 2, a read
+  failure 1.
 - The facts file (format: the header of `scripts/facts.mjs`): title, subtitle, at most 12 items (label, detail, tag),
   stats, links, media, and `source.command`, the command that re-creates it (`--intro`, the default, never written;
   `parseCommand` splits it back into argv). Intro items are in README order, release and pr items ranked. Text is

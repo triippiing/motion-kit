@@ -3,7 +3,8 @@
 //   readRepo(source, { story: 'intro'|'release'|'pr', release?: TAG|'latest', pr?: BRANCH|N }) -> facts (no source.command)
 //
 // intro: the README (parseReadme), the commit count on HEAD and the GitHub url of origin. release: the commits
-// between TAG and its predecessor, first parent only, grouped by their conventional prefix (stats count every
+// between TAG and its predecessor, first parent only, grouped by their conventional prefix (an area prefix such as
+// `sequence:` that is no conventional type is a scope: stripped, tag other) (stats count every
 // commit in the range). pr: a branch's commits that are not on the default branch (origin/HEAD, else main, else
 // master), with its diff stats; its title is the oldest commit's subject (prefix stripped), its subtitle that commit
 // body's first paragraph. intro items are in README order; release and pr items are ranked (features first).
@@ -144,10 +145,16 @@ function prefix(text) {
   return m && Object.hasOwn(TYPES, m[1].toLowerCase()) ? [TYPES[m[1].toLowerCase()], m[2]] : null;
 }
 
-// A subject's item: a known conventional prefix sets the tag and is stripped.
+// An area prefix many repos write instead (motion-story: x, area-name: x, ui/tabs: x): lowercase, not a type.
+const AREA = /^[a-z][a-z0-9]*(?:[-/][a-z0-9]+)*:\s+(\S.*)$/;
+
+// A subject's item (a commit's, or a PR's title): a known conventional prefix sets the tag and is stripped; an area
+// prefix is a scope, stripped with the tag left other.
 function commitItem(subject) {
   const p = prefix(subject);
-  return p ? { label: p[1].trim(), tag: p[0][0], rank: p[0][1] } : { label: subject.trim(), tag: OTHER[0], rank: OTHER[1] };
+  if (p) return { label: p[1].trim(), tag: p[0][0], rank: p[0][1] };
+  const area = AREA.exec(subject.trim());
+  return { label: (area ? area[1] : subject).trim(), tag: OTHER[0], rank: OTHER[1] };
 }
 
 // Ranked items (in source order) grouped by rank, order kept within a group, at most MAX_ITEMS.

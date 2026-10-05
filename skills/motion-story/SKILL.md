@@ -43,7 +43,7 @@ builds the piece as usual. `S=~/.claude/skills/motion-story/scripts`.
      a GitHub URL; on a local clone pass a branch (--pr BRANCH)`. `--pr BRANCH` needs a local clone: on a URL it
      is `--pr BRANCH: a GitHub URL takes a pull request number (--pr N); for a branch use a local clone`. A
      branch is compared with origin/HEAD, else main, else master; its title is the oldest commit's subject
-     (conventional prefix stripped). A missing PR is `no pull request #N in OWNER/REPO`.
+     (a conventional prefix, `feat:`, or an area prefix, `sequence:`, stripped; an area tags its item `other`). A missing PR is `no pull request #N in OWNER/REPO`.
    - A GitHub URL is read with read-only GETs to the GitHub API; nothing else is ever sent. Public repos only:
      a private one (or a typo), with no token that can read it, is `not found (private repos: use a local
      clone)`. Without a token GitHub allows 60 requests an hour; on `rate limited by GitHub: set GITHUB_TOKEN or
