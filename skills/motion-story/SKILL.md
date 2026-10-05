@@ -43,10 +43,11 @@ builds the piece as usual. `S=~/.claude/skills/motion-story/scripts`.
      a GitHub URL; on a local clone pass a branch (--pr BRANCH)`. `--pr BRANCH` needs a local clone: on a URL it
      is `--pr BRANCH: a GitHub URL takes a pull request number (--pr N); for a branch use a local clone`. A
      branch is compared with origin/HEAD, else main, else master; its title is the oldest commit's subject
-     (a conventional prefix, `feat:`, or an area prefix, `sequence:`, stripped; an area tags its item `other`). A missing PR is `no pull request #N in OWNER/REPO`.
-   - A GitHub URL is read with read-only GETs to the GitHub API; nothing else is ever sent. Public repos only:
-     a private one (or a typo), with no token that can read it, is `not found (private repos: use a local
-     clone)`. Without a token GitHub allows 60 requests an hour; on `rate limited by GitHub: set GITHUB_TOKEN or
+     (a conventional prefix, `feat:`, or an area prefix, `sequence:`, stripped; an area tags its item `other`).
+     A missing PR is `no pull request #N in OWNER/REPO`.
+   - A GitHub URL is read with read-only GETs to the GitHub API; nothing else is ever sent. Meant for public
+     repos, or a private one that a `GITHUB_TOKEN` the user already set can read; otherwise a private repo (or a
+     typo) is `not found (private repos: use a local clone)`. Without a token GitHub allows 60 requests an hour; on `rate limited by GitHub: set GITHUB_TOKEN or
      try later`, the user can set `GITHUB_TOKEN` (sent only when it is set). A release over a URL lists at most
      250 commits, and tags or commits at most 10 pages (a warning says so; a local clone reads them all).
 4. **Read the facts** (Read `DIR/facts.json`; the format is the header of `scripts/facts.mjs`). `title`,
@@ -72,7 +73,7 @@ builds the piece as usual. `S=~/.claude/skills/motion-story/scripts`.
 | "The README is thin, I'll add a few features it obviously has" | Never invent features, facts or numbers. Use only what the facts file holds (or the user tells you); shorten wording, never add claims. |
 | "The facts say 272 commits, '~300 commits' reads better" | Numbers are shown as they are in the facts. |
 | "STORY.md is obvious, I'll go straight to the brief" | STORY.md is approved before any planning. |
-| "It's private, I'll try the URL with a token" | Private repos are read from a local clone, never over the API. |
+| "It's private, I'll ask for a token or try one" | Never ask for, set or try a token to reach a private repo: use the user's local clone. A token already in the environment is used as it is. |
 | "I'll post the video / open a release / comment on the PR" | Never post anywhere. motion-kit renders files; the user posts them. |
 | "The repo's README links a song, I'll grab it" | Never download music. The song is a file the user has the rights to (motion-design asks). |
 | "There's a GIF in the facts, I'll turn it into footage" | Media becomes footage only with the user's say-so (`footage.mjs`, `capture.mjs`). |

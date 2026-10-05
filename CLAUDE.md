@@ -480,8 +480,9 @@ node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro 
 ```
 
 - SOURCE is a local git work tree or `https://github.com/OWNER/REPO`. A URL is read with read-only GETs to the GitHub
-  API (a private repo, with no token that can read it, is `not found (private repos: use a local clone)`;
-  `GITHUB_TOKEN`, sent only when set, raises the 60-an-hour limit; a release lists at most 250 commits and tags or
+  API (meant for public repos, or a private one that a `GITHUB_TOKEN` the user already set can read; otherwise a
+  private repo or a typo is `not found (private repos: use a local clone)`; never ask for, set or try a token to
+  reach a private repo: use the user's local clone; `GITHUB_TOKEN`, sent only when set, raises the 60-an-hour limit; a release lists at most 250 commits and tags or
   commits at most 10 pages, with a warning); nothing else is sent. `--release TAG` reads from the previous version
   tag (a non-version tag: the tag created before it; over a URL, the API's listed order, as GitHub does not promise
   creation order), and over a URL a GitHub release body with bullets takes precedence; `--release latest` is the

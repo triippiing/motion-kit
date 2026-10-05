@@ -447,9 +447,11 @@ test('trailers stay out over a URL too: merge bodies, PR bodies and PR commits',
       c('b', ['a'], 'work\n\nSigned-off-by: Ann <a@x.y>'),
       c('m1', ['a', 'b'], "Merge branch 'b'\n\nSigned-off-by: Max <m@x.y>"),
       c('d', ['m1'], 'more'),
-      c('m2', ['m1', 'd'], 'Merge pull request #2 from o/d\n\nCo-Authored-By: Cy <c@x.y>\n\nfeat: the thing'),
+      c('m2', ['m1', 'd'], 'Merge pull request #2 from o/d\n\nfeat: the thing\n\nCo-Authored-By: Cy <c@x.y>'),
     ] },
-    '/repos/o/t/pulls/3': { number: 3, title: 'fix: a bug', body: 'Signed-off-by: Ann <a@x.y>\n\nWhat it fixes.\n', labels: [] },
+    '/repos/o/t/pulls/3': { number: 3, title: 'fix: a bug', body: 'What it fixes.\n\nSigned-off-by: Ann <a@x.y>\n', labels: [] },
+    '/repos/o/t/pulls/4': { number: 4, title: 'sequence: chapters', body: 'Note: keep me\n\n## Changes\n- one\n', labels: [] },
+    '/repos/o/t/pulls/4/commits?per_page=100': [c('q', ['a'], 'sequence: chapters')],
     '/repos/o/t/pulls/3/commits?per_page=100': [c('p', ['a'], 'fix: a bug\n\nCo-Authored-By: Cy <c@x.y>')],
   });
   const saved = process.env.MK_GITHUB_API;
@@ -457,9 +459,32 @@ test('trailers stay out over a URL too: merge bodies, PR bodies and PR commits',
     process.env.MK_GITHUB_API = f2.base;
     const rel = await readRepo('https://github.com/o/t', { story: 'release', release: 'v2.0.0' });
     assert.deepEqual(rel.items, [{ label: 'the thing', tag: 'feature' }]);
+    const pr4 = await readRepo('https://github.com/o/t', { story: 'pr', pr: '4' });
+    assert.deepEqual([pr4.title, pr4.subtitle], ['chapters', 'Note: keep me']);
     const pr = await readRepo('https://github.com/o/t', { story: 'pr', pr: '3' });
     assert.equal(pr.subtitle, 'What it fixes.');
     assert.deepEqual(pr.items, [{ label: 'a bug', tag: 'fix' }]);
+  } finally {
+    process.env.MK_GITHUB_API = saved;
+    await f2.close();
+  }
+});
+
+test('over a URL a merge whose body is an area-prefixed PR title keeps its item', async () => {
+  const c = (sha, parents, message) => ({ sha, commit: { author: { name: 'Ann' }, message }, parents: parents.map((p) => ({ sha: p })) });
+  const f2 = await startFake({
+    '/repos/o/a': { name: 'a', html_url: 'https://github.com/o/a' },
+    '/repos/o/a/tags?per_page=100': [['v2.0.0', 'm'], ['v1.0.0', 'a']].map(([name, s]) => ({ name, commit: { sha: s } })),
+    '/repos/o/a/compare/v1.0.0...v2.0.0': { status: 'ahead', total_commits: 2, commits: [
+      c('b', ['a'], 'work'),
+      c('m', ['a', 'b'], 'Merge pull request #5 from o/b\n\nsequence: chapters on one song\n\nSigned-off-by: Max <m@x.y>'),
+    ] },
+  });
+  const saved = process.env.MK_GITHUB_API;
+  try {
+    process.env.MK_GITHUB_API = f2.base;
+    const rel = await readRepo('https://github.com/o/a', { story: 'release', release: 'v2.0.0' });
+    assert.deepEqual(rel.items, [{ label: 'chapters on one song', tag: 'other' }]);
   } finally {
     process.env.MK_GITHUB_API = saved;
     await f2.close();

@@ -161,12 +161,12 @@ test('trailers never reach the facts: a trailers-only body gives no subtitle, a 
   r.commit('fix: two', { body: 'Signed-off-by: Ann <ann@example.com>\nReviewed-by: Bo <bo@example.com>' });
   r.git(['checkout', '-q', 'main']);
   const pr = await readRepo(r.dir, { story: 'pr', pr: 'topic' });
-  // a merge whose body is only trailers lists no item; one with a PR title after its trailers lists that title
+  // a merge whose body is only trailers lists no item; one with a PR title and then trailers lists that title
   r.git(['merge', '-q', '--no-ff', 'topic', '-m', "Merge branch 'topic'", '-m', 'Signed-off-by: Max <max@x.y>']);
   r.git(['checkout', '-q', '-b', 'second']);
   r.commit('docs: three');
   r.git(['checkout', '-q', 'main']);
-  r.git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #2 from o/second', '-m', 'Co-Authored-By: Cy <cy@x.y>', '-m', 'docs: the guide']);
+  r.git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #2 from o/second', '-m', 'docs: the guide', '-m', 'Co-Authored-By: Cy <cy@x.y>']);
   r.tag('v1.1.0');
   assert.equal(pr.title, 'one');
   assert.equal(pr.subtitle, undefined);
@@ -194,6 +194,25 @@ test('an area prefix (motion-story:, area-name:, a/b:) that is no conventional t
   const f = await readRepo(r.dir, { story: 'pr', pr: 'topic' });
   assert.equal(f.title, 'read a repo from its URL');
   assert.deepEqual(f.items, [{ label: 'read a repo from its URL', tag: 'other' }, { label: 'render chapters', tag: 'other' }]);
+});
+
+test('only trailing paragraphs of known or Capitalised-Hyphenated keys are trailers: an area merge title and a Note survive', async () => {
+  const r = makeRepo();
+  r.commit('init', { file: 'README.md', text: '# x\n' });
+  r.tag('v1.0.0');
+  r.git(['checkout', '-q', '-b', 'topic']);
+  r.commit('feat: one', { body: 'Note: keep me\n\ncc: a lowercase line in the middle\n\nSigned-off-by: Ann <a@x.y>\nCC: Bo <b@x.y>\nX-Custom-Key: z' });
+  r.git(['checkout', '-q', 'main']);
+  const pr = await readRepo(r.dir, { story: 'pr', pr: 'topic' });
+  assert.equal(pr.subtitle, 'Note: keep me');
+  r.git(['merge', '-q', '--no-ff', 'topic', '-m', 'Merge pull request #3 from o/topic', '-m', 'sequence: chapters on one song', '-m', 'Signed-off-by: Max <m@x.y>']);
+  r.git(['checkout', '-q', '-b', 'second']);
+  r.commit('two');
+  r.git(['checkout', '-q', 'main']);
+  r.git(['merge', '-q', '--no-ff', 'second', '-m', 'Merge pull request #4 from o/second', '-m', 'sequence: render chapters']);
+  r.tag('v1.1.0');
+  const rel = await readRepo(r.dir, { story: 'release', release: 'v1.1.0' });
+  assert.deepEqual(rel.items, [{ label: 'chapters on one song', tag: 'other' }, { label: 'render chapters', tag: 'other' }]);
 });
 
 test('same run twice -> byte-identical facts', () => {

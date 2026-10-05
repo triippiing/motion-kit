@@ -8,9 +8,9 @@
 // commit in the range). pr: a branch's commits that are not on the default branch (origin/HEAD, else main, else
 // master), with its diff stats; its title is the oldest commit's subject (prefix stripped), its subtitle that commit
 // body's first paragraph. intro items are in README order; release and pr items are ranked (features first).
-// Commit trailers (Signed-off-by:, Co-Authored-By: ...; a paragraph of nothing but `Key: value` lines that are not
-// conventional prefixes) are stripped from every commit, release and PR body, so none reaches a title, subtitle or
-// item.
+// Commit trailers (the closing paragraphs of nothing but known trailers, Signed-off-by:, Co-Authored-By: ..., or
+// Capitalised-Hyphenated keys) are stripped from every commit, release and PR body, so none reaches a title,
+// subtitle or item.
 // Git runs as `git -C PATH ...` through execFile (never a shell) with the caller's GIT_DIR and friends removed.
 // Bad input (not a work tree, no README, no tags, an unknown tag or branch) is a UsageError; a git failure an Error.
 //
@@ -164,15 +164,24 @@ const group = (items) => items.filter((it) => it.label)
 // Subjects (oldest first) to items: grouped by rank, commit order kept within a group, at most MAX_ITEMS.
 export const groupCommits = (subjects) => group(subjects.map(commitItem));
 
-// A trailer line (Signed-off-by: x, Co-Authored-By: x): a key, a colon and a space; a known conventional prefix
-// (feat: x) is not one.
-const TRAILER = /^[A-Za-z][\w-]*:\s/;
-const isTrailer = (line) => TRAILER.test(line.trim()) && !prefix(line);
+// A trailer line: `Key: value` whose key is a known git trailer (Signed-off-by, Co-authored-by, ..., any case) or
+// Capitalised-And-Hyphenated (X-Custom-Key); never a line commitItem reads as a subject (feat: x, sequence: x).
+const TRAILER = /^([A-Za-z][\w-]*):\s/;
+const KNOWN_TRAILERS = /^(signed-off-by|co-authored-by|reviewed-by|acked-by|tested-by|reported-by|suggested-by|helped-by|change-id|cc)$/i;
+const CAPITALISED_KEY = /^[A-Z][a-z0-9]*(?:-[A-Z][a-z0-9]*)+$/;
+function isTrailer(line) {
+  const t = line.trim(), m = TRAILER.exec(t);
+  return !!m && (KNOWN_TRAILERS.test(m[1]) || CAPITALISED_KEY.test(m[1])) && !prefix(t) && !AREA.test(t);
+}
 
-// A commit body without its trailer paragraphs (every line a trailer), so no trailer reaches a title, a subtitle
-// or an item.
-export const stripTrailers = (body) => String(body ?? '').replace(/\r\n?/g, '\n').split(/\n\s*\n/)
-  .filter((p) => { const ls = p.split('\n').filter((l) => l.trim()); return ls.length && !ls.every(isTrailer); }).join('\n\n');
+// A message body without its trailing trailer paragraphs (every line a trailer; git puts trailers at the end), so no
+// trailer reaches a title, a subtitle or an item. Paragraphs before the last prose one are kept as they are.
+export function stripTrailers(body) {
+  const ps = String(body ?? '').replace(/\r\n?/g, '\n').split(/\n\s*\n/);
+  const lines = (p) => p.split('\n').filter((l) => l.trim());
+  while (ps.length && (!lines(ps.at(-1)).length || lines(ps.at(-1)).every(isTrailer))) ps.pop();
+  return ps.join('\n\n');
+}
 
 // The subject a commit lists as its item: a merge's is its body's first line (see commits()).
 const itemSubject = (subject, body, merge) => (merge ? body.split('\n').map((l) => l.trim()).find(Boolean) ?? '' : subject);
