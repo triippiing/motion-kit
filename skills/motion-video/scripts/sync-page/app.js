@@ -704,12 +704,21 @@ function draftFlag() {
     e.stopPropagation();
     if (e.key === 'Enter') { e.preventDefault(); commitDraft(input.value.trim()); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelDraft(); }
+    else if (e.key === ' ') { e.preventDefault(); nameTip(el, 'No spaces allowed: use - instead (drop-5)'); }   // names are slugs
   });
-  input.addEventListener('input', () => { el.classList.remove('invalid'); S.warning = null; renderStatus(); });
+  input.addEventListener('input', () => { el.classList.remove('invalid'); el.querySelector('.name-tip')?.remove(); S.warning = null; renderStatus(); });
   input.addEventListener('blur', () => { if (draft) cancelDraft(); });
   flags.append(el);
   queueMicrotask(() => input.focus());
   return el;
+}
+
+// A pop-up under the draft flag saying why its name was refused (the status line alone was easy to miss); it goes
+// with the next keystroke that changes the name.
+function nameTip(el, text) {
+  let tip = el.querySelector('.name-tip');
+  if (!tip) { tip = document.createElement('div'); tip.className = 'name-tip'; tip.setAttribute('role', 'alert'); el.append(tip); }
+  tip.textContent = text;
 }
 
 function newMarker() {
@@ -727,7 +736,7 @@ function commitDraft(name) {
   const el = flags.querySelector('[data-marker="_draft"]');
   const why = !NAME.test(name) ? 'a marker name is lowercase letters, digits and -, starting with a letter'
     : S.pending.markers.some((m) => m.name === name) ? `there is already a marker called ${name}` : null;
-  if (why) { el?.classList.add('invalid'); S.warning = why; renderStatus(); return false; }
+  if (why) { el?.classList.add('invalid'); if (el) nameTip(el, why); S.warning = why; renderStatus(); return false; }
   S.pending.markers.push({ name, t: draft.t });
   S.pending.markers.sort((a, b) => a.t - b.t);
   draft = null; el?.remove();

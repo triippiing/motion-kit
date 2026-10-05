@@ -132,7 +132,7 @@ readouts (nudge, tempo, meter, swing) and a status line.
 | ↑ / ↓ | nudge the grid 5 ms later / earlier; with Shift, 20 ms |
 | T | tap the tempo; after 8 taps (a gap over 2 s starts again) the readout shows the tapped BPM |
 | Enter | apply the tapped BPM (40 to 240); it replaces a kept tempo map (its row then reads "removed"), since a map wins over a tempo on Save |
-| M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it |
+| M | drop a marker at the playhead and type its name; Enter keeps it, Esc (or clicking away) drops it. A space is refused with a pop-up under the flag ("No spaces allowed: use - instead"), and so is an invalid name on Enter, with the reason |
 | click a flag, then type in "add a note" | select a marker (its line in the markers list then shows a note field, pre-filled) and write a note on it. Enter or clicking away keeps a changed note, Esc drops the edit, an empty note removes it; Save or Ctrl/Cmd+S writes it (Ctrl/Cmd+S inside the field keeps it and saves in one step). Hover a flag to read its note. A note (at most 200 characters) is for people only: it never moves the grid and does not clear "Sounds right" |
 | N | focus the selected marker's note field |
 | Delete or Backspace | remove the selected marker (right-click a flag does the same) |

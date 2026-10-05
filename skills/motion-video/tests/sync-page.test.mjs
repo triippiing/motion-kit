@@ -127,6 +127,19 @@ test('sync page: play on the audio clock, nudge, clicks, a marker, Save, and the
   assert.ok(await state(() => window.syncState.warning));
   assert.equal(await page.locator('.namebox').count(), 1);
   await page.keyboard.type('drop');
+  // a space is refused on the spot, with a pop-up under the flag (not only the status line)
+  await page.keyboard.press(' ');
+  assert.equal(await page.locator('.namebox').inputValue(), 'drop', 'the space is not typed');
+  assert.equal(await page.locator('.marker .name-tip').textContent(), 'No spaces allowed: use - instead (drop-5)');
+  assert.ok(await page.locator('.marker .name-tip').isVisible());
+  await page.keyboard.type('5');
+  assert.equal(await page.locator('.marker .name-tip').count(), 0, 'the pop-up goes with the next change');
+  await page.keyboard.press('Backspace');
+  // an invalid name on Enter says why in the same pop-up
+  await page.keyboard.press('Shift+D');
+  await page.keyboard.press('Enter');
+  assert.match(await page.locator('.marker .name-tip').textContent(), /lowercase letters, digits and -/);
+  await page.keyboard.press('Backspace');
   await page.keyboard.press('Enter');
   const m0 = await state(() => window.syncState.pending.markers[0]);
   assert.equal(m0.name, 'drop');
