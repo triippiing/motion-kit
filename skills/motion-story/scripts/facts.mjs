@@ -4,7 +4,8 @@
 //     stats?: { name: number }, links?: { name: string }, media?: [{ path, alt? }] }
 //
 // validateFacts is the one definition of the shape (every source kind writes it); normalizeFacts collapses
-// whitespace in the text, cuts long text at a word boundary with "…" and puts the keys in a fixed order;
+// whitespace in the text, cuts long text at a word boundary with "…" (a subtitle to its whole sentences that fit,
+// when it can; caps: title 80, subtitle 200, label 60, detail and alt 160) and puts the keys in a fixed order;
 // writeFacts does both and writes the file atomically. The same input gives byte-identical output.
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 
@@ -14,6 +15,9 @@ export const TAGS = ['feature', 'fix', 'change', 'docs', 'other'];
 export const MAX_ITEMS = 12;
 export const MAX_LABEL = 60;
 export const MAX_DETAIL = 160;
+export const MAX_TITLE = 80;
+export const MAX_SUBTITLE = 200;
+export const MAX_ALT = 160;
 
 const TOP = ['version', 'source', 'title', 'subtitle', 'items', 'stats', 'links', 'media'];
 const SOURCE = ['kind', 'ref', 'story', 'command'];
@@ -40,6 +44,19 @@ export function cut(s, max) {
   return `${head.join('').trimEnd()}…`;
 }
 
+// s squashed and, when longer than max, its leading whole sentences that fit; when not even the first fits, cut().
+export function sentences(s, max) {
+  const t = squash(s);
+  if (chars(t) <= max) return t;
+  let kept = '';
+  for (const part of t.split(/(?<=[.!?…])\s+/)) {
+    const next = kept ? `${kept} ${part}` : part;
+    if (chars(next) > max) break;
+    kept = next;
+  }
+  return kept || cut(t, max);
+}
+
 // The keys of obj in the given order, then any others (sorted, so validateFacts can name them); undefined dropped.
 function ordered(obj, keys) {
   const out = {};
@@ -57,7 +74,8 @@ export function normalizeFacts(facts) {
   if (!isObj(facts)) return facts;
   const f = ordered(facts, TOP);
   if (isObj(f.source)) f.source = ordered(f.source, SOURCE);
-  for (const k of ['title', 'subtitle']) if (k in f) f[k] = text(f[k]);
+  if ('title' in f) f.title = text(f.title, MAX_TITLE);
+  if (typeof f.subtitle === 'string') f.subtitle = sentences(f.subtitle, MAX_SUBTITLE);
   if (Array.isArray(f.items)) {
     f.items = f.items.map((it) => {
       if (!isObj(it)) return it;
@@ -72,7 +90,7 @@ export function normalizeFacts(facts) {
     f.media = f.media.map((m) => {
       if (!isObj(m)) return m;
       const o = ordered(m, MEDIA);
-      if ('alt' in o) o.alt = text(o.alt);
+      if ('alt' in o) o.alt = text(o.alt, MAX_ALT);
       return o;
     });
   }
@@ -94,7 +112,9 @@ export function validateFacts(facts) {
     unknown(facts.source, SOURCE, 'source.');
   }
   if (!isText(facts.title)) p.push('title must be a non-empty string');
+  else if (chars(facts.title) > MAX_TITLE) p.push(`title: at most ${MAX_TITLE} characters`);
   if ('subtitle' in facts && typeof facts.subtitle !== 'string') p.push('subtitle must be a string');
+  else if (chars(facts.subtitle ?? '') > MAX_SUBTITLE) p.push(`subtitle: at most ${MAX_SUBTITLE} characters`);
   if (!Array.isArray(facts.items)) p.push('items must be an array');
   else {
     if (facts.items.length > MAX_ITEMS) p.push(`items: at most ${MAX_ITEMS}, got ${facts.items.length}`);
@@ -125,6 +145,7 @@ export function validateFacts(facts) {
       if (!isObj(m)) { p.push(`${at} must be an object`); return; }
       if (!isText(m.path)) p.push(`${at}.path must be a non-empty string`);
       if ('alt' in m && typeof m.alt !== 'string') p.push(`${at}.alt must be a string`);
+      else if (chars(m.alt ?? '') > MAX_ALT) p.push(`${at}.alt: at most ${MAX_ALT} characters`);
       unknown(m, MEDIA, `${at}.`);
     });
   }

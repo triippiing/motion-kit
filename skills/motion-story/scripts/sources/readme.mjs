@@ -8,7 +8,10 @@
 // items: the top-level bullets of a section whose heading names features, "what it does" or highlights, else of the
 // first top-level bullet list; each split at the first ":", " — ", " – " or " - " into label and detail. install: the
 // first line of the first sh/bash/shell/console/zsh fence (else of the first fence), "$ " stripped and comment lines
-// skipped. media: every image outside fences, in order, as written (relative paths stay relative), badges left out.
+// skipped. media: every image outside fences, in order, as written (relative paths stay relative), badges left out
+// (a src naming shields.io, badgen.net or "badge", or a paragraph of nothing but linked remote images).
+// A bullet that is a link to a .md file is a docs list, not an item; a features section without bullets gives its
+// sub-headings; a bullet led by a **bold run** takes it as the label.
 // Text is cleaned of Markdown, HTML, entities and emoji; a missing part is undefined (items and media are []).
 
 const SHELL = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'shell-session']);
@@ -99,9 +102,22 @@ function blocks(md) {
   return out;
 }
 
-// A bullet as an item: label and detail split at the first separator (when both sides have text).
+// A bullet that is a link to a Markdown file (with or without a description): a docs list, not a feature.
+const DOC_LINK = /^\[[^\]]*\]\(\s*<?[^)\s>]*\.md(?:#[^)\s>]*)?>?\s*\)\s*(?:$|[:—–-])/i;
+const BOLD_LEAD = /^(\*\*|__)(?=\S)([\s\S]*?\S)\1\s*([\s\S]*)$/;
+
+// A bullet as an item: a leading bold run is the label; else label and detail split at the first separator (when
+// both sides have text). null for a docs link or an empty bullet.
 function item(raw) {
-  const text = inline(raw.replace(/^\[[ xX]\]\s+/, ''));
+  const r = raw.replace(/^\[[ xX]\]\s+/, '');
+  if (DOC_LINK.test(r)) return null;
+  const bold = BOLD_LEAD.exec(r);
+  if (bold) {
+    const label = inline(bold[2]).replace(/[\s:—–-]+$/, '');
+    const detail = inline(bold[3]).replace(/^[:—–-]\s*/, '');
+    if (label) return detail ? { label, detail, tag: 'feature' } : { label, tag: 'feature' };
+  }
+  const text = inline(r);
   if (!text) return null;
   let at = -1, len = 0;
   for (const sep of [':', ' — ', ' – ', ' - ']) {
@@ -116,16 +132,22 @@ function item(raw) {
 
 const TOP = 2; // a bullet indented less than this is top level
 
+// The features section's top-level bullets; with none, its sub-headings (label) and the first paragraph under each
+// (detail); with neither, the first top-level bullet list in the README.
 function items(bs) {
   const at = bs.findIndex((b) => b.type === 'heading' && FEATURES.test(inline(b.text)));
   if (at >= 0) {
-    const found = [];
+    const bullets = [], subs = [];
     for (let i = at + 1; i < bs.length; i++) {
       const b = bs[i];
       if (b.type === 'heading' && b.level <= bs[at].level) break;
-      if (b.type === 'bullet' && b.indent < TOP) found.push(b);
+      if (b.type === 'bullet' && b.indent < TOP) bullets.push(b);
+      if (b.type === 'heading') {
+        if (inline(b.text)) subs.push({ label: inline(b.text), detail: '' });
+      } else if (b.type === 'para' && subs.length && !subs.at(-1).detail) subs.at(-1).detail = inline(b.lines.join('\n'));
     }
-    if (found.length) return found.map((b) => item(b.text)).filter(Boolean);
+    if (bullets.length) return bullets.map((b) => item(b.text)).filter(Boolean);
+    if (subs.length) return subs.map(({ label, detail }) => (detail ? { label, detail, tag: 'feature' } : { label, tag: 'feature' }));
   }
   const start = bs.findIndex((b) => b.type === 'bullet' && b.indent < TOP);
   if (start < 0) return [];
@@ -152,9 +174,21 @@ const attr = (tag, name) => {
   return m ? (m[1] ?? m[2] ?? m[3]) : undefined;
 };
 
+// A paragraph of nothing but linked remote images ([![x](https://...)](...) or <a><img src="https://..."></a>): a
+// row of badges, whatever their host.
+function badgeRow(raw) {
+  const srcs = [];
+  const rest = raw
+    .replace(/\[!\[[^\]]*\]\(\s*<?([^\s)>]+)[^)]*\)\]\([^)]*\)/g, (m, src) => { srcs.push(src); return ''; })
+    .replace(/<a\b[^>]*>\s*(<img\b[^>]*>)\s*<\/a>/gi, (m, img) => { srcs.push(attr(img, 'src') ?? ''); return ''; });
+  if (!srcs.length || /!\[|<img\b/i.test(rest) || /[\p{L}\p{N}]/u.test(inline(rest))) return false;
+  return srcs.every((s) => /^https?:\/\//i.test(s));
+}
+
 function media(bs) {
   const seen = new Set(), out = [];
-  const lines = bs.flatMap((b) => (b.type === 'para' ? b.lines : b.type === 'bullet' || b.type === 'heading' ? [b.text] : []));
+  const lines = bs.flatMap((b) => (b.type === 'para' ? (badgeRow(b.lines.join('\n')) ? [] : b.lines)
+    : b.type === 'bullet' || b.type === 'heading' ? [b.text] : []));
   for (const line of lines) {
     const found = [];
     for (const m of line.matchAll(/!\[([^\]]*)\]\(\s*<?([^\s)>]+)>?(?:\s+[^)]*)?\)/g)) found.push({ at: m.index, path: m[2], alt: m[1] });

@@ -114,3 +114,37 @@ test('parseReadme: blockquote tagline, entities, task-list markers, duplicate me
   assert.deepEqual(r.items, [{ label: 'done', detail: 'yes', tag: 'feature' }, { label: 'todo', tag: 'feature' }]);
   assert.deepEqual(r.media, [{ path: 'p.png', alt: 'a' }]);
 });
+
+test('parseReadme: a features section of sub-headings gives label + first paragraph', () => {
+  const md = '# T\n\n## Features\n\n### Fast ⚡\n\nRenders in **seconds**.\nReally.\n\nMore text.\n\n### Tiny\n\n### Typed\n\nTypes included.\n\n## Install\n\nNo.\n';
+  assert.deepEqual(parseReadme(md).items, [
+    { label: 'Fast', detail: 'Renders in seconds. Really.', tag: 'feature' },
+    { label: 'Tiny', tag: 'feature' },
+    { label: 'Typed', detail: 'Types included.', tag: 'feature' },
+  ]);
+});
+
+test('parseReadme: bullets that are a link to a .md file are docs, not features', () => {
+  const md = '# T\n\n- [CATALOG.md](a/CATALOG.md): every component\n- [`Guide`](docs/guide.md#start)\n\nText.\n\n- a later list is not the first list\n';
+  assert.deepEqual(parseReadme(md).items, []);
+  const mixed = '# T\n\n- [Guide](guide.md)\n- Real feature: yes\n';
+  assert.deepEqual(parseReadme(mixed).items, [{ label: 'Real feature', detail: 'yes', tag: 'feature' }]);
+});
+
+test('parseReadme: a paragraph of linked remote images is badges: not media, not subtitle', () => {
+  const md = '# T\n\n[![Build Status](https://travis-ci.org/o/r.svg?branch=master)](https://travis-ci.org/o/r)\n'
+    + '<a href="https://x.y"><img src="https://coveralls.io/repos/o/r.svg"></a>\n\n'
+    + '[![logo](docs/logo.png)](https://site.example)\n\nTagline.\n\n![shot](https://example.com/shot.png)\n';
+  const r = parseReadme(md);
+  assert.equal(r.subtitle, 'Tagline.');
+  assert.deepEqual(r.media, [{ path: 'docs/logo.png', alt: 'logo' }, { path: 'https://example.com/shot.png', alt: 'shot' }]);
+});
+
+test('parseReadme: a leading bold run is the label, even with a separator inside the rest', () => {
+  const md = '# T\n\n## Features\n\n- **Fast:** builds in 2: seconds\n- **Small** ships - light\n- __Typed__\n';
+  assert.deepEqual(parseReadme(md).items, [
+    { label: 'Fast', detail: 'builds in 2: seconds', tag: 'feature' },
+    { label: 'Small', detail: 'ships - light', tag: 'feature' },
+    { label: 'Typed', tag: 'feature' },
+  ]);
+});

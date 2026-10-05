@@ -3,8 +3,9 @@
 //   readRepo(source, { story: 'intro'|'release'|'pr', release?: TAG|'latest', pr?: BRANCH }) -> facts (no source.command)
 //
 // intro: the README (parseReadme), the commit count on HEAD and the GitHub url of origin. release: the commits
-// between TAG and its predecessor, first parent only, grouped by their conventional prefix. pr: a branch's commits
-// that are not on the default branch (origin/HEAD, else main, else master), with its diff stats.
+// between TAG and its predecessor, first parent only, grouped by their conventional prefix (stats count every
+// commit in the range). pr: a branch's commits that are not on the default branch (origin/HEAD, else main, else
+// master), with its diff stats.
 // Git runs as `git -C PATH ...` through execFile (never a shell) with the caller's GIT_DIR and friends removed.
 // Bad input (not a work tree, no README, no tags, an unknown tag or branch) is a UsageError; a git failure an Error.
 import { execFile } from 'node:child_process';
@@ -75,10 +76,12 @@ export function compareVersions(a, b) {
 // The highest of tags by version (ties by name), so the pick never depends on the input order.
 const highest = (tags) => [...tags].sort((a, b) => compareVersions(a, b) || (a < b ? -1 : a > b ? 1 : 0)).at(-1);
 
-// latest: the highest version tag; with no version tags, the newest by creation date. byDate is oldest first.
+// latest: the highest release version tag (pre-releases skipped, as GitHub's releases/latest does, unless every
+// version tag is one); with no version tags, the newest by creation date. byDate is oldest first.
 export function latestTag(byDate) {
   const versions = byDate.filter(isVersion);
-  return versions.length ? highest(versions) : byDate.at(-1);
+  const releases = versions.filter((t) => !parseVersion(t).pre);
+  return versions.length ? highest(releases.length ? releases : versions) : byDate.at(-1);
 }
 
 // The tag before tag among merged (the tags reachable from it, oldest first): for a version tag the highest
@@ -157,12 +160,21 @@ async function release(dir, name, want) {
   const tag = want === 'latest' ? latestTag(all) : want;
   if (!all.includes(tag)) throw new UsageError(`no tag "${tag}" in ${dir}`);
   const prev = predecessor(tag, await tags(dir, `refs/tags/${tag}`));
-  const list = await commits(dir, ['--first-parent', prev ? `refs/tags/${prev}..refs/tags/${tag}` : `refs/tags/${tag}`]);
+  const range = prev ? `refs/tags/${prev}..refs/tags/${tag}` : `refs/tags/${tag}`;
+  const list = await commits(dir, ['--first-parent', range]);
   return {
     title: `${name} ${tag}`,
     items: groupCommits(list.map((c) => c.subject)),
-    stats: { commits: list.length, contributors: new Set(list.map((c) => c.author)).size },
+    stats: await rangeStats(dir, range),
   };
+}
+
+// The range's stats over every commit in it (merged branches too), as GitHub's compare reports them: commits =
+// the non-merge commits, contributors = the distinct author names (whoever merged included).
+async function rangeStats(dir, range) {
+  const count = Number((await git(dir, ['rev-list', '--count', '--no-merges', range, '--'])).trim());
+  const authors = (await git(dir, ['log', '--format=%an', range, '--'])).split('\n').filter(Boolean);
+  return { commits: count, contributors: new Set(authors).size };
 }
 
 const exists = async (dir, ref) => (await git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { quiet: true })) != null;
@@ -186,8 +198,10 @@ async function pr(dir, want) {
   if (!base) throw new UsageError(`no default branch to compare ${v} with (no origin/HEAD, main or master)`);
   const list = await commits(dir, ['--no-merges', `${base[0]}..${ref}`]);
   if (!list.length) throw new UsageError(`${v} has no commits that are not on ${base[1]}`);
-  const numstat = await git(dir, ['diff', '--numstat', `${base[0]}...${ref}`]);
-  const stats = { commits: list.length, files: 0, additions: 0, deletions: 0 };
+  // fixed diff options, so no diff.external, textconv, relative or rename setting in the user's config changes them
+  const numstat = await git(dir, ['diff', '--numstat', '--no-ext-diff', '--no-textconv', '--no-relative', '-M', '--no-color',
+    `${base[0]}...${ref}`, '--']);
+  const stats = { ...(await rangeStats(dir, `${base[0]}..${ref}`)), files: 0, additions: 0, deletions: 0 };
   for (const line of numstat.split('\n').filter(Boolean)) {
     const [a, d] = line.split('\t');
     stats.files++;

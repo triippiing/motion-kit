@@ -174,3 +174,33 @@ test('CLI: bad input exits 2 with an error line, never a traceback', () => {
     assert.doesNotMatch(r.stderr, /\n\s+at /, args.join(' '));
   }
 });
+
+test('normalizeFacts: subtitle keeps whole sentences within 200, title cut at 80, media alt at 160', () => {
+  const f = full();
+  const s1 = `First sentence ${'a'.repeat(100)}.`, s2 = `Second sentence ${'b'.repeat(60)}!`, s3 = `Third ${'c'.repeat(60)}.`;
+  f.subtitle = `${s1} ${s2}   ${s3}`;
+  f.title = 'word '.repeat(30);
+  f.media[0].alt = 'alt '.repeat(60);
+  const n = normalizeFacts(f);
+  assert.equal(n.subtitle, `${s1} ${s2}`);
+  assert.ok(n.title.length <= 80 && n.title.endsWith('word…'), n.title);
+  assert.ok(n.media[0].alt.length <= 160 && n.media[0].alt.endsWith('alt…'), n.media[0].alt);
+  assert.deepEqual(validateFacts(n), []);
+  // one sentence longer than 200: cut at a word boundary
+  f.subtitle = 'long '.repeat(60);
+  const one = normalizeFacts(f).subtitle;
+  assert.ok(one.length <= 200 && one.endsWith('long…'), one);
+  // short text untouched
+  assert.equal(normalizeFacts(full()).subtitle, full().subtitle);
+});
+
+test('validateFacts: title over 80, subtitle over 200, alt over 160 are problems', () => {
+  const f = full();
+  f.title = 't'.repeat(81);
+  f.subtitle = 's'.repeat(201);
+  f.media[0].alt = 'a'.repeat(161);
+  const p = validateFacts(f).join('\n');
+  assert.match(p, /title: at most 80/);
+  assert.match(p, /subtitle: at most 200/);
+  assert.match(p, /media\[0\]\.alt: at most 160/);
+});

@@ -79,7 +79,8 @@ test('release latest: v2.0.0 against v2.0.0-rc.1, first-parent commits grouped, 
     { label: 'tidy', tag: 'change' },
     { label: 'deps', tag: 'change' },
   ]);
-  assert.deepEqual(f.stats, { commits: 6, contributors: 2 });
+  // stats over the full range: the merged branch's commit (by Cy) counts, the merge commit does not
+  assert.deepEqual(f.stats, { commits: 6, contributors: 3 });
   assert.deepEqual(f.links, { url: 'https://github.com/o/demo' });
 });
 
@@ -93,6 +94,37 @@ test('release by tag: v1.10.0 follows v1.9.0 (not lexical); the first tag takes 
   const first = await readRepo(repo.dir, { story: 'release', release: 'v1.9.0' });
   assert.deepEqual(first.items, [{ label: 'init', tag: 'other' }]);
   assert.deepEqual(first.stats, { commits: 1, contributors: 1 });
+});
+
+test('release: latest skips pre-releases unless there are only pre-releases; a named pre-release works', async () => {
+  const rc = await readRepo(repo.dir, { story: 'release', release: 'v2.1.0-rc.1' });
+  assert.equal(rc.title, 'demo v2.1.0-rc.1');
+  assert.deepEqual(rc.items, [{ label: 'captions', tag: 'feature' }, { label: 'timing', tag: 'fix' }]);
+  const r = makeRepo();
+  r.commit('a');
+  r.tag('v1.0.0-rc.1');
+  r.commit('b');
+  r.tag('v1.0.0-rc.2');
+  const only = await readRepo(r.dir, { story: 'release', release: 'latest' });
+  assert.equal(only.title, `${path.basename(r.dir)} v1.0.0-rc.2`);
+});
+
+test('release: merge-button history counts every author in the range, items stay first-parent', async () => {
+  const r = makeRepo();
+  r.commit('init');
+  r.tag('v1.0.0');
+  const people = [['Ann', 'ann@x.y'], ['Bo', 'bo@x.y'], ['Cy', 'cy@x.y']];
+  people.forEach(([who, email], i) => {
+    r.git(['checkout', '-q', '-b', `pr${i}`]);
+    r.commit(`work by ${who}`, { who: [who, email] });
+    r.commit(`more by ${who}`, { who: [who, email] });
+    r.git(['checkout', '-q', 'main']);
+    r.git(['merge', '-q', '--no-ff', `pr${i}`, '-m', `Merge pull request #${i + 1} from o/pr${i}`, '-m', `feat: change ${i + 1}`], ['Max', 'max@x.y']);
+  });
+  r.tag('v1.1.0');
+  const f = await readRepo(r.dir, { story: 'release', release: 'latest' });
+  assert.deepEqual(f.items, [1, 2, 3].map((n) => ({ label: `change ${n}`, tag: 'feature' })));
+  assert.deepEqual(f.stats, { commits: 6, contributors: 4 }); // Ann, Bo, Cy and Max (who merged)
 });
 
 test('release: non-version tags fall back to creation date order', async () => {
@@ -117,7 +149,7 @@ test('pr BRANCH: compared with its merge base on main; first commit names it, co
   assert.equal(f.title, 'captions');
   assert.equal(f.subtitle, 'Burned-in captions for every chapter. Second line.');
   assert.deepEqual(f.items, [{ label: 'captions', tag: 'feature' }, { label: 'timing', tag: 'fix' }]);
-  assert.deepEqual(f.stats, { additions: 4, commits: 2, deletions: 0, files: 2 });
+  assert.deepEqual(f.stats, { additions: 4, commits: 2, contributors: 1, deletions: 0, files: 2 });
 });
 
 test('same run twice -> byte-identical facts', () => {
