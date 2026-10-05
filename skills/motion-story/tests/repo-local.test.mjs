@@ -189,7 +189,7 @@ test('bad input exits 2 with one error line and no usage line or traceback', () 
     [['github.com/x/y'], 'error: "github.com/x/y" is not a local path or a GitHub URL (use https://github.com/OWNER/REPO or a local clone)'],
     // an existing directory wins over looking like a GitHub address
     [['github.com/o/r'], `error: not a git work tree: ${path.join(realpathSync(plain), 'github.com/o/r')}`],
-    [['https://github.com/o/r'], 'error: GitHub URLs: not built yet'],
+    [['https://github.com/o/r/tree/main'], 'error: "https://github.com/o/r/tree/main" is not a local path or a GitHub URL (use https://github.com/OWNER/REPO or a local clone)'],
     [['ftp://example.com/r'], 'error: "ftp://example.com/r" is not a local path or a GitHub URL (use https://github.com/OWNER/REPO or a local clone)'],
   ];
   for (const [args, msg] of cases) {

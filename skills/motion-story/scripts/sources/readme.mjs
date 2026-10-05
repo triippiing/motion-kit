@@ -13,6 +13,12 @@
 // A bullet that is a link to a .md file is a docs list, not an item; a features section without bullets gives its
 // sub-headings; a bullet led by a **bold run** takes it as the label.
 // Text is cleaned of Markdown, HTML, entities and emoji; a missing part is undefined (items and media are []).
+//
+//   parseNotes(markdown) -> { paragraph, bullets: [{ heading, text }] }    bulletItem(text) -> { label, detail?, tag } | null
+//
+// parseNotes reads a release or pull request body: its first paragraph of plain text (anywhere), and its top-level
+// bullets as raw Markdown, each with the heading it sits under ('' before any), a GitHub credit (" by @x in URL")
+// and a trailing "(#12)" removed. bulletItem is a README feature bullet's split (label, detail), for those bullets.
 
 const SHELL = new Set(['sh', 'bash', 'shell', 'console', 'zsh', 'shell-session']);
 const FEATURES = /\b(features|what it does|highlights)\b/i;
@@ -130,6 +136,8 @@ function item(raw) {
   return detail && label ? { label, detail, tag: 'feature' } : { label: text, tag: 'feature' };
 }
 
+export const bulletItem = item;
+
 const TOP = 2; // a bullet indented less than this is top level
 
 // The features section's top-level bullets; with none, its sub-headings (label) and the first paragraph under each
@@ -208,12 +216,9 @@ export function parseReadme(markdown) {
   const h1 = bs.findIndex((b) => b.type === 'heading' && b.level === 1 && inline(b.text));
   let subtitle;
   for (let i = h1 + 1; i < bs.length && bs[i].type !== 'heading'; i++) {
-    const b = bs[i];
-    if (b.type !== 'para' || /^\s*\|/.test(b.lines[0])) continue; // tables are not prose
-    const raw = b.lines.map((l) => l.replace(/^\s*>\s?/, '')).join('\n');
-    if (!/[\p{L}\p{N}]/u.test(inline(raw, { dropLinks: true }))) continue; // badges, images, a row of links
-    subtitle = inline(raw);
-    break;
+    if (bs[i].type !== 'para') continue;
+    subtitle = prose(bs[i]); // tables, badges, images and rows of links are not prose
+    if (subtitle !== undefined) break;
   }
   return {
     title: h1 >= 0 ? inline(bs[h1].text) : undefined,
@@ -222,4 +227,25 @@ export function parseReadme(markdown) {
     install: install(bs),
     media: media(bs),
   };
+}
+
+// A paragraph's plain text, or undefined for one of nothing but badges, images or links, or a table.
+function prose(b) {
+  if (/^\s*\|/.test(b.lines[0])) return undefined;
+  const raw = b.lines.map((l) => l.replace(/^\s*>\s?/, '')).join('\n');
+  return /[\p{L}\p{N}]/u.test(inline(raw, { dropLinks: true })) ? inline(raw) : undefined;
+}
+
+export function parseNotes(markdown) {
+  let paragraph, heading = '';
+  const bullets = [];
+  for (const b of blocks(markdown ?? '')) {
+    if (b.type === 'heading') heading = inline(b.text);
+    else if (b.type === 'para') paragraph ??= prose(b);
+    else if (b.type === 'bullet' && b.indent < TOP) {
+      const text = b.text.replace(/\s+by\s+@[\w.-]+(?:\[bot\])?\s+in\s+\S+\s*$/i, '').replace(/\s*\((?:#\d+(?:,\s*#\d+)*)\)\s*$/, '').trim();
+      if (text) bullets.push({ heading, text });
+    }
+  }
+  return { paragraph, bullets };
 }
