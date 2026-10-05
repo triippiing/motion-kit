@@ -7,7 +7,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import path from 'node:path';
 import { tempDir } from './tmp.mjs';
 import { FFMPEG, UsageError } from '../scripts/render.mjs';
-import { framePath, readClip, writeClip } from '../scripts/clip.mjs';
+import { framePath, prepareClipDir, readClip, writeClip } from '../scripts/clip.mjs';
 
 const SKILL = path.resolve(import.meta.dirname, '..');
 const TMP = tempDir('mk-footage-');
@@ -145,4 +145,55 @@ test('writeClip writes a clip readClip reads back, and refuses an invalid one', 
   assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'clip.json'), 'utf8')), clip);
   assert.throws(() => writeClip(dir, { ...clip, frames: 5, duration: 5 / 30 }), UsageError);
   assert.deepEqual(readClip(dir), clip);
+});
+
+test('readClip and writeClip refuse duplicate step names', () => {
+  const box = { x: 0, y: 0, w: 1, h: 1 };
+  const steps = [{ name: 'pay', action: 'click', t: 0.01, box }, { name: 'pay', action: 'click', t: 0.05, box }];
+  const dir = fakeClip('dupe', { steps });
+  assert.throws(() => readClip(dir), (e) => e instanceof UsageError && /"pay" is used twice/.test(e.message));
+  const ok = fakeClip('dupe-write');
+  const clip = readClip(ok);
+  assert.throws(() => writeClip(ok, { ...clip, steps }), (e) => e instanceof UsageError && /used twice/.test(e.message));
+});
+
+test('prepareClipDir: new, empty, a clip, or only frames and dotfiles are reusable; old frames and clip.json go', () => {
+  const fresh = path.join(TMP, 'prep', 'new', 'deep');
+  prepareClipDir(fresh);
+  assert.deepEqual(readdirSync(fresh), []);
+
+  const clip = fakeClip('prep-clip');
+  writeFileSync(path.join(clip, 'notes.txt'), 'mine');
+  prepareClipDir(clip);
+  assert.deepEqual(readdirSync(clip), ['notes.txt']);
+
+  const crashed = path.join(TMP, 'prep', 'crashed');   // frames swapped in, then died before clip.json
+  mkdirSync(crashed, { recursive: true });
+  for (let n = 1; n <= 3; n++) writeFileSync(framePath(crashed, n), 'jpg');
+  writeFileSync(path.join(crashed, '.DS_Store'), 'x');
+  prepareClipDir(crashed);
+  assert.deepEqual(readdirSync(crashed), ['.DS_Store']);
+
+  const finder = path.join(TMP, 'prep', 'finder');
+  mkdirSync(finder, { recursive: true });
+  writeFileSync(path.join(finder, '.DS_Store'), 'x');
+  prepareClipDir(finder);
+
+  const busy = path.join(TMP, 'prep', 'busy');
+  mkdirSync(busy, { recursive: true });
+  writeFileSync(path.join(busy, 'keep.txt'), 'mine');
+  writeFileSync(framePath(busy, 1), 'jpg');
+  assert.throws(() => prepareClipDir(busy), (e) => e instanceof UsageError && /not empty/.test(e.message));
+  assert.deepEqual(readdirSync(busy).sort(), ['frame-00001.jpg', 'keep.txt']);
+});
+
+test('footage.mjs reuses a dir left with only frames and a .DS_Store', () => {
+  const out = path.join(TMP, 'leftover');
+  mkdirSync(out, { recursive: true });
+  for (let n = 1; n <= 200; n++) writeFileSync(framePath(out, n), 'jpg');
+  writeFileSync(path.join(out, '.DS_Store'), 'x');
+  const r = footage(VIDEO, '--out', out, '--fps', '10', '--max-width', '320');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(readClip(out).frames, 20);
+  assert.equal(frameFiles(out).length, 20);
 });

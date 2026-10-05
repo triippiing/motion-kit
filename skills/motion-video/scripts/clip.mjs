@@ -1,7 +1,8 @@
 // clip.mjs -- the clip format: a directory of JPEG frames (frame-00001.jpg ... frame-NNNNN.jpg; frame 1 is clip
 // time 0) plus clip.json { fps, width, height, frames, duration, mode, source?, browser?, steps }. readClip validates
-// a clip, writeClip validates and writes clip.json, framePath names a frame, and extractFrames fills a clip
-// directory with the frames of a video (footage.mjs, and capture.mjs --realtime).
+// a clip, writeClip validates and writes clip.json, framePath names a frame, checkClipDir / prepareClipDir check and
+// clear a directory for a new clip (capture.mjs), and extractFrames fills a clip directory with the frames of a video
+// (footage.mjs, and capture.mjs --realtime).
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { mkdtemp, readdir, rename, rm } from 'node:fs/promises';
@@ -36,6 +37,7 @@ function validate(dir, clip) {
   if (!MODES.includes(mode)) bad(`mode must be one of ${MODES.join(', ')}, got ${JSON.stringify(mode)}`);
   for (const k of ['source', 'browser']) if (clip[k] != null && typeof clip[k] !== 'string') bad(`${k} must be a string`);
   if (!Array.isArray(steps)) bad('steps must be a list');
+  const names = new Set();
   steps.forEach((s, i) => {
     const where = `step ${i + 1}${typeof s?.name === 'string' ? ` (${s.name})` : ''}`;
     if (s == null || typeof s !== 'object') bad(`${where} must be an object`);
@@ -44,6 +46,8 @@ function validate(dir, clip) {
     if (!isNum(s.t) || s.t < 0) bad(`${where} needs a time t >= 0 (clip seconds)`);
     const b = s.box;
     if (b == null || typeof b !== 'object' || !['x', 'y', 'w', 'h'].every((k) => isNum(b[k]))) bad(`${where} needs a box {x, y, w, h} (clip pixels)`);
+    if (names.has(s.name)) bad(`${where}: the step name "${s.name}" is used twice (step names must be unique)`);
+    names.add(s.name);
   });
   let files;
   try { files = readdirSync(dir).filter((f) => FRAME.test(f)); } catch (e) { bad(`cannot list frames (${e.code || e.message})`); }
@@ -73,9 +77,31 @@ export function writeClip(dir, clip) {
   return clip;
 }
 
+// Throw a UsageError unless dir can hold a clip: new, empty, an existing clip (has clip.json), or a directory holding
+// only frame files and dotfiles (a run that died before clip.json, or a folder Finder made with a .DS_Store).
+export function checkClipDir(dir) {
+  let existing = [];
+  try { existing = readdirSync(dir); } catch (e) {
+    if (e.code === 'ENOENT') return;
+    throw new UsageError(`cannot use ${dir} as the clip directory (${e.code || e.message})`);
+  }
+  if (existing.includes('clip.json')) return;
+  if (existing.some((f) => !FRAME.test(f) && !f.startsWith('.'))) {
+    throw new UsageError(`${dir} is not empty and is not a clip (no clip.json); pick a new or empty directory`);
+  }
+}
+
+// Make dir ready for a new clip's frames: check it (checkClipDir), create it, and remove its old frame files and
+// clip.json (other files are left alone).
+export function prepareClipDir(dir) {
+  checkClipDir(dir);
+  mkdirSync(dir, { recursive: true });
+  for (const f of readdirSync(dir)) if (FRAME.test(f) || f === 'clip.json') rmSync(path.join(dir, f), { force: true });
+}
+
 // Fill dir with the frames of `video` at `fps`, `maxWidth` wide at most (never scaled up; even dimensions, height
-// keeps the aspect), JPEG quality 3. dir must be new, empty, or an existing clip (its frames and clip.json are
-// replaced; other files are left alone). Frames go to a temp directory beside dir first, so a failed run leaves dir
+// keeps the aspect), JPEG quality 3. dir must be one checkClipDir accepts (its frames and clip.json are replaced;
+// other files are left alone). Frames go to a temp directory beside dir first, so a failed run leaves dir
 // as it was. Writes no clip.json: the caller does (writeClip). Returns { frames, width, height }.
 export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600 } = {}) {
   if (!isNum(fps) || fps <= 0) throw new UsageError(`fps must be a number > 0, got ${fps}`);
@@ -85,12 +111,7 @@ export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600 } = 
   try { info = await probe(video); } catch { info = null; }
   if (!info?.width) throw new UsageError(`${video} is not a video (ffprobe found no video stream)`);
 
-  let existing = [];
-  try { existing = readdirSync(dir); } catch (e) { if (e.code !== 'ENOENT') throw new UsageError(`cannot use ${dir} as the clip directory (${e.code || e.message})`); }
-  if (existing.length && !existing.includes('clip.json')) {
-    throw new UsageError(`${dir} is not empty and is not a clip (no clip.json); pick a new or empty directory`);
-  }
-
+  checkClipDir(dir);
   const parent = path.dirname(path.resolve(dir));
   mkdirSync(parent, { recursive: true });
   const tmp = await mkdtemp(path.join(parent, `.${path.basename(dir)}.tmp-`));
@@ -105,8 +126,7 @@ export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600 } = 
     if (frames > MAX_FRAMES) throw new UsageError(`${video} gives ${frames} frames at ${fps} fps; a clip holds at most ${MAX_FRAMES}`);
     const { width, height } = await probe(framePath(tmp, 1));
 
-    mkdirSync(dir, { recursive: true });
-    for (const f of readdirSync(dir)) if (FRAME.test(f) || f === 'clip.json') rmSync(path.join(dir, f), { force: true });
+    prepareClipDir(dir);
     for (let n = 1; n <= frames; n++) await rename(framePath(tmp, n), framePath(dir, n));
     return { frames, width, height };
   } finally { await rm(tmp, { recursive: true, force: true }); }

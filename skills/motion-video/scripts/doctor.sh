@@ -26,6 +26,8 @@ if [ -d "$SKILL/node_modules/playwright" ]; then
   ok "playwright $(node -p "require('$SKILL/node_modules/playwright/package.json').version")"
   if (cd "$SKILL" && node -e "const {chromium}=require('playwright');require('fs').accessSync(chromium.executablePath())") 2>/dev/null
   then ok "playwright chromium"; else bad "playwright chromium" "(cd '$SKILL' && npx playwright install chromium)"; fi
+  if (cd "$SKILL" && node -e "const {webkit}=require('playwright');require('fs').accessSync(webkit.executablePath())") 2>/dev/null
+  then ok "playwright webkit"; else bad "playwright webkit" "(cd '$SKILL' && npx playwright install webkit)"; fi
 else bad "playwright package" "npm --prefix '$SKILL' install"; fi
 
 # Optional companion skill: reported, never counted as a failure.
