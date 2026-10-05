@@ -220,3 +220,20 @@ test('check_brief: missing clip, unknown step and a held last frame', async () =
   const broken = await run("[{ at: 0, use: 'footage', src: 'shop' }, { at: END - 2, use: 'footage', src: 'shop' }]");
   assert.match(broken.errors.join('\n'), /footage: clip .*shop: clip\.json is not valid JSON/);
 });
+
+test('in the page the cursor aims at a step through the real clip (not the no-clip centre)', async () => {
+  const dir = makeProject({ bars: 1,
+    states: "[{ at: 0, use: 'footage', src: 'shop', width: 1280 }, { at: END - 2, use: 'footage', src: 'shop', width: 1280 }]",
+    cursor: "[{ at: 0, target: 'step:Pay' }, { at: END - 2, target: 'step:Pay' }]" });
+  cpSync(CLIP, path.join(dir, 'footage', 'shop'), { recursive: true });
+  const cj = path.join(dir, 'footage', 'shop', 'clip.json');
+  writeFileSync(cj, JSON.stringify({ ...JSON.parse(readFileSync(cj, 'utf8')), mode: 'stepped',
+    steps: [{ name: 'Pay', action: 'click', t: 0.5, box: { x: 900, y: 500, w: 100, h: 40 } }] }));
+  const s = await openScene(dir);
+  try {
+    // box centre (950, 520) is (310, 160) from the clip centre; the shape shows the clip 1:1 at zoom 1
+    const c = await s.page.evaluate(() => window.inspect(0.5).cursor);
+    assert.ok(Math.abs(c.x - (720 + 310)) < 0.5 && Math.abs(c.y - (720 + 160)) < 0.5, JSON.stringify(c));
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+});
