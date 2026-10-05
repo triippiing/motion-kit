@@ -323,3 +323,48 @@ test('release: a lower tag that compare says is not an ancestor is skipped; a cu
     await f2.close();
   }
 });
+
+test('release: a non-version tag\'s predecessor is the tag listed just after it (created just before it)', async () => {
+  const c = (sha, parents, message) => ({ sha, commit: { author: { name: 'Ann' }, message }, parents: parents.map((p) => ({ sha: p })) });
+  const f2 = await startFake({
+    '/repos/o/n': { name: 'n', html_url: 'https://github.com/o/n' },
+    // newest first: zulu, alpha, beta
+    '/repos/o/n/tags?per_page=100': [['zulu', 'z'], ['alpha', 'a'], ['beta', 'b']].map(([name, s]) => ({ name, commit: { sha: s } })),
+    '/repos/o/n/compare/beta...alpha': { status: 'ahead', total_commits: 1, commits: [c('a', ['b'], 'feat: a')] },
+    '/repos/o/n/compare/alpha...zulu': { status: 'ahead', total_commits: 1, commits: [c('z', ['a'], 'fix: z')] },
+  });
+  const saved = process.env.MK_GITHUB_API;
+  try {
+    process.env.MK_GITHUB_API = f2.base;
+    const alpha = await readRepo('https://github.com/o/n', { story: 'release', release: 'alpha' });
+    assert.deepEqual(alpha.items, [{ label: 'a', tag: 'feature' }]);
+    const latest = await readRepo('https://github.com/o/n', { story: 'release', release: 'latest' });
+    assert.equal(latest.title, 'n zulu');
+    assert.deepEqual(latest.items, [{ label: 'z', tag: 'fix' }]);
+    assert.deepEqual(f2.log.filter((l) => l.url.includes('/compare/')).map((l) => l.url),
+      ['/repos/o/n/compare/beta...alpha', '/repos/o/n/compare/alpha...zulu']);
+  } finally {
+    process.env.MK_GITHUB_API = saved;
+    await f2.close();
+  }
+});
+
+test('release: when every tried predecessor is off the tag\'s history, a warning and every commit up to the tag', async () => {
+  const c = (sha, parents, message) => ({ sha, commit: { author: { name: 'Ann' }, message }, parents: parents.map((p) => ({ sha: p })) });
+  const names = ['v2.0.0', 'v1.5.0', 'v1.4.0', 'v1.3.0', 'v1.2.0', 'v1.1.0', 'v1.0.0'];
+  const routes = {
+    '/repos/o/w': { name: 'w', html_url: 'https://github.com/o/w' },
+    '/repos/o/w/tags?per_page=100': names.map((name) => ({ name, commit: { sha: name === 'v2.0.0' ? 'h' : name } })),
+    '/repos/o/w/commits?sha=v2.0.0&per_page=100': [c('h', ['g'], 'feat: head'), c('g', [], 'init')],
+  };
+  for (const n of names.slice(1)) routes[`/repos/o/w/compare/${n}...v2.0.0`] = { status: 'diverged', total_commits: 0, commits: [] };
+  const f2 = await startFake(routes);
+  const file = path.join(out, 'w.json');
+  try {
+    const r = await cli(['repo', 'https://github.com/o/w', '--release', 'v2.0.0', '--out', file], { MK_GITHUB_API: f2.base });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stderr, 'warning: none of the 5 tags before v2.0.0 that compare tried is an ancestor of it: reading every commit up to it (a local clone finds its predecessor)\n');
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).items, [{ label: 'head', tag: 'feature' }, { label: 'init', tag: 'other' }]);
+    assert.equal(f2.log.filter((l) => l.url.includes('/compare/')).length, 5);
+  } finally { await f2.close(); }
+});

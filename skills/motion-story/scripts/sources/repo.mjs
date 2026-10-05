@@ -16,7 +16,8 @@
 // - release: the tags endpoint (100 a page, up to 10 pages; listed newest first, which stands in for creation
 //   order when there are no version tags). latest is picked as locally (never GitHub's releases/latest). The
 //   predecessor is the highest lower version among all the tags whose compare says it is an ancestor of TAG
-//   (status ahead or identical; up to 5 tried), as the local reader takes it among the tags reachable from TAG.
+//   (status ahead or identical; up to 5 tried, then a warning and none), as the local reader takes it among the
+//   tags reachable from TAG; for a non-version tag the one listed just before it, likewise checked.
 //   When a GitHub release for TAG has bullets, they are the items: a bullet's tag comes from its heading
 //   (Features/Added/New -> feature, Fixes/Fixed -> fix, Changed -> change, Docs -> docs; not "What's Changed"),
 //   else its conventional prefix, else other; credit sections (New Contributors) are skipped. Otherwise the items
@@ -360,10 +361,15 @@ async function ghRelease(r, url, name, want) {
   const release = await api(`${r}/releases/tags/${enc(tag)}`, { optional: true });
 
   // the predecessor: the nearest earlier tag that compare shows is an ancestor of tag
-  let list, others = all.filter((t) => t !== tag);
-  for (let i = 0; i < MAX_TRIES; i++) {
-    const prev = predecessor(tag, [...others, tag]);
+  let list, candidates = all; // tag and the tags not yet ruled out, in all's order
+  for (let i = 0; ; i++) {
+    const prev = predecessor(tag, candidates);
     if (prev === undefined) break;
+    if (i === MAX_TRIES) {
+      process.stderr.write(`warning: none of the ${MAX_TRIES} tags before ${tag} that compare tried is an ancestor of it: `
+        + 'reading every commit up to it (a local clone finds its predecessor)\n');
+      break;
+    }
     const cmp = await api(`${r}/compare/${enc(prev)}...${enc(tag)}`);
     if (cmp.status === 'ahead' || cmp.status === 'identical') {
       list = Array.isArray(cmp.commits) ? cmp.commits : [];
@@ -373,7 +379,7 @@ async function ghRelease(r, url, name, want) {
       }
       break;
     }
-    others = others.filter((t) => t !== prev);
+    candidates = candidates.filter((t) => t !== prev);
   }
   list ??= (await pages(`${r}/commits?sha=${enc(tag)}&per_page=100`)).reverse();
 
