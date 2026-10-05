@@ -1,6 +1,7 @@
 // capture.mjs: frame-exact stepped capture of a generated fixture page in WebKit and Chromium (CSS transition and
 // keyframes, setTimeout, a rAF counter, a click, typing), byte-identical re-runs, named steps, a selector that matches
-// nothing, and the exit-2 errors. A browser whose executable is missing is skipped with a message.
+// nothing, --realtime recording on the real clock, and the exit-2 errors (a selector Playwright cannot parse among
+// them). A browser whose executable is missing is skipped with a message.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
@@ -109,7 +110,7 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
 
   test(`${name}: the CSS transition is at its midpoint at 0.5 s and done by 1 s`, { skip }, () => {
     near(rgbAt(framePath(out, 1), 40, 40), [255, 0, 0], 40, 'frame at t=0');
-    near(rgbAt(framePath(out, frameAt(0.5)), 40, 40), [127.5, 0, 127.5], 40, 'frame at t=0.5');
+    near(rgbAt(framePath(out, frameAt(0.5)), 40, 40), [127.5, 0, 127.5], 12, 'frame at t=0.5');
     near(rgbAt(framePath(out, frameAt(1.2)), 40, 40), [0, 0, 255], 40, 'frame at t=1.2');
   });
 
@@ -182,6 +183,33 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
     assert.match(r.stderr, /^error: step 2 \(click "#missing"\): no element matches/);
     assert.doesNotMatch(r.stderr, /\n\s+at /);
   });
+
+  test(`${name}: --realtime records the fixture on the real clock into a valid realtime clip`, { skip }, async () => {
+    const dir = path.join(TMP, name, 'realtime');
+    const r = await captureAsync(APP, '--steps', STEPS_FILE, '--out', dir, '--fps', String(FPS), '--size', '320x240', '--browser', name, '--realtime');
+    assert.equal(r.status, 0, r.stderr);
+    const clip = readClip(dir);
+    assert.equal(clip.mode, 'realtime');
+    assert.equal(clip.browser, name);
+    assert.equal(clip.fps, FPS);
+    assert.ok(Math.abs(clip.duration - DURATION) <= 0.1 * DURATION, `duration ${clip.duration}, steps total ${DURATION}`);
+    // CSS pixels; WebKit on macOS records at 90% (capture.mjs header), so the clip may be smaller, never larger.
+    const k = clip.width / 320;
+    assert.ok(k > 0.85 && k <= 1 && Math.abs(clip.height / 240 - k) < 0.03, `clip ${clip.width}x${clip.height}`);
+    if (name === 'chromium') assert.deepEqual([clip.width, clip.height], [320, 240]);
+    assert.deepEqual(clip.steps.map((s) => s.name), ['press']);
+    const press = clip.steps[0];
+    assert.equal(press.action, 'click');
+    assert.ok(Math.abs(press.t - (0.5 + 0.5 + 0.4)) <= 0.1, `press.t ${press.t}`);
+    for (const [key, v] of Object.entries({ x: 10, y: 120, w: 100, h: 40 })) assert.ok(Math.abs(press.box[key] - v * k) <= 3, `box.${key} ${press.box[key]}`);
+    // The box sits on #btn in the clip: grey there 0.2 s before the click, green 0.2 s after (WebKit's colours shift).
+    const [x, y] = [Math.round(press.box.x + press.box.w / 2), Math.round(press.box.y + press.box.h / 4)];
+    const grey = rgbAt(framePath(dir, frameAt(press.t - 0.2)), x, y), green = rgbAt(framePath(dir, frameAt(press.t + 0.2)), x, y);
+    assert.ok(Math.max(...grey) - Math.min(...grey) < 25 && grey[0] > 150, `#btn before the click: rgb(${grey.map((v) => v.toFixed(0))})`);
+    assert.ok(green[1] - Math.max(green[0], green[2]) > 80, `#btn after the click: rgb(${green.map((v) => v.toFixed(0))})`);
+    assert.equal(r.stderr.split('\n').filter((l) => l === 'warning: realtime capture: timing is approximate (about ±1 frame per step)').length, 1, r.stderr);
+    assert.equal(r.stdout.trim(), `capture: ${clip.frames} frames, ${+clip.duration.toFixed(3)} s, ${clip.width}x${clip.height} (realtime, ${name}) -> ${dir}`);
+  });
 }
 
 test('bad input exits 2 with error: and no traceback', () => {
@@ -210,7 +238,8 @@ test('bad input exits 2 with error: and no traceback', () => {
     [[APP, '--steps', STEPS_FILE, '--out', o, '--scale', 'big'], /--scale/],
     [[APP, '--steps', STEPS_FILE, '--out', o, '--browser', 'firefox'], /--browser/],
     [[APP, '--steps', STEPS_FILE, '--out', o, '--speed', '2'], /unknown flag --speed/],
-    [[APP, '--steps', STEPS_FILE, '--out', o, '--realtime'], /--realtime is not built yet/],
+    [[APP, '--steps', bad('badsel', '[{"wait": 0.1}, {"click": "##"}]'), '--out', o, '--size', '320x240', '--fps', '10'], /step 2 \(click "##"\): Playwright cannot parse the selector/],
+    [[APP, '--steps', bad('badsel-rt', '[{"hover": "div["}]'), '--out', o, '--size', '320x240', '--fps', '10', '--realtime'], /step 1 \(hover "div\["\): Playwright cannot parse the selector/],
     [['ftp://example.invalid/app', '--steps', STEPS_FILE, '--out', o], /http\(s\):\/\/ or file:\/\//],
     [['file:///no/such/app.html', '--steps', STEPS_FILE, '--out', o], /no such file/],
     [[path.join(TMP, 'missing.html'), '--steps', STEPS_FILE, '--out', o], /missing\.html/],
@@ -224,6 +253,7 @@ test('bad input exits 2 with error: and no traceback', () => {
   }
   assert.deepEqual(readdirSync(busy), ['keep.txt']);
   assert.throws(() => readdirSync(o), /ENOENT/);
+  assert.deepEqual(readdirSync(TMP).filter((f) => f.startsWith('.never.tmp-')), [], 'no temp directory left behind');
 });
 
 test('a browser that is not installed exits 2 with the install command', () => {

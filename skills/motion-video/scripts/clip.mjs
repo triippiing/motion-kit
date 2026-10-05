@@ -14,7 +14,7 @@ import { probe } from './media.mjs';
 const run = promisify(execFile);
 export const MODES = ['stepped', 'realtime', 'video'];
 const FRAME = /^frame-\d{5}\.jpg$/;
-const MAX_FRAMES = 99999;
+export const MAX_FRAMES = 99999;
 
 // Frame n (1-based) of the clip in dir.
 export const framePath = (dir, n) => path.join(dir, `frame-${String(n).padStart(5, '0')}.jpg`);
@@ -100,12 +100,19 @@ export function prepareClipDir(dir) {
 }
 
 // Fill dir with the frames of `video` at `fps`, `maxWidth` wide at most (never scaled up; even dimensions, height
-// keeps the aspect), JPEG quality 3. dir must be one checkClipDir accepts (its frames and clip.json are replaced;
-// other files are left alone). Frames go to a temp directory beside dir first, so a failed run leaves dir
-// as it was. Writes no clip.json: the caller does (writeClip). Returns { frames, width, height }.
-export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600 } = {}) {
+// keeps the aspect), JPEG quality 3, from `start` seconds in (default 0), `limit` frames at most (default: to the end),
+// cropped first to `crop` { x, y, w, h } (pixels of the video) if given.
+// dir must be one checkClipDir accepts (its frames and clip.json are replaced; other files are left alone). Frames go
+// to a temp directory beside dir first, so a failed run leaves dir as it was. Writes no clip.json: the caller does
+// (writeClip). Returns { frames, width, height }.
+export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600, start = 0, limit = null, crop = null } = {}) {
   if (!isNum(fps) || fps <= 0) throw new UsageError(`fps must be a number > 0, got ${fps}`);
   if (!evenInt(maxWidth)) throw new UsageError(`max width must be an even integer >= 2, got ${maxWidth}`);
+  if (!isNum(start) || start < 0) throw new UsageError(`start must be a number of seconds >= 0, got ${start}`);
+  if (crop != null && !(evenInt(crop.w) && evenInt(crop.h) && [crop.x, crop.y].every((v) => Number.isInteger(v) && v >= 0))) {
+    throw new UsageError(`crop must be { x, y, w, h } in whole pixels (w and h even, >= 2), got ${JSON.stringify(crop)}`);
+  }
+  if (limit != null && !(Number.isInteger(limit) && limit >= 1)) throw new UsageError(`limit must be a whole number of frames >= 1, got ${limit}`);
   if (!existsSync(video)) throw new UsageError(`no such video: ${video}`);
   let info;
   try { info = await probe(video); } catch { info = null; }
@@ -117,8 +124,8 @@ export async function extractFrames(video, dir, { fps = 60, maxWidth = 1600 } = 
   const tmp = await mkdtemp(path.join(parent, `.${path.basename(dir)}.tmp-`));
   try {
     try {
-      await run(FFMPEG, ['-hide_banner', '-nostats', '-v', 'error', '-i', video, '-map', '0:v:0',
-        '-vf', `fps=${fps},scale='min(${maxWidth},trunc(iw/2)*2)':-2`, '-q:v', '3', '-start_number', '1', path.join(tmp, 'frame-%05d.jpg')],
+      await run(FFMPEG, ['-hide_banner', '-nostats', '-v', 'error', ...(start > 0 ? ['-ss', String(start)] : []), '-i', video, '-map', '0:v:0',
+        '-vf', `${crop ? `crop=${crop.w}:${crop.h}:${crop.x}:${crop.y},` : ''}fps=${fps},scale='min(${maxWidth},trunc(iw/2)*2)':-2`, '-q:v', '3', ...(limit != null ? ['-frames:v', String(limit)] : []), '-start_number', '1', path.join(tmp, 'frame-%05d.jpg')],
       { maxBuffer: 64 << 20 });
     } catch (e) { throw new Error(`ffmpeg failed: ${String(e.stderr || e.message).trim().slice(-800)}`); }
     const frames = (await readdir(tmp)).filter((f) => FRAME.test(f)).length;

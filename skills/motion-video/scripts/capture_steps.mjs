@@ -7,9 +7,10 @@
 // ease-in-out straight line, found when the step begins (5 s to appear, else exit 1); then a click is a press and
 // release there, a hover just arrives, a type clicks to focus and types "cps" characters a second (default 12, one
 // key per due frame), and a scroll in an element turns the wheel there by PX over 0.3 s. A scroll without "in" turns
-// it wherever the pointer is. A selector matching several elements uses the first. Steps run back to back after a
-// 0.5 s hold, and a 0.5 s hold ends the clip. All times are laid out on frames up front (round(t * fps)), so a step
-// lands on the same frame on every run.
+// it wherever the pointer is. A selector matching several elements uses the first; one Playwright cannot parse is
+// bad input (exit 2), checked before the first frame. Steps run back to back after a 0.5 s hold, and a 0.5 s hold
+// ends the clip. All times are laid out on frames up front (round(t * fps)), so a step lands on the same frame on
+// every run.
 import { UsageError } from './render.mjs';
 
 export const HOLD = 0.5, MOVE = 0.4, CPS = 12, WHEEL = 0.3, FIND_MS = 5000;
@@ -100,16 +101,25 @@ export function planSteps(steps, fps) {
 const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);   // ease-in-out cubic
 
 // Plays planned steps into a page: call frame(i) for every frame in order, before that frame's screenshot. The pointer
-// starts at the viewport's centre (call start() once, before frame 0). Named steps are collected in `record` as
-// { name, action, t, box } with the box in clip pixels (CSS pixels x scale), read on the action's frame (where the
-// target was found, if it has gone by then; the viewport for a wait or a scroll without "in").
+// starts at the viewport's centre (call start() once, before frame 0; it also checks every selector parses). Named
+// steps are collected in `record` as { name, action, t, box } with the box in clip pixels (CSS pixels x scale), read
+// on the action's frame (where the target was found, if it has gone by then; the viewport for a wait or a scroll
+// without "in"). t is clock(i), the frame's clip time i / fps unless the caller measures it (realtime capture).
 export class StepRunner {
-  constructor(page, plan, { fps, size, scale }) {
-    Object.assign(this, { page, plan, fps, size, scale, record: [] });
+  constructor(page, plan, { fps, size, scale, clock = (i) => i / fps }) {
+    Object.assign(this, { page, plan, fps, size, scale, clock, record: [] });
     this.pointer = { x: size[0] / 2, y: size[1] / 2 };
   }
 
-  async start() { await this.page.mouse.move(this.pointer.x, this.pointer.y); }
+  async start() {
+    for (const s of this.plan.steps) {
+      if (s.sel == null) continue;
+      try { await this.page.locator(s.sel).count(); } catch (e) {
+        throw new UsageError(`${s.label}: Playwright cannot parse the selector (${String(e.message).split('\n')[0].replace(/^locator\.count: /, '')})`);
+      }
+    }
+    await this.page.mouse.move(this.pointer.x, this.pointer.y);
+  }
 
   async frame(i) {
     for (const s of this.plan.steps) if (s.begin <= i && i <= s.last) await this.#step(s, i);
@@ -155,6 +165,6 @@ export class StepRunner {
     const loc = s.sel != null && this.page.locator(s.sel).first();
     if (loc && await loc.count()) box = (await loc.boundingBox({ timeout: 1000 }).catch(() => null)) ?? box;   // gone: where it was found
     const k = this.scale, r = (x) => Math.round(x * k * 100) / 100;
-    this.record.push({ name: s.name, action: s.action, t: i / this.fps, box: { x: r(box.x), y: r(box.y), w: r(box.width), h: r(box.height) } });
+    this.record.push({ name: s.name, action: s.action, t: this.clock(i), box: { x: r(box.x), y: r(box.y), w: r(box.width), h: r(box.height) } });
   }
 }
