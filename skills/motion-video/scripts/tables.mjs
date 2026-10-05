@@ -1,9 +1,10 @@
 // tables.mjs -- one place to read, run and list a project's tables (states() and cursor()): the brief's ```js block
 // under "## Beat table" (briefCode), index.html's table block between the template's markers (pageCode), running
 // either in a fresh vm with END = the song's beat count (runTables), and the marker names their rows sit on
-// (markerNames, projectMarkerNames). check_brief.mjs and render.mjs (spliceTables) read the tables through it;
-// swap_song.mjs and the sync server list the marker names a project needs, and watch.mjs re-runs the tables.
-import { readFileSync } from 'node:fs';
+// (markerNames, projectMarkerNames), and the clips their footage rows play (projectClips). check_brief.mjs and
+// render.mjs (spliceTables) read the tables through it; swap_song.mjs and the sync server list the marker names a
+// project needs, and watch.mjs re-runs the tables.
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 
@@ -60,4 +61,26 @@ export function projectMarkerNames(dir) {
     try { const t = runTables(code, beats); rows.push(t.states, t.cursor); } catch (e) { if (!(e instanceof TablesError)) throw e; }
   }
   return markerNames(rows);
+}
+
+// The clips a project's footage rows play: { clips: { src: clip.json }, errors: [{ src, message }] } read from DIR/footage/<src>/ with
+// clip.mjs's readClip (loaded only when there is a footage row: it pulls in render.mjs and Playwright). A clip with
+// no clip.json is left out (validate names the path); one that is there but invalid is an error, worded by readClip.
+// A src that is not a folder inside footage/ (a ".." segment, or absolute) is never read: validate names it.
+export async function projectClips(dir, states) {
+  // The same test as footage.js's safeSrc (not imported: tables.mjs also runs from a copy of scripts/ alone).
+  const root = path.resolve(dir, 'footage');
+  const inside = (src) => !/^([\\/]|[A-Za-z]:)/.test(src) && !src.split(/[\\/]/).includes('..')
+    && path.resolve(root, src).startsWith(root + path.sep);
+  const srcs = new Set((Array.isArray(states) ? states : [])
+    .filter((r) => r?.use === 'footage' && typeof r.src === 'string' && r.src && inside(r.src)).map((r) => r.src));
+  const clips = {}, errors = [];
+  if (!srcs.size) return { clips, errors };
+  const { readClip } = await import('./clip.mjs');
+  for (const src of srcs) {
+    const at = path.join(dir, 'footage', src);
+    if (!existsSync(path.join(at, 'clip.json'))) continue;
+    try { clips[src] = readClip(at); } catch (e) { errors.push({ src, message: `footage: ${e.message}` }); }
+  }
+  return { clips, errors };
 }

@@ -28,7 +28,7 @@ import { existsSync, readFileSync, readdirSync, statSync, watch } from 'node:fs'
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { serve, inside, TYPES, UsageError } from './render.mjs';
-import { briefCode, pageCode, runTables, TablesError } from './tables.mjs';
+import { briefCode, pageCode, projectClips, runTables, TablesError } from './tables.mjs';
 import { checkBrief, loadRegistry, projectLoop, projectTheme } from './check_brief.mjs';
 import { validate } from '../components/core/validate.js';
 import { isMain } from './is_main.mjs';
@@ -105,9 +105,13 @@ export async function startWatch(dir, { port = 0, brief = false, debounceMs = 20
     }
     if (!Array.isArray(song?.beats)) return ['song.json has no beats list (is it valid JSON? re-run analyze_song.py)'];
     try {
+      // Footage rows are checked against the project's clips, as the page's createScene checks what it fetched.
+      const footage = await projectClips(root, t.states);
+      const unread = new Set(footage.errors.map((e) => `footage: no clip at footage/${e.src}/clip.json`));
       const { errors } = validate({ states: t.states, cursor: t.cursor, registry: await loadRegistry(root), song,
-        theme: projectTheme(root), loop: projectLoop(root).loop });
-      if (errors.length) return errors;
+        theme: projectTheme(root), loop: projectLoop(root).loop, clips: footage.clips });
+      const all = [...footage.errors.map((e) => e.message), ...errors.filter((e) => !unread.has(e))];
+      if (all.length) return all;
     } catch (e) { return [`the tables could not be checked: ${e.message}`]; }
     if (brief) served = code;
     return [];

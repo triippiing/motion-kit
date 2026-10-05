@@ -42,8 +42,10 @@ motion-kit stands on other people's work. Thank you to all of them.
 
 ## Tools the kit runs on (installed separately, not bundled)
 
-- [Playwright](https://playwright.dev) by Microsoft (Apache 2.0): drives Chromium to capture frames.
-- [FFmpeg](https://ffmpeg.org) (LGPL/GPL): motion blur, encoding and audio mixing.
+- [Playwright](https://playwright.dev) by Microsoft (Apache 2.0): drives Chromium to capture frames, and its
+  Chromium and WebKit builds to capture real apps as footage (`capture.mjs`).
+- [FFmpeg](https://ffmpeg.org) (LGPL/GPL): motion blur, encoding and audio mixing, and cutting footage frames from
+  screen recordings and realtime captures.
 - Apple AudioToolbox AAC, used through FFmpeg's `aac_at` encoder when available (macOS).
 - [NumPy](https://numpy.org) (BSD): beat analysis.
 - [Homebrew](https://brew.sh) and [Node.js](https://nodejs.org) for installation.

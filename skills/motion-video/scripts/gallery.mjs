@@ -3,6 +3,7 @@
 // a neutral rest shape, each component's example (2 beats each), then each component's edge cases
 // (2 beats each), then back to rest. Starting from rest gives every example a real entrance.
 // --stills writes components/docs-images/<name>.png (480 px) from a settled frame of each example.
+// The footage component plays a synthetic clip the gallery makes itself (ffmpeg's testsrc pattern, footage/demo).
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,7 +34,16 @@ export async function gallery({ only = null, root } = {}) {
   // x/y are shape-centred and scaled by the camera zoom, so the rest stays near the shape to stay on stage
   const cursor = '[\n  { at: 0, x: 140, y: 100 },\n  { at: END - 2, x: 140, y: 100 },\n]';
   const dir = scaffold(root, { states, cursor, bars });
+  if (list.some((c) => c.meta.name === 'footage')) await demoClip(root, path.join(dir, 'footage', 'demo'));
   return { dir, list, plays };
+}
+
+// footage/demo for the footage component's example and edge cases: 4 s of testsrc, 1280x720 at 30 fps.
+async function demoClip(root, out) {
+  const video = path.join(root, 'testsrc.mp4');
+  execFileSync(FFMPEG, ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=30', '-t', '4', '-pix_fmt', 'yuv420p', video]);
+  const { footage } = await import('./footage.mjs');
+  await footage(video, out, { fps: 30, maxWidth: 1280 });
 }
 
 const USAGE = 'usage: gallery.mjs [OUT] [--only a,b] [--stills]';

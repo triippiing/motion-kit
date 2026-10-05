@@ -2,7 +2,7 @@
 # install.sh -- set motion-kit up on this Mac, from a fresh clone:
 #   1. link the three skills into ~/.claude/skills (or $CLAUDE_SKILLS_DIR)
 #   2. install what is missing and can be installed without a password:
-#      ffmpeg (Homebrew), numpy (pip), Playwright + its Chromium (npm)
+#      ffmpeg (Homebrew), numpy (pip), Playwright + its Chromium and WebKit (npm)
 #   3. install the companion transitions.dev skills (free; by Jakub Antalik) unless
 #      --no-transitions is given or skills go to a custom $CLAUDE_SKILLS_DIR
 #   4. run the doctor, which prints the exact fix for anything still missing
@@ -34,7 +34,7 @@ if command -v python3 >/dev/null && ! python3 -c 'import numpy' 2>/dev/null; the
 fi
 if command -v npm >/dev/null; then
   npm --prefix "$ROOT/skills/motion-video" install --no-audit --no-fund
-  (cd "$ROOT/skills/motion-video" && npx playwright install chromium)
+  (cd "$ROOT/skills/motion-video" && npx playwright install chromium webkit)
 fi
 # Companion catalog of ready-made UI transitions. Installed with its own CLI into
 # ~/.claude/skills (never copied into this repo: its terms forbid republishing it).

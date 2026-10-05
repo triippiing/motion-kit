@@ -20,13 +20,14 @@ UI**. It ships as three Claude Code skills plus the scripts they call.
 
 ```bash
 git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
-~/motion-kit/install.sh      # links skills into ~/.claude/skills, installs ffmpeg/numpy/Playwright+Chromium and the
-                             # transitions.dev companion skills, runs the doctor
+~/motion-kit/install.sh      # links skills into ~/.claude/skills, installs ffmpeg/numpy/Playwright with its Chromium
+                             # and WebKit, and the transitions.dev companion skills, runs the doctor
 ```
 
 Only Homebrew itself needs a manual step (it asks for a password): the doctor prints the
 command. Re-run `install.sh` after. `skills/motion-video/scripts/doctor.sh` is the source of
-truth for "is this machine ready"; run it whenever something fails oddly.
+truth for "is this machine ready" (it checks Playwright's Chromium and its WebKit, which capture.mjs uses); run it
+whenever something fails oddly.
 
 Claude's shell usually does not load `~/.zprofile`, so `/opt/homebrew/bin` may be missing from
 PATH. Every script adds it itself; for ad-hoc commands use `/opt/homebrew/bin/ffmpeg` and
@@ -51,6 +52,8 @@ from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
      Sounds right, marks moments (M: drop, vocal...), saves. Claude cannot hear: never claim the sync is right.
      Needed when song.json bpm_confidence < 0.5 and sync.checked_by_ear is absent, or when song.json has suggestions
      (tempo map, swing, meter, pickup: the user tries, keeps or dismisses them); always ask about moments to hit
+3b a moment that shows the real app (see Footage): capture it now, before the brief, with the user's say-so
+     node $S/capture.mjs APP.html --steps steps.json --out DIR/footage/NAME   (or node $S/footage.mjs REC.mov --out DIR/footage/NAME)
 4  pick one library component per moment and write DIR/MOTION-BRIEF.md with the real states()/cursor() tables
      (format: skills/motion-design/references/state-plan.md; starting points: components/RECIPES.md)
      (its Decisions list the destinations as **Exports:** reels, x, discord, web, and the ear check as
@@ -242,10 +245,10 @@ loop gets `"loop": false` in `DIR/project.json` (or `check_brief.mjs DIR --no-lo
 
 ## Components
 
-The library is `skills/motion-video/components/`: 28 UI pieces in four groups (controls, feedback,
-data, app chrome), each one file that draws inside the kit's one morphing shape. A table row uses one
-by name, the cursor aims at its hotspots, and consecutive rows of the same component are one component
-changing (tabs `active: 'Day'` then `active: 'Month'` slides the indicator), not a cut:
+The library is `skills/motion-video/components/`: 29 UI pieces in five groups (controls, feedback,
+data, app chrome, media: `footage`, real app footage, see Footage), each one file that draws inside the kit's one
+morphing shape. A table row uses one by name, the cursor aims at its hotspots, and consecutive rows of the same
+component are one component changing (tabs `active: 'Day'` then `active: 'Month'` slides the indicator), not a cut:
 
 ```js
 { at: 4, use: 'tabs', items: ['Day', 'Week', 'Month'], active: 'Day' }   // states()
@@ -263,7 +266,8 @@ The contract in brief (the full one is the header of `components/core/engine.js`
 `meta` (name, group, useWhen, motion, props with types and defaults, hotspots, sounds, a one-line
 example, edge cases), `geometry` (the shape's size and colours), `mount` (build DOM once), `render`
 (a pure function of `t`), `hotspot` (where the cursor lands), and optionally `sfx` and `endState` (the
-props after its presses, which the next row of the same component starts from as `ctx.prev`). Row 0 is
+props after its presses, which the next row of the same component starts from as `ctx.prev`), and `check` /
+`checkTarget` (rules that need data beyond the row, such as footage's clip). Row 0 is
 shown settled so the loop seam matches; hover comes from `ctx.targets`; anything periodic takes its
 period from `loopPeriod`. A cursor row with `hide: true` fades the cursor out from its beat (it keeps moving, and
 `inspect(t).cursor.opacity` reports it); the next row without it fades it back in; a hidden row cannot press.
@@ -275,7 +279,102 @@ plays every component and edge case.
 
 New projects get their own copy of `components/` (so a project keeps working if the library changes);
 `check_brief.mjs` validates with the kit's own rules and the project's component registry (the library's when
-the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`), and `hide` cursor rows when it predates hide.
+the project has no copy), and refuses marker rows when the project's copy predates markers (no `core/timing.js`), `hide`
+cursor rows when it predates hide, and `footage` rows when it predates footage (no `media/footage.js`) or the
+project's `index.html` does (no `loadClips()`).
+
+## Footage
+
+A piece can show **real footage of a real app** inside the one shape, cut to the beat like everything else: the
+`footage` component (group media) plays a **clip**, a directory `DIR/footage/NAME/` of JPEG frames
+(`frame-00001.jpg` ..., frame 1 is clip time 0) plus `clip.json` (`fps`, `width`, `height`, `frames`, `duration`,
+`mode` `stepped` | `realtime` | `video`, `source`, `browser`, and `steps`: each named step's `name`, `action`, `t` in
+clip seconds and `box` in clip pixels). `scripts/clip.mjs` reads, checks and writes it. Never capture a private app
+(or open its URL) without the user's say-so. Clips are big (a 2.4 s 1280x800 capture is 144 JPEGs): this repo's
+`.gitignore` has `footage/`, but `new_project.sh` writes no `.gitignore`, so tell the user to keep `footage/` out of
+their own repos (add it to theirs).
+
+**Capture an HTML app** (a file, served from its own directory on 127.0.0.1 so relative assets load, or an
+`http(s)://` / `file://` URL):
+
+```bash
+node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromium] [--size WxH] [--fps N] [--scale N] [--realtime]
+```
+
+- Defaults: `--size 1280x800`, `--fps 60`, `--scale 1` (device pixels per CSS pixel, up to 4; `2` for retina-sharp
+  stepped frames; the frame size must come out even). The browser is WebKit (Safari's engine) for stepped capture
+  and Chromium for `--realtime`. CLIPDIR must be new, empty or an existing clip (its frames are replaced); frames go to
+  a temp directory beside it first, so a failed run leaves it as it was. At most 99999 frames.
+- The steps file is a JSON list: `{ "wait": SEC }`, `{ "click": SEL }`, `{ "hover": SEL }`,
+  `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer) or `{ "scroll": PX, "in": SEL }`,
+  each optionally with a unique `"name"` (a named step lands in clip.json with its `t` and `box`). Selectors are
+  Playwright selectors (CSS); several matches use the first. The pointer starts at the viewport's centre and moves to
+  a target's centre over `"move"` seconds (default 0.4, ease-in-out); `type` clicks to focus, then types `"cps"`
+  characters a second (default 12); a scroll turns the wheel over 0.3 s. A 0.5 s hold comes before the first step and
+  after the last; steps run back to back, laid out on frames up front.
+- Prints `capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> CLIPDIR`. Bad input (unknown key, unreadable or
+  invalid steps file, a selector Playwright cannot parse, checked before the first frame) is `error: ...`, exit 2. A
+  selector that matches nothing is exit 1 naming the step: `error: step 2 (click "#pay"): no element matches (waited 5 s)`
+  (also exit 1: not visible, or its centre outside the viewport: scroll to it first). A page that throws gets
+  `warning: the page threw N error(s) during the capture; the first: ...`.
+- **Stepped (default): frame-exact.** The page runs on Playwright's fake clock (`page.clock`: `Date`,
+  `performance.now`, timers, `requestAnimationFrame`), and every CSS transition, keyframe animation and Web Animation
+  is paused and set from that clock each frame, so the same page and steps give the same frames on every run. Limits:
+  an animation a timer starts between frames begins on the next frame; a page's own animation that it pauses and
+  plays again later is not re-synced; `<video>`, `<audio>`, iframes and WebGL run on their own clock and are not
+  stepped (use `--realtime`); scrolling is applied at once (no smooth scrolling). A selector's 5 s wait is real time
+  while the fake clock is paused, so an element a page timer shows later is never found: put a `wait` step (long
+  enough for the timer) before the step that needs it. A click with `"move": 0` right after another click on the
+  same spot may read as a double click.
+- **`--realtime`: any app, approximate timing.** No fake clock and no animation sync: Playwright records the page
+  while the steps run on the real clock, and ffmpeg cuts the frames. It warns
+  `warning: realtime capture: timing is approximate (about ±1 frame per step)`. The recording is 25 fps (at 30 or 60
+  some frames repeat) and in CSS pixels (`--scale` does not apply). Each run measures its own recording offset (a
+  calibration flash before the app loads) and fails (exit 1) rather than give misaligned footage. Chromium is the
+  default: sharp and true-colour. `--realtime --browser webkit` warns
+  `warning: webkit realtime recordings on macOS are smaller and colour-shifted; chromium is the realtime default`
+  (WebKit draws it at about 90%; the page area is cropped out and the step boxes mapped). Frames differ from run to run.
+- Capture relies on Playwright's private `window.__pwClock.builtins` (the real `requestAnimationFrame`) and on how
+  its clock install replays; it is tested with the pinned `playwright` 1.63.0. A Playwright upgrade must re-run
+  `skills/motion-video/tests/capture.test.mjs` and re-check both. A paint wait that never returns is exit 1 after 2 s
+  (`paint wait timed out (Playwright internals changed? ...)`), never a hang.
+
+**A screen recording** (any .mov/.mp4) skips capture:
+
+```bash
+node $S/footage.mjs VIDEO --out CLIPDIR [--fps N] [--max-width PX]
+```
+
+Default 60 fps, the video's size capped at 1600 px wide (never scaled up; even dimensions). It writes `mode: "video"`
+and no steps (aim the cursor with `point:X,Y`) and prints `footage: N frames, S s, WxH -> CLIPDIR`. A missing or
+unreadable video is `error: ...`, exit 2.
+
+**The component.** `{ at: 4, use: 'footage', src: 'checkout', from: 0, speed: 1, fit: 'cover', width: 0 }`:
+
+- `src` names `DIR/footage/<src>/`; `from` is seconds into the clip (default 0), `speed` (default 1), `fit` `cover`
+  (default; crops) or `contain` (letterboxes), `width` the shape's width in design px (default 0: the clip's aspect
+  fitted inside the stage less a 10% margin on every side; height follows the aspect). Radius 32, `fill: 'ink'`.
+  `src` is required (a row without it is `footage needs src`) and must be a folder inside `footage/`: one with a `..`
+  segment or an absolute path is `footage: src "SRC" must be a folder inside footage/ (no ".." segments, not an
+  absolute path)`, and no script reads it.
+- Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
+  window; the frame is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the same
+  `src`) carries on from where the clip had got to unless it sets `from`, while the shape morphs.
+- Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit` and
+  the shape (time the press to the step: the row's beat time plus `(t - from) / speed` of the step's `t`), and
+  `point:X,Y` at fractions (0..1) of the frame.
+- Checks: `footage: no clip at footage/SRC/clip.json` and a `step:` the clip does not have (the error lists its
+  steps) are errors in check_brief, watch and the page, as are `footage needs src` and an unsafe `src`; an invalid
+  clip is an error in check_brief and watch (the page, which cannot read it, only reports "no clip at"). check_brief also warns when a row's
+  window outlasts the clip: `SRC holds its last frame for 1.2 s (footage at beat 4)`. In a loop the last row
+  repeats the first, so a footage first row usually holds a spent clip at the seam; that warning then adds
+  `(at the loop seam: set from, or end on a non-footage row)`. A frame that fails to load (a deleted JPEG) is a page error: render exits 1 naming it
+  (`footage: cannot load footage/SRC/frame-00031.jpg ...`). A project whose `components/` copy predates footage gets
+  `the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)`, and
+  one whose `index.html` predates footage (no `loadClips()`) gets `the project's index.html predates footage; copy
+  loadClips() and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)`.
+- Watch does not watch `footage/` (and a save that changes nothing does not reload): after re-capturing a clip,
+  reload the watch page in the browser to see it, or restart watch to re-check the tables against it.
 
 ## Long pieces and 4K
 
@@ -373,6 +472,8 @@ The flow: `init`, set the grid by ear with `sync.mjs SEQ/<chapter 1>`, `analyse`
   pages in any order; impurity shows up as flicker. `seek` must not wrap `t` (the renderer does).
 - **Page contract:** `window.ready` (promise), `window.STAGE = {width, height}` set by the time
   ready resolves, `window.seek(t)`, `window.inspect(t) -> {cursor: {x, y, opacity}}`, `window.SFX = [{beat, file, gain}]`.
+  `seek(t)` returns a promise that settles once the frame's media has loaded (footage frames; resolved at once
+  without): render, beat_stills and the frame check await it; the watch and sync pages do not.
 - **Loop seam:** last STATES/CURSOR row repeats the first, at least 2 beats before the end.
 - **Timing comes from the song:** `beatT(beat)` (uses measured `cue_t`, and swing from `sync`; one definition in
   `components/core/timing.js`), never hard-coded seconds. A moment the user marked is `at: 'name'`, not a guessed beat.
@@ -389,7 +490,10 @@ The flow: `init`, set the grid by ear with `sync.mjs SEQ/<chapter 1>`, `analyse`
 - **Approval gate:** always show MOTION-BRIEF.md (with check_brief.mjs passing) and wait before building. If the user's request
   already lists every state, the table is quick to confirm, but still show it.
 - **Music:** never download songs. Users supply files. Audio (`clip.wav`, songs), renders (`out/`) and
-  `.source.json` (a local path to the song) are git-ignored and must never be committed. Commercial tracks: local viewing only (or `export.mjs --silent`).
+  `.source.json` (a local path to the song) are git-ignored and must never be committed. Nor must clips
+  (`footage/`, ignored in this repo; projects have no `.gitignore` of their own). Commercial tracks: local viewing
+  only (or `export.mjs --silent`).
+- **Footage:** never capture a private app (or open its URL) without the user's say-so; tests use local pages only.
 - **motion-ui:** find the project's motion spec/tokens first; zeta >= 1 where it bans overshoot;
   put maths in a pure function of `(from, changes, t)` and unit-test it; reduced motion jumps.
 
@@ -436,7 +540,12 @@ skills/motion-video/scripts/      analyze_song.py, extract_theme.py (numpy only)
                                   names to place; then the sync page), watch.mjs (the live preview's server:
                                   GET /__watch, /__watch/events (SSE), /__watch/status; reuses serve()),
                                   sequence.mjs (chapters on one song: sequence.json, init, analyse, check, render
-                                  (renderSequence: the join over one song cut), watch; export.mjs takes a SEQ)
+                                  (renderSequence: the join over one song cut), watch; export.mjs takes a SEQ),
+                                  capture.mjs (an HTML app -> a clip: stepped on Playwright's fake clock in WebKit, or
+                                  --realtime recorded; uses Playwright's private window.__pwClock.builtins, tested
+                                  with the pinned 1.63.0: re-check it on any Playwright upgrade), capture_steps.mjs (the
+                                  steps format: check, lay out on frames, play into the page), footage.mjs (a video ->
+                                  a clip), clip.mjs (the clip format: readClip, writeClip, extractFrames)
 skills/motion-video/scripts/sync-page/  index.html, app.js, style.css: the sync page (Web Audio clicks, waveform,
                                   suggestions, nudge, tap tempo, meter, swing, markers, to place, Save); tested by
                                   tests/sync-page.test.mjs
@@ -453,7 +562,8 @@ skills/motion-video/components/   the component library: core/engine.js (runs th
                                   the validator, render, beat_stills, export, safezones, gallery and the sync page,
                                   which falls back to the kit's copy at /__sync/timing.js for older projects),
                                   core/helpers.js (pure building blocks), modifiers.js (shake, badge),
-                                  controls/ feedback/ data/ chrome/ (one file per component),
+                                  controls/ feedback/ data/ chrome/ media/ (one file per component; media/footage.js
+                                  plays a clip),
                                   CATALOG.md + index.js (generated), docs-images/ (thumbnails),
                                   RECIPES.md, WRITING-A-COMPONENT.md
 skills/motion-design/references/  planner.md (the planner checklist), state-plan.md (beat-table format),
@@ -486,8 +596,8 @@ template's Google Fonts request.
 - `01-reference`: the sequence from zero (@twoclipping)'s prompt template, in the house style. Self-contained apart from the song.
 - `02-finance-promo`: a promo for a private personal-finance app (made-up figures); theme came from
   that app's CSS, which is not in this repo. Still renders from a clone: `theme.json` is committed.
-- `03-finance-inapp`: capture of `motion-ui` applied to that private app; `capture.mjs` needs the
-  app's repo, so it will not run from a clone. The pattern it demonstrates is `motion-ui` pattern 2.
+- `03-finance-inapp`: capture of `motion-ui` applied to that private app; its own `demos/03-finance-inapp/capture.mjs`
+  (not the kit's `scripts/capture.mjs`) needs the app's repo, so it will not run from a clone. The pattern it demonstrates is `motion-ui` pattern 2.
 - `04-library-reference`: demo 1's sequence rebuilt from library components only, and the export proof
   (every preset it exports, with the results table, in its README).
 

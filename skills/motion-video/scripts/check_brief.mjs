@@ -10,14 +10,16 @@
 // the same frame check then measures each preset's safe zones, each issue a warning, and a commercial track (a
 // **Song:** or **Music:** line calling it commercial) with public presets is a warning too.
 // Rows may sit on the song's markers (`at: 'drop'`, read from song.json's `markers`); an unknown or out-of-loop marker
-// is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js).
+// is an error, and so is any marker row when the project's components/ copy predates markers (no core/timing.js);
+// likewise hide and footage rows (a copy before them), and footage rows when index.html has no loadClips().
 // A beat grid with bpm_confidence under 0.5 that nobody has confirmed (sync.checked_by_ear) is a warning.
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { validate } from '../components/core/validate.js';
+import { beatTime } from '../components/core/timing.js';
 import { isMain } from './is_main.mjs';
-import { briefCode, runTables, TablesError } from './tables.mjs';
+import { briefCode, projectClips, runTables, TablesError } from './tables.mjs';
 
 const SECTIONS = ['## Request', '## Decisions', '## Moments', '## Beat table'];
 export const SWAP_HINT = ' (after a song swap, place it on the sync page: node sync.mjs DIR)';
@@ -44,6 +46,9 @@ const readJson = (dir, name) => {
   const text = readFileSync(path.join(dir, name), 'utf8');
   try { return JSON.parse(text); } catch (e) { throw new Error(`${name} is not valid JSON (${e.message})`); }
 };
+
+// A project file's text, or null when it cannot be read.
+const readText = (dir, name) => { try { return readFileSync(path.join(dir, name), 'utf8'); } catch { return null; } };
 
 // The project's theme roles from theme.json, else the house roles. A theme.json that parses but is not an object is
 // a ThemeError (a brief error), not a crash.
@@ -147,7 +152,21 @@ export async function checkBrief(dir, opts = {}) {
   // never draws it. Supported means both: validate.js lists 'hide' in CURSOR_KEYS and engine.js reads `.hide`.
   if (Array.isArray(cursor) && cursor.some((c) => c && typeof c === 'object' && Object.hasOwn(c, 'hide')) && !knowsHide(dir))
     errors.push("the project's components/ copy predates hide; copy a fresh components/ in (see SKILL.md, Older projects)");
-  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true });
+  // Likewise a copy from before footage (no components/media/footage.js): its registry has no footage component.
+  const OLD_FOOTAGE = Array.isArray(states) && states.some((r) => r?.use === 'footage')
+    && existsSync(path.join(dir, 'components', 'index.js')) && !existsSync(path.join(dir, 'components', 'media', 'footage.js'));
+  if (OLD_FOOTAGE) errors.push("the project's components/ copy predates footage; copy a fresh components/ in (see SKILL.md, Older projects)");
+  // And an index.html from before footage (no loadClips(), the template's clip fetch): its page never reads the clips.
+  if (Array.isArray(states) && states.some((r) => r?.use === 'footage') && !/\bloadClips\b/.test(readText(dir, 'index.html') ?? 'loadClips'))
+    errors.push("the project's index.html predates footage; copy loadClips() and its CLIPS wiring in from the template (see SKILL.md, Older projects and footage)");
+  // Footage rows are checked against the project's clips (footage/<src>/clip.json). One that is there but invalid is
+  // its own error, so validate's "no clip at" for it is dropped.
+  const footage = await projectClips(dir, states);
+  errors.push(...footage.errors.map((e) => e.message));
+  const unread = new Set(footage.errors.map((e) => `footage: no clip at footage/${e.src}/clip.json`));
+  const r = validate({ states, cursor, registry: await loadRegistry(dir), song, theme, loop, strict: true, clips: footage.clips,
+    beatT: (b) => beatTime(song, b) });
+  r.errors = r.errors.filter((e) => !unread.has(e) && !(OLD_FOOTAGE && /^unknown component "footage"/.test(e)));
   // A marker the song lacks is usually one a song swap dropped: the sync page places it (validate.js stays as it is,
   // pinned to demo 04's copy, so the hint is added here, unless the message already names sync.mjs).
   const hint = (e) => (/^\S+ row \d+: unknown marker /.test(e) && !e.includes('sync.mjs') ? `${e}${SWAP_HINT}` : e);

@@ -32,14 +32,14 @@ git clone https://github.com/triippiing/motion-kit.git ~/motion-kit
 ~/motion-kit/install.sh   # links the skills, installs missing deps + the transitions.dev companion, runs the doctor
 ```
 
-`install.sh` installs ffmpeg, numpy, Playwright and its Chromium when they are missing, then runs
+`install.sh` installs ffmpeg, numpy, Playwright with Chromium and WebKit when they are missing, then runs
 `skills/motion-video/scripts/doctor.sh`, which prints the exact fix for anything still missing
 (only Homebrew itself needs a manual, password-prompted install).
 
 ## Components
 
-Videos are built from a library of 28 ready-made UI components (buttons, toggles, tabs, loaders,
-toasts, charts, a dock, a command palette...) that each fill the one morphing shape. A row in the
+Videos are built from a library of 29 ready-made UI components (buttons, toggles, tabs, loaders,
+toasts, charts, a dock, a command palette, and real app footage...) that each fill the one morphing shape. A row in the
 video's state table names one and the cursor presses it:
 
 ```js

@@ -14,7 +14,7 @@ Paths are relative to the `motion-video` skill folder (`<clone>/skills/motion-vi
 
 | Path | What it is |
 |---|---|
-| `components/<group>/<name>.js` | one component; `<group>` is `controls`, `feedback`, `data` or `chrome` |
+| `components/<group>/<name>.js` | one component; `<group>` is `controls`, `feedback`, `data`, `chrome` or `media` |
 | `components/core/engine.js` | runs the tables: layers, continuations, presses, cursor, camera. Its header comment is the contract |
 | `components/core/helpers.js` | pure building blocks every component uses (list below) |
 | `components/core/validate.js` | the rules a table is checked against (runtime and `check_brief.mjs`) |
@@ -68,7 +68,26 @@ export function render(layer, props, ctx, t) { /* set styles from t, every frame
 export function hotspot(name, props, geo, ctx) { return { x, y } /* offset from the shape centre */ ?? null; }
 export function sfx(props, ctx) { return [{ beat, file, gain }]; }   // optional: its own sounds
 export function endState(props, ctx) { return { ...props, ... }; }   // optional: props after the presses
+export function check(props, info) { return { errors: [], warnings: [] }; }  // optional: rules needing data beyond the row
+export function checkTarget(name, props, { clips }) { return null; }  // optional: why a cursor target cannot be right, or null
 ```
+
+`check` and `checkTarget` are for rules that need data the row does not hold (today only `footage`, whose clip's
+length and step names live in `footage/<src>/clip.json`). The validator (the page's `createScene`, watch and
+`check_brief`) calls them, for a row whose props are otherwise valid.
+
+- `check(props, info)` runs for every row of your component; its errors and warnings are reported as written. `info` is `{ clips, strict, at, row, beatT, t1,
+  continues, prev, seam }`: `clips` is `{ src: clip.json object }`, or `undefined` when the caller has no project to
+  read (then there is nothing to check against: return no errors); `strict` is true under `check_brief` (warnings
+  belong there); `at` is the row's beat for messages; `beatT` is null when the caller gave no timing; `t1` is the
+  row's end in seconds (`Infinity` when unknown); `continues` and `prev` are as in `ctx`; `seam` is true for the last
+  row of a looping piece (it repeats the first), so a message can say what to do at the seam (footage adds `(at the
+  loop seam: set from, or end on a non-footage row)` to its hold warning).
+- `checkTarget(name, props, { clips })` runs for each cursor row aimed at one of your hotspots on this row; return
+  a reason string when the target cannot be right for that data (footage: a `step:` the clip never named), else
+  null. It is reported as an error, `cursor target "step:pay" at beat 5.8: <your reason>`.
+- In validation that same `info` is the `ctx` `endState` gets: a partial one (`clips`, `beatT`, `row`, `t1`,
+  `continues`, `prev` only), so anything `check`, `checkTarget` or `endState` reads must be among those.
 
 Prop types: `string`, `number`, `boolean`, `string[]`, `number[]`, `object`, `object[]`, `any`, and
 `enum:a|b|c`. A row that passes the wrong type fails validation with a readable message.
@@ -89,6 +108,8 @@ Prop types: `string`, `number`, `boolean`, `string[]`, `number[]`, `object`, `ob
 | `Springs`, `spring` | the spring maths, and the house spring from the song |
 | `theme`, `hex(role)` | the theme's colour roles, and a role to `[r, g, b]` |
 | `stage`, `loop_sec` | the stage size, and the loop length in seconds (null when the piece does not loop) |
+| `clips` | `{ src: clip.json object }` for the piece's footage clips (the page fetches each before `ready`; `{}` when there are none). `geometry` gets it too |
+| `wait(promise)` | for media that must load before the frame is exact (footage registers each frame's `img.decode()`). `seek(t)` returns `Promise.all` of what was registered during that seek, and render, beat_stills and the frame check await it; the watch and sync pages do not. Never for timing: `render` must still be a pure function of `t`, and the promise should resolve, not reject (report a failure with `reportError`, which makes render exit 1) |
 
 ## A complete component to copy
 

@@ -274,3 +274,42 @@ test('drag landing: a click approach and drag moves with time to spare keep the 
     assert.ok(Math.abs(designX(s, t) - want) < 1e-6, `t ${t.toFixed(2)}: ${designX(s, t)} vs the house spring ${want}`);
   }
 });
+
+// Pending work: a component's render may register a promise with ctx.wait (media that must load before the frame
+// is exact); seek(t) returns a promise for all of them. Components that register nothing get a resolved promise.
+let waitOn = null;
+registry.w = box('w', ['box'], { render(el, props, ctx, t) { if (waitOn) ctx.wait(waitOn); } });
+
+test('seek returns a resolved promise when no component registers pending work; the DOM is unchanged', async () => {
+  const rows = [{ at: 0, use: 'a' }, { at: 4, use: 'b' }, { at: 12, use: 'a' }], cur = [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }];
+  const d1 = fakeDom(), d2 = fakeDom();
+  const p = make(rows, cur, { dom: d1 }).seek(2.1);
+  assert.equal(typeof p?.then, 'function');
+  let done = false; p.then(() => { done = true; });
+  await null; await null;
+  assert.ok(done, 'resolves without waiting on anything');
+  make(rows, cur, { dom: d2 }).seek(2.1);
+  assert.equal(snapshot(d1), snapshot(d2));
+});
+
+test('seek waits for the promises a render registers with ctx.wait, per seek call', async () => {
+  const s = make([{ at: 0, use: 'w' }, { at: 4, use: 'a' }, { at: 12, use: 'w' }], [{ at: 0, x: 0, y: 0 }, { at: 12, x: 0, y: 0 }]);
+  try {
+    let release; waitOn = new Promise((r) => { release = r; });
+    const order = [];
+    const p = s.seek(1).then(() => order.push('seek'));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.deepEqual(order, [], 'still waiting on the registered promise');
+    order.push('release'); release();
+    await p;
+    assert.deepEqual(order, ['release', 'seek']);
+    // The pending list is made afresh each seek: a seek that registered a promise that never settles does not hold
+    // up the next seek, which registers nothing and so resolves at once.
+    waitOn = new Promise(() => {});
+    s.seek(1);
+    waitOn = null;
+    let done = false; s.seek(1).then(() => { done = true; });
+    await null; await null;
+    assert.ok(done, 'the second seek waits only on its own promises');
+  } finally { waitOn = null; }
+});

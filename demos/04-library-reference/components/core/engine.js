@@ -8,7 +8,8 @@
 // offset) and `row.marker` holding the name; `offset` is gone. A bad marker throws like any validation error.
 // createScene options beyond the tables: loop (default true; false for a one-off piece whose last row need not
 // repeat the first) and designScale (the camera scale K; default min(W, H) / 1440, never below 1). The template
-// reads both from project.json.
+// reads both from project.json. clips: { src: clip.json object } for the footage rows' clips (the template fetches
+// footage/<src>/clip.json for each before ready); default {}, so a row whose clip is missing is a validation error.
 //
 // Component module contract:
 //   meta = { name, group, useWhen, motion, example, props: { key: [typeSpec, default] },
@@ -23,11 +24,18 @@
 //   hotspot is also called with ctx = {} (validation, and choosing which row a cursor row aims at, happen
 //   before any row has a ctx): whether it returns null must not depend on ctx, and any ctx read is guarded
 //   (ctx?.continues). A cursor row aims at the first candidate row on which its hotspot resolves.
+//   optional check(props, info) -> { errors, warnings } and checkTarget(name, props, { clips }) -> reason | null:
+//   rules that need data beyond the row (footage's clip), run by validate. info = { clips, strict, at (the row's
+//   beat, for messages), row, beatT (null when the caller gave none), t1 (seconds; Infinity when unknown), continues,
+//   prev, seam (the last row of a loop) }; clips is undefined when the caller has none (no project), and then there is
+//   nothing to check against. In validation this info is also the ctx endState gets: a partial ctx (clips, beatT,
+//   row, t1, continues, prev only), so anything check, checkTarget or endState reads must be among those.
 //   optional sfx(props, ctx); optional endState(props, ctx) -> props (pure: the props as they stand
 //   once that row's presses have happened, e.g. a toggle flipped by a press). It may add private keys prefixed
 //   `_` (e.g. player's `_written`) that only the next row of the same component reads from ctx.prev.
 //   ctx = { beatT, beat_sec, Springs, spring, theme, hex, stage, loop_sec, t0, t1, presses, targets, cursorAt, geo, row,
-//           prev, continues, settled }   settled: true for row 0, shown with its entrance long finished.
+//           prev, continues, settled, clips, wait }   settled: true for row 0, shown with its entrance long finished.
+//   clips: the createScene option (geometry gets it too, through the same base ctx).
 //   targets: every cursor row aimed at one of this row's hotspots, as { t, target, press } (t in seconds,
 //   press true/'down'/'up' or null), plus every other cursor row inside the row's window as { t, target: null,
 //   press } (the cursor moved elsewhere), in time order. A component that reacts to where the cursor is aimed
@@ -36,6 +44,9 @@
 //   treat a carried aim as already settled so the hover holds across the row change.
 //   loop_sec: the loop's length in seconds when the piece loops, else null. Periodic motion (spinners,
 //   pulses) takes its period from helpers' loopPeriod(ctx, sec) so a whole number of cycles fits the loop.
+//   wait(promise): for media that must load before the frame is exact (a video frame decoding). render may call
+//   it; seek(t) returns Promise.all of what was registered during that seek (a resolved promise when nothing was),
+//   and callers that need the exact frame await it. Never for timing: render must still be a pure function of t.
 // Continuations: a component row directly after a row with the same `use` continues it.
 // Its layer does not crossfade: at t0 the previous row's layer steps out and this one
 // steps in, and ctx.prev holds the previous row's END state (its endState, else its resolved
@@ -59,13 +70,13 @@ import { el } from './helpers.js';
 import { shakeOffset, mountBadges, renderBadges } from '../modifiers.js';
 
 export function createScene(o) {
-  const { extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale } = o;
+  const { extraSfx = [], content = {}, song, stage, theme, beatT, Springs, dom, registry, loop = true, designScale, clips = {} } = o;
   // Marker rows become beat numbers before anything else reads the tables.
   const rs = resolveRows(o.states, song), rc = resolveRows(o.cursor, song);
   const bad = [...rs.errors.map((e) => markerMessage(e, 'states()')), ...rc.errors.map((e) => markerMessage(e, 'cursor()'))];
   if (bad.length) throw new Error('motion-kit: ' + bad.join('\n  - '));
   const states = rs.rows, cursor = rc.rows;
-  const { errors } = validate({ states, cursor, registry, song, theme, loop });
+  const { errors } = validate({ states, cursor, registry, song, theme, loop, clips, beatT });
   if (errors.length) throw new Error('motion-kit: ' + errors.join('\n  - '));
   const { track, fromSettle } = Springs;
   const bs = song.beat_sec;
@@ -82,7 +93,10 @@ export function createScene(o) {
     return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
   };
   const CX = stage.width / 2, CY = stage.height / 2;
-  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null };
+  // Pending work registered by renders (ctx.wait) during the current seek; a fresh list each seek.
+  let pending = [];
+  const base = { beatT, beat_sec: bs, Springs, spring: SHAPE, theme, hex, stage, loop_sec: loop ? (song.loop?.duration_sec ?? null) : null, clips,
+    wait: (p) => { pending.push(p); } };
 
   // ---- rows: props with defaults, geometry, time window
   const rows = states.map((row, i) => {
@@ -243,6 +257,7 @@ export function createScene(o) {
   }
 
   function seek(t) {
+    pending = [];
     const w = v(tracks.w, t), h = v(tracks.h, t), rr = v(tracks.r, t), z = v(tracks.zoom, t);
     const dx = shakeOffset(rows, t, base);
     const rgb = (arr) => `rgb(${arr.map((tr) => Math.round(v(tr, t))).join(',')})`;
@@ -260,6 +275,7 @@ export function createScene(o) {
     const x = CX + v(tracks.cx, t), y = CY + v(tracks.cy, t);
     dom.cursor.style.transform = `translate(${x - 7}px,${y - 4}px) scale(${(p * K) / z})`;
     dom.cursor.style.opacity = shown(t);
+    return Promise.all(pending);
   }
 
   const shown = (t) => Math.max(0, Math.min(1, v(tracks.show, t)));
