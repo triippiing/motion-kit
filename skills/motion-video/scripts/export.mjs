@@ -26,11 +26,24 @@
 //
 // renders one guides preview per chosen preset with safe margins (render.mjs --guides: translucent bands over its
 // zones, out/shapes/<W>x<H>/preview-guides-<preset>.mp4) for checking by eye, and exports nothing.
+//
+//   node export.mjs SEQ --for web,gif [--silent] [--guides]
+//
+// A sequence directory (one with a sequence.json, see sequence.mjs) exports the same way, from the joined sequence:
+// each render size is sequence.mjs's full render (renderSequence: every chapter rendered or reused by its own stamp,
+// joined over one cut of the song). The design size is rendered without a stage override, so it reuses (and rewrites)
+// SEQ/out/sequence.mp4 and the chapters' out/video.mp4; other sizes go to SEQ/out/shapes/<W>x<H>/sequence.mp4. The
+// design stage and the poster's beat are chapter 1's; any chapter whose music is commercial warns for the whole piece.
+// Each preset with safe zones is checked on every chapter at its shape (safezones.mjs's check; a project export does
+// not run it) and each issue is a warning on that preset's files, prefixed with the chapter's name. Files go to
+// SEQ/out/exports; the manifest also records "sequence": { "chapters": [names] } and, per render, each chapter's
+// reuse. --guides renders each chapter's guides previews.
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { beatTime, newestSource, render, renderStamp, stampPath, UsageError } from './render.mjs';
-import { designStage, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
+import { checkSafeZones, designStage, issueText, loadPresets, presetStage, resolvePresets, scaledMargins } from './safezones.mjs';
+import { loadSequence, renderSequence } from './sequence.mjs';
 import { briefCommercial } from './check_brief.mjs';
 import { aacWithinPeak, capBytes, capSizes, encode, encodeGif, encodeWebm, fitToCap, loudnessMiss, loudnormArgs, measureLoudness, MB, poster, probe } from './media.mjs';
 import { isMain } from './is_main.mjs';
@@ -65,11 +78,15 @@ export async function reusableRender(dir, file, stage) {
 
 export async function exportProject(dir, { for: names, silent = false, outDir, log = console.log } = {}) {
   const root = path.resolve(dir);
-  if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
+  const seq = isSequence(root) ? loadSequence(root) : null;
+  if (!seq && !existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
   const P = await loadPresets();
   const chosen = resolvePresets(P, names);
-  const design = await designStage(root);
-  const song = await readSong(root);
+  // A sequence's design stage and song (the poster's beat) are chapter 1's; its song is read once the render's own
+  // checks (every chapter analysed, windows abutting) have passed.
+  const home = seq ? seq.chapters[0].dir : root;
+  const design = await designStage(home);
+  let song = seq ? null : await readSong(root);
   const exportsDir = path.resolve(outDir ?? path.join(root, 'out', 'exports'));
   // Staging dirs left by an export that was killed part-way (a finished or failed one removes its own).
   if (existsSync(exportsDir)) for (const e of await readdir(exportsDir, { withFileTypes: true }))
@@ -93,6 +110,13 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   for (const g of groups.values()) {
     const own = path.join(root, 'out', 'shapes', g.size, 'video.mp4');
     const isDesign = g.stage[0] === design[0] && g.stage[1] === design[1];
+    if (seq) {
+      // Each chapter's render is reused by its own stamp; the join itself is always made afresh.
+      const r = await renderSequence(seq, { stage: isDesign ? undefined : g.stage, log: () => {} });
+      g.file = r.file;
+      renders.push({ size: g.size, shapes: g.shapes, path: rel(g.file), reused: false, chapters: r.chapters });
+      continue;
+    }
     const candidates = isDesign ? [path.join(root, 'out', 'video.mp4'), own] : [own];
     g.file = null;
     for (const c of candidates) if (await reusableRender(root, c, g.stage)) { g.file = c; break; }
@@ -101,8 +125,11 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
     renders.push({ size: g.size, shapes: g.shapes, path: rel(g.file), reused });
   }
 
+  song ??= await readSong(home);
+  const zoneWarnings = seq ? await sequenceZones(seq, P, groups) : new Map();
+
   await mkdir(exportsDir, { recursive: true });
-  const commercial = await commercialMusic(root);
+  const commercial = seq ? (await Promise.all(seq.chapters.map((c) => commercialMusic(c.dir)))).some(Boolean) : await commercialMusic(root);
   const files = [];
   // Encode into a staging dir; nothing reaches exportsDir unless every preset succeeds.
   const staging = await mkdtemp(path.join(exportsDir, '.staging-'));
@@ -136,6 +163,7 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
       if (loud && !af.skipped) { const miss = loudnessMiss(loud, p.audio); if (miss) warnings.push(miss); }
       if (!still && p.maxSeconds && m.duration > p.maxSeconds)
         warnings.push(`over the ${p.maxSeconds} s maximum length for ${label} (${m.duration.toFixed(2)} s): the platform may reject or trim it`);
+      warnings.push(...zoneWarnings.get(name) ?? []);
       return { preset: name, format, path: rel(where.final), bytes: m.bytes, duration: still ? null : m.duration, width: m.width, height: m.height,
         fps: still ? null : m.fps, vcodec: m.vcodec, acodec: m.acodec, audioCoder: m.acodec ? audioCoder : null,
         lufs: loud ? round1(loud.I) : null, truePeak: loud ? round1(loud.TP) : null,
@@ -224,10 +252,32 @@ export async function exportProject(dir, { for: names, silent = false, outDir, l
   const exists = (p) => typeof p === 'string' && existsSync(path.resolve(root, p));
   const keptFiles = (Array.isArray(old.files) ? old.files : []).filter((f) => !chosen.includes(f?.preset) && exists(f.path));
   const keptRenders = (Array.isArray(old.renders) ? old.renders : []).filter((r) => !renders.some((n) => n.size === r?.size) && exists(r.path));
-  const manifest = { project: path.basename(root), created: new Date().toISOString(), renders: [...keptRenders, ...renders], files: [...keptFiles, ...ordered] };
+  const manifest = { project: path.basename(root), created: new Date().toISOString(),
+    ...(seq ? { sequence: { chapters: seq.chapters.map((c) => c.name) } } : {}), renders: [...keptRenders, ...renders], files: [...keptFiles, ...ordered] };
   await writeFile(manifestFile, JSON.stringify(manifest, null, 2) + '\n');
   for (const f of ordered) log(summary(f));
   return manifest;
+}
+
+// Whether `root` is a sequence directory (sequence.mjs): it has a sequence.json.
+const isSequence = (root) => existsSync(path.join(root, 'sequence.json'));
+
+// A sequence's safe-zone check: for each render size, the presets there with safe zones are checked on every chapter at
+// that shape (safezones.mjs's per-project check). Returns preset -> warnings, each prefixed with the chapter's name; a
+// check that cannot run is a warning too (the export itself is fine).
+async function sequenceZones(seq, P, groups) {
+  const out = new Map(), add = (n, w) => { if (!out.has(n)) out.set(n, []); out.get(n).push(w); };
+  for (const g of groups.values()) {
+    const zoned = g.presets.filter((n) => scaledMargins(P.presets[n], g.stage));
+    if (!zoned.length) continue;
+    for (const c of seq.chapters) {
+      try {
+        const { issues } = await checkSafeZones(c.dir, { presets: zoned, loop: false });
+        for (const i of issues) add(i.preset, `${c.name}: ${issueText(i, P)}`);
+      } catch (e) { for (const n of zoned) add(n, `${c.name}: the safe-zone check did not run: ${e.message.split('\n')[0]}`); }
+    }
+  }
+  return out;
 }
 
 // song.json, or a UsageError when it is not valid JSON.
@@ -245,8 +295,15 @@ export async function commercialMusic(root) {
 }
 
 // --guides: one guides preview per chosen preset with safe margins; returns their paths. Nothing is exported.
-export async function guidePreviews(dir, { for: names, log = console.log } = {}) {
+// A sequence renders each chapter's, one line each prefixed with the chapter's name.
+export async function guidePreviews(dir, { for: names, log = console.log, base } = {}) {
   const root = path.resolve(dir);
+  if (!base && isSequence(root)) {
+    const seq = loadSequence(root), out = [];
+    resolvePresets(await loadPresets(), names);
+    for (const c of seq.chapters) out.push(...await guidePreviews(c.dir, { for: names, base: root, log: (l) => log(`${c.name}: ${l}`) }));
+    return out;
+  }
   if (!existsSync(path.join(root, 'song.json'))) throw new UsageError(`${root} is not a motion-video project (no song.json)`);
   const P = await loadPresets();
   const design = await designStage(root);
@@ -254,7 +311,7 @@ export async function guidePreviews(dir, { for: names, log = console.log } = {})
   for (const name of resolvePresets(P, names)) {
     if (!scaledMargins(P.presets[name], presetStage(P, name, design))) { log(`${name.padEnd(20)} no safe zones (the whole frame is shown)`); continue; }
     const file = await render(root, { guides: name, preview: true });
-    log(`${name.padEnd(20)} ${path.relative(root, file)}`);
+    log(`${name.padEnd(20)} ${path.relative(base ?? root, file)}`);
     out.push(file);
   }
   return out;
@@ -272,7 +329,7 @@ function summary(f) {
     + `${step}${n(f.warnings.length, 'warning')}${n(f.notes.length, 'note')}${n(f.estimated.length, 'estimated value')}`;
 }
 
-const USAGE = 'usage: export.mjs DIR --for PRESET[,PRESET...] [--silent] [--guides]';
+const USAGE = 'usage: export.mjs DIR|SEQ --for PRESET[,PRESET...] [--silent] [--guides]';
 
 function parseArgs(argv) {
   const o = { silent: false, guides: false }; let dir;

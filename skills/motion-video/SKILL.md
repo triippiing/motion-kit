@@ -1,6 +1,6 @@
 ---
 name: motion-video
-description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song (swap the song), watch a piece live while editing it, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, or fix a loop that stutters. Scripts: doctor, new_project, analyze_song, swap_song, sync, watch, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
+description: Use when building or rendering a code-only motion video (HTML seek(t) page -> MP4) after a state plan is approved, or when asked to measure a song's BPM/beat grid for animation, re-time a piece to a new song (swap the song), watch a piece live while editing it, check the beat grid by ear or mark moments in the song (the sync page), render a preview, export a finished piece for Reels, TikTok, Shorts, X, LinkedIn, Discord or the web, fix a loop that stutters, or build a piece longer than one loop as chapters on one song (a sequence: intro, chapters, end card). Scripts: doctor, new_project, analyze_song, swap_song, sync, watch, sequence, extract_theme, render, beat_stills, check_brief, export, safezones, build_catalog, gallery.
 ---
 
 # Motion video
@@ -24,6 +24,8 @@ Everything lives in `~/.claude/skills/motion-video/` (a symlink made by `install
 | Export for where it will be posted | `node scripts/export.mjs DIR --for reels,x,discord,web [--silent]` → `DIR/out/exports/` |
 | Safe-zone previews (bands over the zones) | `node scripts/export.mjs DIR --for reels,tiktok --guides` |
 | Safe-zone check on its own | `node scripts/safezones.mjs DIR --for reels,tiktok [--samples beats\|half]` |
+| A piece in chapters on one song (see Sequences) | `node scripts/sequence.mjs SEQ init --song PATH NAME... [--bars N]`, then `analyse`, `check`, `render [--preview] [--stage WxH]`, `watch CHAPTER [--brief] [--port N] [--no-open]` |
+| Export a sequence | `node scripts/export.mjs SEQ --for linkedin,web [--silent] [--guides]` → `SEQ/out/exports/` |
 | Render at another shape | `node scripts/render.mjs DIR --stage 1080x1920` → `DIR/out/shapes/1080x1920/video.mp4` |
 | Components: rebuild the catalog | `node scripts/build_catalog.mjs` (writes `components/index.js` + `components/CATALOG.md`) |
 | Components: watch or thumbnail them | `node scripts/gallery.mjs OUT [--only a,b] [--stills]` |
@@ -463,7 +465,61 @@ A piece that does not loop (a launch video that ends on its own end card): add `
 `DIR/project.json`. The page then allows a last row that differs from the first, `check_brief.mjs`
 checks it as a one-off, `render.mjs` clamps its motion blur at both ends instead of blending the end
 into the start, and the seam check in `beat_stills.mjs` can be ignored. `--serve` with `?play` still
-loops playback (it is a preview; the rendered MP4 plays once).
+loops playback (it is a preview; the rendered MP4 plays once). A launch video with an intro, product chapters
+and an end card is a sequence of such projects on one song (see Sequences).
+
+## Sequences
+
+A piece longer than one loop is built as chapters: separate projects (each with its own brief and tables, and
+`"loop": false` in project.json), played back to back on one song. In a sequence directory SEQ:
+
+```json
+{
+  "song": "/path/to/song.mp3",
+  "chapters": [
+    { "dir": "intro", "bars": 2, "from_start": true },
+    { "dir": "kit", "bars": 15 },
+    { "dir": "end", "bars": 2 }
+  ],
+  "fade_out_sec": 2.0
+}
+```
+
+Chapter 1 starts with the song (`from_start`) or at `"start_bar": N`; every later chapter starts where the previous
+one ends (a start of its own is an error). `dir` is relative to SEQ and may not be `out`. Bad sequence.json or usage
+is `error: ...`, exit 2.
+
+```bash
+node scripts/sequence.mjs SEQ init --song PATH intro kit end [--bars N]   # sequence.json + one project each
+node scripts/sync.mjs SEQ/intro                                           # the grid, by ear, on chapter 1
+node scripts/sequence.mjs SEQ analyse        # windows back to back on chapter 1's grid
+node scripts/sequence.mjs SEQ check          # each chapter's brief (one-off), then continuity
+node scripts/sequence.mjs SEQ watch kit      # watch.mjs on one chapter while editing it
+node scripts/sequence.mjs SEQ render --preview   # SEQ/out/sequence-preview.mp4
+node scripts/sequence.mjs SEQ render             # SEQ/out/sequence.mp4
+node scripts/export.mjs SEQ --for linkedin,web   # SEQ/out/exports/
+```
+
+- **analyse**: chapter 1's sync grid (nudge, tempo, meter, swing, pickup) is copied to every chapter; markers are
+  merged by name across the chapters (place each on the chapter whose window holds it). A name at two times keeps
+  chapter 1's (else the earlier chapter's) with a warning: move a marker on chapter 1. A marker deleted on one chapter
+  comes back from the others on the next analyse: delete it from every chapter's song.json. A chapter whose sync
+  changes keeps `song.json.bak`. Each chapter is then analysed with its bars, chapter k+1 at chapter k's
+  `start_bar + bars`, and one line prints per chapter (`kit: bars 2-16, 0:04.9-0:37.9`).
+- **check**: errors (exit 1) for a brief's errors, a chapter not analysed or with other bars than sequence.json, one
+  analysed on another song than sequence.json's (`kit: analysed on A.mp3, sequence.json's song is B.mp3`), chapter 1
+  analysed with another start than its `from_start` / `start_bar`, a gap or overlap between chapters (`end starts
+  0.500 s after kit ends`), or a bpm, fps or sync that differs from the sequence's; fix by re-running `analyse`. A
+  chapter's project.json without `"loop": false` is a warning. Ends `sequence OK: N chapters, m:ss.s-m:ss.s`.
+- **render**: checks first (exit 2, nothing rendered) that every chapter is analysed (on sequence.json's song, chapter 1
+  with its start), abuts, and has chapter 1's fps and stage; renders only the chapters whose render is stale
+  (`name: rendered|reused`); joins the videos over one continuous cut of the song (no seam at the joins), with each
+  chapter's UI sounds, the whole mix faded over `fade_out_sec`. `--stage WxH` renders every chapter at that size into `SEQ/out/shapes/WxH/`.
+- **watch CHAPTER**: `watch.mjs SEQ/CHAPTER` with the same flags (see Watch); an unknown chapter is exit 2.
+- **export.mjs SEQ**: as for a project, from the joined full render of each size (the design size re-renders stale
+  chapters into their own `out/video.mp4` and re-joins `SEQ/out/sequence.mp4`). Safe zones are checked on every
+  chapter (warnings prefixed with its name); a commercial track on any chapter warns for the whole piece; the
+  manifest adds `sequence.chapters` and, per render, each chapter's `reused`.
 
 ## When the loop stutters
 Seam check failing on frame: the last STATES/CURSOR row must equal the first and be
