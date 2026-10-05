@@ -62,11 +62,14 @@
 //   sharp, true-colour realtime footage, hence the default.
 // Realtime frames also differ from run to run, and nothing waits for the page's animations.
 //
-// Both are silent (headless WebKit on macOS plays page audio through the speakers): muteScript, an init script in
-// every document of the capture's context, routes each AudioContext's connections to its destination through a gain
-// of 0 and keeps every <audio>/<video> really muted at volume 0, while the page still reads back its own destination,
-// muted and volume (window.__mkMute.state() reports what really reaches the output, for the tests). Chromium also
-// runs with --mute-audio.
+// Both are always silent (no flag turns it off; headless WebKit on macOS plays page audio through the speakers):
+// muteScript, an init script in every document of the capture's context, routes each AudioContext's connections to
+// its destination through a gain of 0 and really mutes, at volume 0, each <audio>/<video> the page plays, loads,
+// gives a src/srcObject/autoplay, makes with new Audio(), or that starts loading in the document or a shadow root,
+// while the page still reads back its own destination, muted and volume (window.__mkMute.state() reports what really
+// reaches the output, for the tests). Forcing mute fires volumechange on those elements. An element the page feeds to
+// createMediaElementSource keeps its real muted/volume (it plays only through the graph, into the zero gain), so an
+// AnalyserNode on it sees the signal. Chromium also runs with --mute-audio.
 import { chromium, webkit } from 'playwright';
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
@@ -112,9 +115,15 @@ function syncScript() {
 // Runs in every document before its own scripts: silence the page without changing what it sees. Web Audio: a
 // connect() to an AudioContext's own destination goes to a gain of 0 in front of it instead (and disconnect() from
 // it, from that gain); connect still returns the destination, and destination is the real node. An
-// OfflineAudioContext (no speakers) is left alone. Media: the first time a page touches an element's muted or volume,
-// calls play(), or the element starts loading or playing, it is muted at volume 0 with the real setters; the page's
-// own muted/volume are kept and read back. window.__mkMute.state(): { contexts: [{ gain, routed }], media: [{ muted,
+// OfflineAudioContext (no speakers) is left alone. Media: the first time a page touches an element's muted, volume,
+// src, srcObject or autoplay, calls play() or load(), makes it with new Audio(), or the element starts loading or
+// playing (listened for on window and in each shadow root attachShadow makes: media events are not composed), it is
+// muted at volume 0 with the real setters (which fires volumechange); the page's own muted/volume are kept and read
+// back. Not seen: a detached element given src or autoplay only by attribute (setAttribute, parsed HTML) and never
+// played by script, or one in a declarative shadow root (<template shadowrootmode>); Chromium's --mute-audio still
+// covers those. An element passed to
+// createMediaElementSource (or new MediaElementAudioSourceNode) is exempt: its page values are restored with the real
+// setters. window.__mkMute.state(): { contexts: [{ gain, routed }], media: [{ muted, volume }], exempt: [{ muted,
 // volume }] }, read with the real getters.
 function muteScript() {
   const contexts = [], media = new Set();
@@ -148,9 +157,9 @@ function muteScript() {
   }
   const M = window.HTMLMediaElement?.prototype;
   const mutedD = M && Object.getOwnPropertyDescriptor(M, 'muted'), volD = M && Object.getOwnPropertyDescriptor(M, 'volume');
-  const own = new WeakMap();   // the page's muted and volume
+  const own = new WeakMap(), exempt = new Set();   // the page's muted and volume; elements fed to Web Audio
   const silence = (el) => {
-    if (!(el instanceof HTMLMediaElement)) return;
+    if (!(el instanceof HTMLMediaElement) || exempt.has(el)) return;
     if (!own.has(el)) own.set(el, { muted: mutedD.get.call(el), volume: volD.get.call(el) });
     if (!mutedD.get.call(el)) mutedD.set.call(el, true);
     if (volD.get.call(el) !== 0) volD.set.call(el, 0);
@@ -163,13 +172,35 @@ function muteScript() {
     Object.defineProperty(M, 'volume', { configurable: true, enumerable: volD.enumerable,
       get() { return own.has(this) ? own.get(this).volume : volD.get.call(this); },
       set(v) { volD.set.call(this, v); const now = volD.get.call(this); silence(this); own.get(this).volume = now; } });   // the real setter checks v
-    const play = M.play;
+    const play = M.play, load = M.load;
     M.play = function (...a) { silence(this); return play.apply(this, a); };
-    for (const type of ['loadstart', 'play', 'playing']) window.addEventListener(type, (e) => silence(e.target), true);
+    M.load = function (...a) { silence(this); return load.apply(this, a); };
+    for (const name of ['src', 'srcObject', 'autoplay']) {   // a detached element: its events never reach window
+      const d = Object.getOwnPropertyDescriptor(M, name);
+      if (d?.set) Object.defineProperty(M, name, { ...d, set(v) { silence(this); d.set.call(this, v); } });
+    }
+    if (window.Audio) window.Audio = new Proxy(window.Audio, { construct(T, a, nt) { const el = Reflect.construct(T, a, nt); silence(el); return el; } });
+    const listen = (root) => { for (const type of ['loadstart', 'play', 'playing']) root.addEventListener(type, (e) => silence(e.target), true); };
+    listen(window);
+    const attach = Element.prototype.attachShadow;   // media events are not composed: listen in each shadow root too
+    if (attach) Element.prototype.attachShadow = function (...a) { const root = attach.apply(this, a); listen(root); return root; };
+    // An element fed to Web Audio plays only through its graph (to the zero gain, above): keep its own muted and
+    // volume real, so an AnalyserNode on it sees the signal.
+    const free = (el) => {
+      if (!(el instanceof HTMLMediaElement)) return;
+      exempt.add(el); media.delete(el);
+      const o = own.get(el);
+      if (o) { mutedD.set.call(el, o.muted); volD.set.call(el, o.volume); own.delete(el); }
+    };
+    const cmes = AC?.prototype.createMediaElementSource;
+    if (cmes) AC.prototype.createMediaElementSource = function (el) { free(el); return cmes.call(this, el); };
+    if (window.MediaElementAudioSourceNode) window.MediaElementAudioSourceNode = new Proxy(window.MediaElementAudioSourceNode,
+      { construct(T, a, nt) { free(a[1]?.mediaElement); return Reflect.construct(T, a, nt); } });
   }
   Object.defineProperty(window, '__mkMute', { value: { state: () => ({
     contexts: contexts.map((s) => ({ gain: s.g.gain.value, routed: s.routed })),
-    media: [...media].map((el) => ({ muted: mutedD.get.call(el), volume: volD.get.call(el) })) }) } });
+    media: [...media].map((el) => ({ muted: mutedD.get.call(el), volume: volD.get.call(el) })),
+    exempt: [...exempt].map((el) => ({ muted: mutedD.get.call(el), volume: volD.get.call(el) })) }) } });
 }
 
 // Sync the animations to `now`, then wait two real animation frames for the paint (see the header).

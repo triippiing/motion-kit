@@ -845,3 +845,38 @@ test('render: the first row after a cut shows only its crop, letterboxed in the 
     assert.deepEqual(s.errors, []);
   } finally { await s.close(); }
 });
+
+test('render: a crop glide that changes the content scale (panel -> whole page) covers the live shape: no fill bands mid-glide', async () => {
+  // panel [0.5903, 0.0556, 0.4056, 0.9378] (tall) into the whole page (wide): the lerped rect's aspect lags the live
+  // shape's, so a contain fit would leave fill bands top and bottom mid-glide. Cover fills the shape.
+  const P = "use: 'footage', src: 'demo', speed: 0, crop: [0.5903, 0.0556, 0.4056, 0.9378]";
+  const dir = withClip(makeProject({ bars: 2,
+    states: `[{ at: 0, ${P} }, { at: 2, use: 'footage', src: 'demo', speed: 0 }, { at: END - 2, ${P} }]`,
+    cursor: '[{ at: 0, x: 0, y: 600, hide: true }, { at: END - 2, x: 0, y: 600, hide: true }]' }));
+  const s = await openScene(dir);
+  try {
+    let mid = 0;
+    for (const t of [1.04, 1.07, 1.1, 1.14, 1.18, 1.22]) {
+      const png = await shoot(s.page, t);
+      const r = await s.page.evaluate(() => {
+        const sh = document.querySelector('#shape'), b = sh.getBoundingClientRect(), m = document.querySelector('.c-footage[data-row="1"] .ft-mask').getBoundingClientRect();
+        return { sh: [b.left, b.top, b.right, b.bottom], m: [m.left, m.top, m.right, m.bottom], bg: getComputedStyle(sh).backgroundColor };
+      });
+      const [L, T, Rr, B] = r.sh, w = Rr - L, h = B - T;
+      assert.ok(r.m[0] <= L + 0.5 && r.m[1] <= T + 0.5 && r.m[2] >= Rr - 0.5 && r.m[3] >= B - 0.5, `t ${t}: the mask does not cover the shape: ${JSON.stringify(r)}`);
+      // a strip a few px inside each edge, over its middle third: clip pixels, not the shape's fill (a band reads the
+      // fill within ~1; the clip's black reads ~11 off it)
+      const bg = r.bg.match(/\d+/g).map(Number);
+      const strips = { top: { x: L + w / 3, y: T + 3, w: w / 3, h: 3 }, bottom: { x: L + w / 3, y: B - 6, w: w / 3, h: 3 },
+        left: { x: L + 3, y: T + h / 3, w: 3, h: h / 3 }, right: { x: Rr - 6, y: T + h / 3, w: 3, h: h / 3 } };
+      for (const [edge, q] of Object.entries(strips)) {
+        const box = { x: Math.round(q.x), y: Math.round(q.y), w: Math.round(q.w), h: Math.round(q.h) }, px = rgb(png, box), n = px.length / 3;
+        const mean = [0, 1, 2].map((k) => px.filter((_, i) => i % 3 === k).reduce((a, c) => a + c, 0) / n);
+        assert.ok(Math.max(...mean.map((c, k) => Math.abs(c - bg[k]))) > 6, `t ${t} ${edge}: rgb(${mean.map(Math.round)}) is the fill ${r.bg}: a band (${JSON.stringify(r)})`);
+      }
+      if (w / h > 0.9 && w / h < 1.7) mid++;                                    // between the panel's aspect (0.77) and the page's (1.78)
+    }
+    assert.ok(mid >= 3, `sampled mid-glide ${mid} times`);
+    assert.deepEqual(s.errors, []);
+  } finally { await s.close(); }
+});

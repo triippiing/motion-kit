@@ -245,7 +245,7 @@ addEventListener('keydown', (e) => {
   fetch('/log', { method: 'POST', body: JSON.stringify({ key: e.key, shift: e.shiftKey, t: performance.now() - 1000 }) });
 });
 </script></body></html>`;
-async function keyServer(html = KEYS_PAGE) {
+async function keyServer(html = KEYS_PAGE, files = {}) {   // files: { '/path': { type, body } } served beside the page
   const log = [];
   const server = http.createServer((req, res) => {
     if (req.method === 'POST') {
@@ -254,8 +254,9 @@ async function keyServer(html = KEYS_PAGE) {
       req.on('end', () => { log.push(JSON.parse(body)); res.end('ok'); });
       return;
     }
-    res.setHeader('content-type', 'text/html');
-    res.end(html);
+    const f = files[req.url];
+    res.setHeader('content-type', f ? f.type : 'text/html');
+    res.end(f ? f.body : html);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/keys.html`, log, close: () => server.close() };
@@ -435,6 +436,53 @@ for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromi
       assert.ok(out, 'the mute hook is in the page');
       assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], `the oscillator reaches the output through a zero gain: ${JSON.stringify(out)}`);
       assert.deepEqual(out.media, [{ muted: true, volume: 0 }]);
+    } finally { srv.close(); }
+  });
+}
+
+// Media the window's listeners cannot see is silenced too: a detached new Audio(url) and an autoplaying <audio> in a
+// shadow root. An element the page feeds to createMediaElementSource is exempt (its own muted/volume stay real), so an
+// AnalyserNode on it sees the signal; its output still reaches the speakers only through the zero gain.
+const ANALYSER_PAGE = `<!doctype html><html><head><meta charset="utf-8"><style>body { margin: 0; } #go { position: absolute; left: 20px; top: 20px; width: 100px; height: 40px; }</style></head>
+<body><button id="go">go</button><div id="host"></div><script>
+document.getElementById('go').addEventListener('click', async () => {
+  const ctx = new AudioContext(), fed = new Audio('/tone.wav');
+  fed.loop = true;
+  const an = ctx.createAnalyser();
+  ctx.createMediaElementSource(fed).connect(an);
+  an.connect(ctx.destination);
+  const loose = new Audio('/tone.wav');
+  loose.loop = true;
+  document.getElementById('host').attachShadow({ mode: 'open' }).innerHTML = '<audio src="/tone.wav" autoplay loop></audio>';
+  const played = await Promise.all([fed.play(), loose.play()]).then(() => true, (e) => String(e));
+  await ctx.resume().catch(() => {});
+  const buf = new Uint8Array(an.fftSize);
+  let peak = 0, n = 0;   // a log per timeupdate: the test reads the last
+  fed.addEventListener('timeupdate', () => {   // media time is real time: the capture's fake clock does not drive it
+    an.getByteTimeDomainData(buf);
+    peak = Math.max(peak, ...buf.map((b) => Math.abs(b - 128)));
+    fetch('/log', { method: 'POST', body: JSON.stringify({ n: n++, played, peak, out: window.__mkMute ? window.__mkMute.state() : null }) });
+  });
+});
+</script></body></html>`;
+
+for (const [name, browserType, realtime] of [['webkit', webkit, false], ['chromium', chromium, false], ['chromium', chromium, true]]) {
+  const skip = installed(browserType) ? false : `playwright ${name} is not installed`;
+  test(`${name}${realtime ? ' --realtime' : ''}: detached and shadow-root media are muted; a createMediaElementSource element is not (its analyser sees the signal)`, { skip }, async () => {
+    const srv = await keyServer(ANALYSER_PAGE, { '/tone.wav': { type: 'audio/wav', body: Buffer.from(WAV, 'base64') } });
+    const dir = path.join(TMP, name, realtime ? 'analyser-rt' : 'analyser');
+    try {
+      const r = await captureAsync(srv.url, '--steps', stepsFile(`analyser-${name}-${realtime}`, [{ click: '#go', move: 0.1 }, { wait: 2 }]), '--out', dir,
+        '--fps', '10', '--size', '320x240', '--browser', name, ...(realtime ? ['--realtime'] : []));
+      assert.equal(r.status, 0, r.stderr);
+      assert.ok(srv.log.length >= 2, JSON.stringify(srv.log));
+      const { played, peak, out } = srv.log.reduce((a, b) => (b.n > a.n ? b : a));
+      assert.equal(played, true);
+      // headless WebKit's analyser reads a media element source as silence even with no capture hooks: Chromium only
+      if (name === 'chromium') assert.ok(peak > 20, `the analyser sees the tone: peak ${peak}`);
+      assert.deepEqual(out.contexts.map((c) => [c.gain, c.routed]), [[0, 1]], JSON.stringify(out));
+      assert.deepEqual(out.media, [{ muted: true, volume: 0 }, { muted: true, volume: 0 }], `the detached and the shadow-root element: ${JSON.stringify(out)}`);
+      assert.deepEqual(out.exempt, [{ muted: false, volume: 1 }], JSON.stringify(out));
     } finally { srv.close(); }
   });
 }

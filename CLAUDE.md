@@ -309,11 +309,17 @@ node $S/capture.mjs URL|FILE --steps FILE --out CLIPDIR [--browser webkit|chromi
   stepped frames; the frame size must come out even). The browser is WebKit (Safari's engine) for stepped capture
   and Chromium for `--realtime`. CLIPDIR must be new, empty or an existing clip (its frames are replaced); frames go to
   a temp directory beside it first, so a failed run leaves it as it was. At most 99999 frames.
-- Silent, stepped and `--realtime` (headless WebKit on macOS plays page audio through the speakers): an init script
-  (`muteScript`) routes every AudioContext connection to its destination through a gain of 0 and keeps every
-  `<audio>`/`<video>` really muted at volume 0, while the page reads back its own destination, `muted` and `volume`
-  (an OfflineAudioContext is left alone); Chromium also gets `--mute-audio`. `window.__mkMute.state()` reports what
-  reaches the output (capture.test.mjs checks it in both browsers).
+- Always silent, stepped and `--realtime` (no flag turns it off; headless WebKit on macOS plays page audio through the
+  speakers): an init script (`muteScript`) routes every AudioContext connection to its destination through a gain of
+  0 and really mutes, at volume 0, each `<audio>`/`<video>` the page plays, loads, gives a `src`/`srcObject`/`autoplay`
+  or makes with `new Audio()`, or that starts loading in the document or a shadow root made by `attachShadow`, while
+  the page reads back its own destination, `muted` and `volume` (an OfflineAudioContext is left alone). Forcing the
+  mute fires `volumechange` on those elements. Not seen: a detached element given `src`/`autoplay` only by attribute
+  and never played by script, or media in a declarative shadow root (Chromium's `--mute-audio` still covers those).
+  An element passed to `createMediaElementSource` keeps its real `muted`/`volume` (its sound goes only through the
+  graph, into the zero gain), so an AnalyserNode on it sees the signal. `window.__mkMute.state()` reports what
+  reaches the output (`contexts`, `media`, `exempt`; capture.test.mjs checks it in both browsers; headless WebKit's
+  analyser reads a media element source as silence even without the hook, so the analyser check is Chromium's).
 - The steps file is a JSON list: `{ "wait": SEC }`, `{ "click": SEL }`, `{ "hover": SEL }`,
   `{ "type": SEL, "text": STR }`, `{ "scroll": PX }` (down is positive; at the pointer), `{ "scroll": PX, "in": SEL }`
   or `{ "press": KEY }` (a Playwright key name pressed into whatever has focus, modifiers joined with `+`: `"m"`,
@@ -397,18 +403,24 @@ unreadable video is `error: ...`, exit 2.
   `zoom` about `(H + bar) / H` (H the clip's height, bar the title bar's) and crops the page's sides slightly.
 - `crop` (`[x, y, w, h]`, fractions 0..1 of the clip's frame, the space of `focus`; default `null`: off; not with
   `zoom`/`focus` on the same row) shows just that rect. Without row-level `w`/`h` the shape takes the crop's aspect
-  (`width`, default the stage fit less the 10% margin; height = width x the crop's aspect in clip px). The rect is
+  (`width`, default the stage fit less the 10% margin; height = width x crop h / crop w, both in clip px, i.e.
+  width x (h x clip height) / (w x clip width)). A first row (not continuing the same `src`, e.g. after a cut) is
   contain-fitted, centred, to the LIVE shape (the engine's `ctx.shapeAt(t)`, its SHAPE spring's `w`/`h`) inside a
-  `.ft-mask` (overflow hidden): outside it the shape's fill shows, so the first row after a cut shows only the crop,
-  letterboxed, while the outline morphs. A continuation of the same `src` where either row has crop glides from the
-  previous row's settled rect to its own on the live shape's progress: per axis `u = (W(t) - W_prev) / (W_this -
-  W_prev)` (likewise H; an axis that moves under 1 design px takes the other's u; neither: u = 1 from t0), edges lerp
-  by u (past 1 on the overshoot) and the rect is clamped to the window, so the page stays pinned to the outline (a
-  strip `[0.59, 0.52, 0.40, 0.06]` into `[0.59, 0.05, 0.40, 0.53]` keeps its bottom edge on the shape's). A row
-  without crop counts as the region its settled framing shows (incl. the window's bar with `browser`), so crop to
-  zoom/browser and back glide the same way; rows with only zoom/focus keep their own glide and DOM. With `browser`
-  set, a crop row still shows no bar (the crop is inside the frame). `fit` does not apply to a crop row (its rect is
-  always contain-fitted).
+  `.ft-mask` (overflow hidden): outside it the shape's fill shows, so it shows only the crop, letterboxed, while the
+  outline morphs from the other component. A continuation of the same `src` where either row has crop glides from
+  the previous row's SETTLED rect to its own on the live shape's progress: per axis `u = (W(t) - W_prev) / (W_this -
+  W_prev)` (likewise H; an axis that moves under 1 design px takes the other's u), edges lerp by u (past 1 on the
+  overshoot) and the rect is clamped to the window; the lerped rect is cover-fitted to the live shape (the mask
+  overhangs on one axis and `#shape` clips it), so no fill band shows mid-glide. When both rows show the clip at the
+  same scale (same `width`, so the rect and the shape keep one aspect) cover is contain and the page stays exactly
+  pinned to the outline (a strip `[0.59, 0.52, 0.40, 0.06]` into `[0.59, 0.05, 0.40, 0.53]` keeps its bottom edge on
+  the shape's); when the scale changes the content eases in or out while the edges sweep. Share `width` across a crop
+  chain for exact pinning. If neither axis changes (same shape), u = 1 from t0: the new rect is a cut. The glide
+  starts from the previous row's settled rect, so a row shorter than 0.6 beat (its own glide unfinished at its end)
+  makes the content jump at t0. A row without crop counts as the region its settled framing shows (incl. the
+  window's bar with `browser`), so crop to zoom/browser and back glide the same way; rows with only zoom/focus keep
+  their own glide and DOM. With `browser` set, a crop row still shows no bar (the crop is inside the frame). `fit`
+  does not apply to a crop row (contain after a cut, cover in a glide).
 - Hotspots: `step:NAME` aims at the centre of the box the capture's named step acted on, mapped through `fit`, the
   browser bar, the row's own settled zoom/focus (or crop) and the shape (time the press to the step: the row's beat time plus
   `(t - from) / speed` of the step's `t`), and `point:X,Y` at fractions (0..1) of the frame. A cursor row resolves

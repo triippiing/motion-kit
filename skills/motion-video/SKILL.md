@@ -356,10 +356,13 @@ its own directory on 127.0.0.1 (relative assets load); `http(s)://` and `file://
 `--size 1280x800`, `--fps 60`, `--scale 1` (device pixels per CSS pixel, up to 4; `--scale 2` for retina-sharp
 stepped frames; the frame size must come out even), WebKit for stepped capture and Chromium with `--realtime`.
 CLIPDIR must be new, empty or an existing clip (its frames are replaced); a failed run leaves it as it was. It prints
-`capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> DIR/footage/checkout`. Capture is silent, stepped and
-`--realtime`: the page's Web Audio plays into a gain of 0 and its `<audio>`/`<video>` are muted at volume 0 (the page
-still reads back its own destination, `muted` and `volume`), as headless WebKit on macOS otherwise plays page sound
-through the speakers.
+`capture: 144 frames, 2.4 s, 1280x800 (stepped, webkit) -> DIR/footage/checkout`. Capture is always silent, stepped
+and `--realtime` (there is no flag to keep the sound): the page's Web Audio plays into a gain of 0 and the
+`<audio>`/`<video>` it plays, loads or sets up (also `new Audio()` and media in a shadow root) are muted at volume 0
+(the page still reads back its own destination, `muted` and `volume`; forcing the mute fires `volumechange`), as
+headless WebKit on macOS otherwise plays page sound through the speakers. An element fed to
+`createMediaElementSource` keeps its real `muted`/`volume`, so an AnalyserNode on it still sees the signal (its sound
+reaches only the zero gain).
 
 The steps file is a JSON list, run in order:
 
@@ -452,17 +455,22 @@ missing or unreadable video is `error: ...`, exit 2.
   slightly.
 - Crop: `crop: [x, y, w, h]` (fractions 0..1 of the clip's frame, the same space as `focus`; not with `zoom` or
   `focus` on the same row) shows just that rect of the frame. Without a row-level `w`/`h` the shape takes the crop's
-  aspect (`width`, or the stage fit less the 10% margin, and the height from the crop's aspect in clip pixels). The
-  rect is fitted (contain, centred) to the shape's live, morphing size and everything outside it is masked, so the
-  shape's own fill shows round it: a crop row straight after another component shows only the crop, letterboxed in
-  the fill, while the outline morphs. A continuation of the same `src` where either row has `crop` glides rect to
-  rect on the shape's own spring (per axis, how far the live width/height has got from the previous row's to this
-  row's), so the page stays pinned to the outline: a strip `[0.59, 0.52, 0.40, 0.06]` then `[0.59, 0.05, 0.40, 0.53]`
-  grows up out of the strip with the strip's bottom edge still on the shape's. A row without crop counts as the
-  region its settled framing shows (the window, bar included, for a `browser` row), so crop to zoom or browser and
-  back glide the same way. Reveal a page element by element: the strip alone, then grow it up, then down, then out
-  to the side, then end on `browser: '...'`. Rows with only zoom/focus glide as before. A crop with `browser` set shows
-  no bar (the crop is inside the clip's frame), and `fit` does not apply (the rect is always contain-fitted).
+  aspect (`width`, or the stage fit less the 10% margin; height = width x crop h / crop w, in clip pixels). A crop row
+  straight after another component (or another src) is fitted (contain, centred) to the shape's live, morphing size
+  and everything outside the rect is masked, so the shape's own fill shows round it: only the crop shows,
+  letterboxed in the fill, while the outline morphs. A continuation of the same `src` where either row has `crop`
+  glides rect to rect on the shape's own spring (per axis, how far the live width/height has got from the previous
+  row's to this row's), filling the live shape (cover) so no fill band shows. With the same `width` on both rows (the
+  clip at one scale) the page stays exactly pinned to the outline: a strip `[0.59, 0.52, 0.40, 0.06]` then
+  `[0.59, 0.05, 0.40, 0.53]` grows up out of the strip with the strip's bottom edge still on the shape's. When the
+  scale changes (another `width`, or a crop into the whole page) the content eases in or out while the edges sweep;
+  share `width` across a crop chain for exact pinning. Two crops of the same size (neither axis changes) are a cut:
+  the new rect shows from the row's beat. The glide starts from the previous row's settled rect, so give each crop
+  row at least 0.6 beat or the content jumps at its successor's beat. A row without crop counts as the region its
+  settled framing shows (the window, bar included, for a `browser` row), so crop to zoom or browser and back glide the
+  same way. Reveal a page element by element: the strip alone, then grow it up, then down, then out to the side, then
+  end on `browser: '...'`. Rows with only zoom/focus glide as before. A crop with `browser` set shows no bar (the crop
+  is inside the clip's frame), and `fit` does not apply (contain after a cut, cover in a glide).
 - Clip time is `from + (t - t0) x speed`, clamped to the clip (it holds the last frame) and frozen outside the row's
   window; the frame shown is `round(clipT x fps) + 1`, a pure function of `t`. A continuation (the next row with the
   same `src`) carries on from where the clip had got to, unless it sets `from`, while the shape morphs.

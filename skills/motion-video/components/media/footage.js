@@ -10,16 +10,17 @@
 // edge shows; a continuation of the same src glides there from the previous row's framing (across a browser toggle
 // too). browser: a drawn window (title bar with three dots and the URL) around the clip, part of the zoomed content.
 // A row with neither (and not gliding from one that had them) builds exactly the DOM it always did.
-// crop [x, y, w, h]: a rect of the clip's frame (fractions, like focus) that the shape shows, contain-fitted to the
-// LIVE shape (ctx.shapeAt) and masked to the rect, so the shape's fill shows round it while the outline morphs. A
-// continuation where either row has crop glides rect to rect on the live shape's own progress (rectAt), so the page
-// stays pinned to the outline; a row without crop counts as the region its settled framing shows.
+// crop [x, y, w, h]: a rect of the clip's frame (fractions, like focus) that the shape shows, fitted to the LIVE
+// shape (ctx.shapeAt) and masked to the rect. A first row (after a cut) is contain-fitted, so the shape's fill shows
+// round it while the outline morphs. A continuation where either row has crop glides rect to rect on the live shape's
+// own progress (rectAt), cover-fitted (no fill band when the content scale changes); at one scale (same width) the
+// page stays exactly pinned to the outline. A row without crop counts as the region its settled framing shows.
 import { prog, textW } from '../core/helpers.js';
 
 export const meta = {
   name: 'footage', group: 'media',
   useWhen: 'Real app footage: a capture (capture.mjs) or a screen recording (footage.mjs) playing in the shape, the cursor aimed at the steps the capture clicked.',
-  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape\'s centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape\'s own spring, the page pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and a row without crop (zoom, browser) counts as the region it shows.',
+  motion: 'The clip plays from `from` seconds in at `speed` and holds its last frame when it runs out; the frame is a pure function of t. A following footage row of the same src carries on from where the clip had got to (unless it sets from) while the shape morphs. `zoom` (1 or more) scales the clip about `focus` (fractions of the frame, shown at the shape\'s centre, never past an edge of the clip); a following row of the same src glides from the previous zoom/focus to its own on a spring (0.6 beat, no overshoot), so a close-up pulls back to the whole screen. `browser` (a URL) draws the clip inside a plain window (title bar, three dots, the URL in a rounded field) that is part of the zoomed content: zoom 1 shows the whole window. `crop` ([x, y, w, h], fractions of the frame; not with zoom/focus) shows just that rect: the shape takes its aspect, and the rect is fitted to the live shape and masked to itself, so after a cut only the crop shows while the outline morphs; a following row of the same src where either row has crop glides rect to rect on the shape\'s own spring, filling the shape: with the same `width` on both rows the page stays exactly pinned to the moving outline (a strip grows up into the panel above it with its bottom edge still), and when the scale changes the content eases in or out while the edges sweep (share `width` across a crop chain for exact pinning). Two crops of one size cut. A row without crop (zoom, browser) counts as the region it shows.',
   props: { src: ['string', 'demo'], from: ['number', 0], speed: ['number', 1], fit: ['enum:cover|contain', 'cover'], width: ['number', 0],
     zoom: ['number', 1], focus: ['number[]', [0.5, 0.5]], browser: ['string', ''], crop: ['any', null] },
   hotspots: ['step:<name>', 'point:<x,y>'],
@@ -287,18 +288,28 @@ function place(st, p, ctx, t) {
   }
 }
 
-// A rect row: --s (screen px per clip px) fits the rect inside the live shape (contain); .ft-mask is the rect's box,
-// centred; the window sits in it so the rect's corner is at the mask's.
+// A rect row: --s (screen px per clip px) fits the rect to the live shape; .ft-mask is the rect's box, centred; the
+// window sits in it so the rect's corner is at the mask's. The first row after a cut fits by contain (the shape's fill
+// round the rect masks the outline's morph from another component). A glide (rectAt's continuation) fits by cover:
+// its lerped rect's aspect lags the live shape's when the content scale changes, and contain would leave fill bands;
+// the mask then overhangs the shape on one axis and #shape clips it. Same aspect (same scale): the two are one.
 function placeRect(st, p, ctx, t) {
   const { box, mask, win, url, parts } = st, R = rectAt(p, ctx, t), f = (n) => +n.toFixed(4);
-  mask.style.setProperty('--s', `min(100cqw / ${f(R.w)}, 100cqh / ${f(R.h)})`);
+  const glide = !!glidesFrom(p, ctx) && typeof ctx.shapeAt === 'function' && t < Infinity;
+  mask.style.setProperty('--s', `${glide ? 'max' : 'min'}(100cqw / ${f(R.w)}, 100cqh / ${f(R.h)})`);
   Object.assign(mask.style, { left: `calc(50cqw - var(--s) * ${f(R.w / 2)})`, top: `calc(50cqh - var(--s) * ${f(R.h / 2)})`,
     width: `calc(var(--s) * ${f(R.w)})`, height: `calc(var(--s) * ${f(R.h)})` });
   Object.assign(box.style, { left: `calc(var(--s) * ${f(-R.x)})`, top: `calc(var(--s) * ${f(-(R.y + win.bar))})`,
     width: `calc(var(--s) * ${win.W})`, height: `calc(var(--s) * ${win.H})` });
   if (url) {
+    // the region in view, in rect space: R itself (contain), or under cover the live shape's box at the scale, centred on R
+    let V = R;
+    if (glide) {
+      const live = ctx.shapeAt(t), s = Math.max(live.w / R.w, live.h / R.h), vw = Math.min(R.w, live.w / s), vh = Math.min(R.h, live.h / s);
+      V = { x: R.x + (R.w - vw) / 2, y: R.y + (R.h - vh) / 2, w: vw, h: vh };
+    }
     const x0 = (win.W - parts.field) / 2, y0 = (parts.B - parts.fieldH) / 2 - win.bar;   // the field in rect space
-    const inside = x0 >= R.x - 0.5 && x0 + parts.field <= R.x + R.w + 0.5 && y0 >= R.y - 0.5 && y0 + parts.fieldH <= R.y + R.h + 0.5;
+    const inside = x0 >= V.x - 0.5 && x0 + parts.field <= V.x + V.w + 0.5 && y0 >= V.y - 0.5 && y0 + parts.fieldH <= V.y + V.h + 0.5;
     if (inside) url.removeAttribute('data-overhang'); else url.setAttribute('data-overhang', '');
   }
 }
