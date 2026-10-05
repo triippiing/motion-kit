@@ -176,7 +176,7 @@ for (const [name, browserType] of [['webkit', webkit], ['chromium', chromium]]) 
   test(`${name}: a step whose selector matches nothing exits 1 within 10 s, naming the step`, { skip }, async () => {
     const steps = stepsFile(`missing-${name}`, [{ wait: 0.1 }, { click: '#missing' }]);
     const t0 = Date.now();
-    const r = await captureAsync(APP, '--steps', steps, '--out', path.join(TMP, name, 'missing'), '--size', '320x240', '--browser', name);
+    const r = await captureAsync(APP, '--steps', steps, '--out', path.join(TMP, name, 'missing'), '--size', '320x240', '--fps', '10', '--browser', name);
     assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0} ms`);
     assert.equal(r.status, 1, r.stderr);
     assert.match(r.stderr, /^error: step 2 \(click "#missing"\): no element matches/);

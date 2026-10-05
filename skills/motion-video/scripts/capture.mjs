@@ -31,7 +31,8 @@
 //   matched with no wait; Chromium's first frame differed with zero or one tick and matched from two on, so two in
 //   both. Headless WebKit runs requestAnimationFrame at 30 Hz, so a WebKit frame costs ~70 ms, Chromium ~50 ms.
 // Limits: a page's own Web Animation that it pauses and replays later is not re-synced; wheel scrolling is applied
-// at once (no smooth scrolling), in both browsers; video and audio elements play on the real clock.
+// at once (no smooth scrolling), in both browsers; video and audio elements play on the real clock; only the main
+// frame's animations are synced (an <iframe>'s run on the real clock).
 import { chromium, webkit } from 'playwright';
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdtemp, rename, rm } from 'node:fs/promises';

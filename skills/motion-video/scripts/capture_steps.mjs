@@ -101,7 +101,8 @@ const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);   // 
 
 // Plays planned steps into a page: call frame(i) for every frame in order, before that frame's screenshot. The pointer
 // starts at the viewport's centre (call start() once, before frame 0). Named steps are collected in `record` as
-// { name, action, t, box } with the box in clip pixels (CSS pixels x scale).
+// { name, action, t, box } with the box in clip pixels (CSS pixels x scale), read on the action's frame (where the
+// target was found, if it has gone by then; the viewport for a wait or a scroll without "in").
 export class StepRunner {
   constructor(page, plan, { fps, size, scale }) {
     Object.assign(this, { page, plan, fps, size, scale, record: [] });
@@ -117,7 +118,7 @@ export class StepRunner {
   async #step(s, i) {
     const { mouse, keyboard } = this.page;
     if (i === s.begin && s.pointer) {
-      const box = await this.#find(s);
+      const box = s.found = await this.#find(s);
       s.from = { ...this.pointer };
       s.to = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     }
@@ -150,8 +151,9 @@ export class StepRunner {
   }
 
   async #record(s, i) {
-    let box = { x: 0, y: 0, width: this.size[0], height: this.size[1] };
-    if (s.sel != null) box = (await this.page.locator(s.sel).first().boundingBox({ timeout: FIND_MS }).catch(() => null)) ?? box;
+    let box = s.found ?? { x: 0, y: 0, width: this.size[0], height: this.size[1] };
+    const loc = s.sel != null && this.page.locator(s.sel).first();
+    if (loc && await loc.count()) box = (await loc.boundingBox({ timeout: 1000 }).catch(() => null)) ?? box;   // gone: where it was found
     const k = this.scale, r = (x) => Math.round(x * k * 100) / 100;
     this.record.push({ name: s.name, action: s.action, t: i / this.fps, box: { x: r(box.x), y: r(box.y), w: r(box.width), h: r(box.height) } });
   }
