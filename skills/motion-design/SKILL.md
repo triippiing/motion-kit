@@ -16,6 +16,12 @@ MOTION-BRIEF.md with real `use:`/`target:` tables (format: `references/state-pla
 `node ~/.claude/skills/motion-video/scripts/check_brief.mjs PROJECT` until it passes, then stop for approval.
 A launch video that does not loop gets `"loop": false` in `PROJECT/project.json` first.
 
+A request that comes as an approved `STORY.md` (from motion-story: a video of a repo, a release or a pull request) is
+a ready-made request: skip the questions it answers (the goal and the moments, with their components and words),
+keep its words and numbers as written, and ask the rest as usual (where it will be posted, the song, the product's
+look). The length is settled as usual (bars from the measured song). Everything after that (song measurement, the
+ear check, the brief, check_brief, approval) is unchanged.
+
 Components come from `~/.claude/skills/motion-video/components/CATALOG.md`: pick one per moment by
 its "Use when" line. Consecutive rows of the same component animate a change (tabs Day then Month).
 Five complete sequences to start from: `~/.claude/skills/motion-video/components/RECIPES.md`.
@@ -27,6 +33,7 @@ Five complete sequences to start from: `~/.claude/skills/motion-video/components
 | "I'll pick the states myself and start" | The brief is the approval gate. Build nothing before a yes. |
 | "I'll pick components myself without asking" | Propose one per moment from the catalog; the user decides. |
 | "Skip the questions, the request is clear" | Skip only the answered ones, and write the understanding back for correction. |
+| "The STORY.md moments could use a stronger line" | Its words are approved: keep them. Change one only with the user, and never add a fact or number the story lacks. |
 | "The brief looks fine" | Run check_brief.mjs; fix every error, resolve or justify every warning (one `**Accepted:**` line in Decisions each), before showing it. |
 | "15 seconds is about 8 bars" | Measure first: bars = round(seconds * bpm / 240), then re-run analyze_song.py. |
 | "I'll grab the track from YouTube" | Never. Ask for a file. |

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install.sh -- set motion-kit up on this Mac, from a fresh clone:
-#   1. link the three skills into ~/.claude/skills (or $CLAUDE_SKILLS_DIR)
+#   1. link the skills into ~/.claude/skills (or $CLAUDE_SKILLS_DIR)
 #   2. install what is missing and can be installed without a password:
 #      ffmpeg (Homebrew), numpy (pip), Playwright + its Chromium and WebKit (npm)
 #   3. install the companion transitions.dev skills (free; by Jakub Antalik) unless

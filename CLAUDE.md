@@ -8,13 +8,14 @@ to use, change or extend the kit without any other context.
 motion-kit makes **code-only motion design**: promo videos where one UI shape morphs through
 states, driven by a cursor, cut to a song's beat grid, rendered from an HTML page to MP4.
 No After Effects, Remotion or Lottie. It also brings the same spring maths to **live product
-UI**. It ships as three Claude Code skills plus the scripts they call.
+UI**. It ships as four Claude Code skills plus the scripts they call.
 
 | Skill (`skills/`) | Job |
 |---|---|
 | `motion-design` | The planner, and the entry point: routes the request, asks, measures the song, writes a checked `MOTION-BRIEF.md` built from library components, then **stops for the user's approval** before any code. Style rules: `references/direction.md`. |
 | `motion-video` | Build and render: scaffold, `seek(t)` page, contact sheet + seam check, MP4. All scripts and the component library live here. |
 | `motion-ui` | In-app motion (indicators, toggles, drags). Rule one: **the project's own motion spec/tokens win**. Patterns: `references/patterns.md`. |
+| `motion-story` | A video from something that already exists (for now a repo: its intro, a release or a pull request): `story_facts.mjs` reads it into a facts file, Claude drafts `STORY.md` from it, the user **approves it**, then it is motion-design's request. See Stories. |
 
 ## Setup on a fresh Mac
 
@@ -37,7 +38,9 @@ loads its house font (Geist) from Google Fonts. Offline, it falls back to the sy
 ## How a video gets made
 
 Say what you want ("a 15 second promo of this app to ~/Music/song.mp3") and `motion-design` takes it
-from there. The steps, with `S=~/.claude/skills/motion-video/scripts`:
+from there. Starting from a repo instead ("make a video of this repo", "the latest release", "this PR")?
+`motion-story` goes first: facts, then a `STORY.md` the user approves, which becomes the request below (its
+answered questions skipped; see Stories). The steps, with `S=~/.claude/skills/motion-video/scripts`:
 
 ```
    -- motion-design (the planner, skills/motion-design/references/planner.md) --
@@ -465,6 +468,39 @@ The song path may be relative to SEQ, and is read in place.
 The flow: `init`, set the grid by ear with `sync.mjs SEQ/<chapter 1>`, `analyse`, one brief per chapter (planner),
 `check` before the approval gate, build each chapter with `watch`, `render --preview`, then `export.mjs SEQ`.
 
+## Stories
+
+`skills/motion-story` turns a source that already exists into the request for a video (G1: a code repository;
+writing and numbers come later). Its flow (SKILL.md, with `references/story.md` for the STORY.md format): route,
+pick the story kind (intro by default; release; pr), read the source, draft `STORY.md`, **stop for the user's
+approval**, hand it to motion-design, whose planner skips the questions it answers and keeps its words.
+
+```bash
+node ~/.claude/skills/motion-story/scripts/story_facts.mjs repo SOURCE [--intro | --release TAG|latest | --pr N|BRANCH] --out DIR/facts.json
+```
+
+- SOURCE is a local git work tree or `https://github.com/OWNER/REPO`. A URL is read with read-only GETs to the GitHub
+  API (meant for public repos, or a private one that a `GITHUB_TOKEN` the user already set can read; otherwise a
+  private repo or a typo is `not found (private repos: use a local clone)`; never ask for, set or try a token to
+  reach a private repo: use the user's local clone; `GITHUB_TOKEN`, sent only when set, raises the 60-an-hour limit; a release lists at most 250 commits and tags or
+  commits at most 10 pages, with a warning); nothing else is sent. `--release TAG` reads from the previous version
+  tag (a non-version tag: the tag created before it; over a URL, the API's listed order, as GitHub does not promise
+  creation order), and over a URL a GitHub release body with bullets takes precedence; `--release latest` is the
+  highest version tag that is not a pre-release. `--pr N` needs a URL, `--pr BRANCH` a local clone (its title: the
+  oldest commit's subject, its `feat:` or area prefix such as `sequence:` stripped). Bad input exits 2, a read
+  failure 1.
+- The facts file (format: the header of `scripts/facts.mjs`): title, subtitle, at most 12 items (label, detail, tag),
+  stats, links, media, and `source.command`, the command that re-creates it (`--intro`, the default, never written;
+  `parseCommand` splits it back into argv). Intro items are in README order, release and pr items ranked. Text is
+  cut to fixed caps (title 80, subtitle 200 in whole sentences when they fit, label 60, detail and alt 160); badges,
+  navigation bullets (tables of contents, docs links) and commit trailers are skipped. The same input gives a
+  byte-identical file.
+- STORY.md: a hook, 3 to 5 moments for one loop (more becomes a sequence) and an end card, each with a catalog
+  component and words taken from the facts; every moment moves or changes within its hold (no dead beats), and the
+  end card's text is short (`OWNER/REPO`, not a full URL). `## Left out` and `## Media` are notes, not moments.
+  Never invent facts or numbers (a README with no features section gives no items: use the subtitle, stats and
+  links); media becomes footage only with the user's say-so; nothing is posted anywhere; music is never downloaded.
+
 ## Rules that matter (the tests enforce most of them)
 
 - **`seek(t)` is pure.** Every style is computed from `t` alone: no CSS transitions/animations,
@@ -569,6 +605,12 @@ skills/motion-video/components/   the component library: core/engine.js (runs th
 skills/motion-design/references/  planner.md (the planner checklist), state-plan.md (beat-table format),
                                   direction.md (the look)
 skills/motion-ui/references/      patterns.md (pattern 2 is extracted and tested by tests/patterns.test.mjs)
+skills/motion-story/scripts/      story_facts.mjs (the CLI: kind, SOURCE, story flag -> a facts file; SOURCES maps a
+                                  kind to its reader), facts.mjs (the facts format: validateFacts, normalizeFacts,
+                                  writeFacts), sources/repo.mjs (the repo reader: local git via execFile, or a GitHub
+                                  URL), sources/github.mjs (read-only GitHub API GETs), sources/readme.mjs (README and
+                                  release/PR notes to plain text)
+skills/motion-story/references/   story.md (the STORY.md format and how to draft it from facts)
 demos/                            worked examples (see "Demos" below)
 tests/, skills/*/tests/           node:test + python unittest
 DIR/.source.json                  per project, written by analyze_song.py: {"path": the song's absolute path}, read by

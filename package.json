@@ -2,6 +2,6 @@
   "name": "motion-kit",
   "private": true,
   "scripts": {
-    "test": "node skills/motion-video/scripts/build_catalog.mjs --check && node --test 'shared/*.test.mjs' 'tests/*.test.mjs' 'skills/motion-video/tests/*.test.mjs' 'skills/motion-ui/tests/*.test.mjs' && python3 -m unittest discover -s skills/motion-video/tests -p 'test_*.py'"
+    "test": "node skills/motion-video/scripts/build_catalog.mjs --check && node --test 'shared/*.test.mjs' 'tests/*.test.mjs' 'skills/motion-video/tests/*.test.mjs' 'skills/motion-ui/tests/*.test.mjs' 'skills/motion-story/tests/*.test.mjs' && python3 -m unittest discover -s skills/motion-video/tests -p 'test_*.py'"
   }
 }
